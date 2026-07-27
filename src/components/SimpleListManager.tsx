@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { setArchived } from "@/app/actions";
 
@@ -14,6 +15,7 @@ export default function SimpleListManager({
   emptyText,
   canManage,
   onCreate,
+  detailHref,
 }: {
   rows: Row[];
   table: "clients" | "tags" | "accounts";
@@ -22,6 +24,8 @@ export default function SimpleListManager({
   emptyText: string;
   canManage: boolean;
   onCreate: (name: string) => Promise<{ error?: string }>;
+  /** When set, each row links to `${detailHref}/${id}`. */
+  detailHref?: string;
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -105,11 +109,22 @@ export default function SimpleListManager({
             key={r.id}
             className="group flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-[var(--bg-subtle)]"
           >
-            <span
-              className={`flex-1 text-sm ${r.is_archived ? "line-through opacity-60" : ""}`}
-            >
-              {r.name}
-            </span>
+            {detailHref ? (
+              <Link
+                href={`${detailHref}/${r.id}`}
+                className={`flex-1 text-sm transition-colors hover:text-[var(--accent)] ${
+                  r.is_archived ? "line-through opacity-60" : ""
+                }`}
+              >
+                {r.name}
+              </Link>
+            ) : (
+              <span
+                className={`flex-1 text-sm ${r.is_archived ? "line-through opacity-60" : ""}`}
+              >
+                {r.name}
+              </span>
+            )}
             {canManage && (
               <button
                 className="row-actions rounded px-2 py-1 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--fg)]"

@@ -107,7 +107,12 @@ export default function PerformanceView({
                 return (
                   <div key={`${p.userId}-${p.roleSlug}`} className="px-3 py-2.5">
                     <div className="flex flex-wrap items-baseline gap-2">
-                      <span className="text-sm font-medium">{p.name}</span>
+                      <Link
+                        href={`/performance/${p.userId}`}
+                        className="text-sm font-medium transition-colors hover:text-[var(--accent)]"
+                      >
+                        {p.name}
+                      </Link>
                       <span className={`text-sm ${TIER_CLASS[tier]}`}>
                         {TIER_LABELS[tier]}
                       </span>

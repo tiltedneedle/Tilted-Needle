@@ -35,6 +35,7 @@ export default async function ClientsPage() {
         emptyText="No clients yet."
         canManage={canManage(session.active.role)}
         onCreate={create}
+        detailHref="/clients"
       />
     </div>
   );
