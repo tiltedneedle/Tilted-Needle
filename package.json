@@ -10,7 +10,8 @@
     "db": "node scripts/db.mjs",
     "db:list": "node scripts/db.mjs migration list",
     "db:push": "node scripts/db.mjs db push",
-    "db:new": "supabase migration new"
+    "db:new": "supabase migration new",
+    "test:rls": "node scripts/rls-test.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.3",
