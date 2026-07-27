@@ -1,7 +1,7 @@
 # Tilted Needle — Product Requirements Document
 
-**Module:** Time Tracking & YouTube Performance Attribution
-**Status:** Draft v0.1 — pending client review
+**Module:** Time Tracking & Multi-Platform Content Performance
+**Status:** Draft v0.2 — revised after reviewing the live client tracker
 **Last updated:** 2026-07-27
 
 ---
@@ -11,15 +11,19 @@
 An internal operations app that merges two things most agencies keep separate:
 
 1. **A full Clockify-equivalent time tracker** — who worked on what, for how long, at what cost.
-2. **A YouTube performance layer** — how the videos that work produced actually performed.
+2. **A cross-platform performance layer** — how that work actually performed on Instagram, TikTok, YouTube, Facebook, and whatever the team publishes to next.
 
-Joining these is the point. Clockify alone tells you effort. YouTube alone tells you outcome. Together they answer the questions an agency actually gets asked:
+Joining these is the point. Clockify alone tells you effort. Platform analytics alone tell you outcome. Together they answer the questions an agency actually gets asked:
 
-- Which editor's videos retain viewers best, per hour spent?
+- Which editor's videos hold attention best, per hour spent?
 - What did we actually cost this client per 1,000 views delivered?
-- Is our highest-paid scriptwriter producing above-baseline hooks?
+- Does the same content earn its keep on TikTok as on Instagram?
 
 A standalone Clockify clone is a commodity. **The join is the product.**
+
+**Platform-agnostic by construction.** Platforms are configuration, not code
+branches: adding LinkedIn or Snapchat later must mean registering a connector,
+not touching the scoring engine, the schema, or the dashboards. See §9.5.
 
 ---
 
@@ -122,8 +126,14 @@ platform — and it is the one they barely use.
 | Platform | Without the client connecting an account | With client authorisation |
 |---|---|---|
 | **YouTube** | Data API v3 with just an API key: views, likes, comments, title, duration | Analytics API: CTR, retention, watch time, traffic sources, demographics |
-| **Instagram** | **Nothing.** No public API exists for reading another account's post metrics | Graph API: requires an IG Business/Creator account linked to a Facebook Page, plus Meta app review. Gives reach, impressions, saves, shares, watch time |
+| **Instagram** | **Nothing.** No public API for reading another account's post metrics | Graph API: needs an IG Business/Creator account linked to a Facebook Page, plus Meta app review. Gives reach, impressions, saves, shares, watch time |
 | **TikTok** | **Nothing.** Display API needs user OAuth; the Research API is restricted to accredited academics | Display API: views, likes, comments, shares for the authorising account |
+| **Facebook** | Effectively nothing. Public Page data is minimal and shrinking | Pages API with a Page access token: reach, impressions, 3-second and complete views, reactions |
+| **LinkedIn / X / Snapchat** | Nothing meaningful | Each needs its own app review and OAuth; treat every addition as its own project |
+
+YouTube is the outlier, not the template. Every other platform requires the
+client to authorise, and Meta additionally requires app review before the
+integration works for anyone outside the developer account.
 
 ### The consequence for 98% of their content
 
@@ -187,14 +197,36 @@ Never compare lifetime views across videos of different ages. Snapshot every vid
 
 This requires storing a **time series**, not a current value — see §7 ingestion.
 
-### Step 2 — Normalize against the channel's own baseline
+### Step 2 — Normalize against that account's own baseline
+
+**A "view" is not the same unit on any two platforms.** TikTok counts a view the
+instant playback starts. Facebook historically counted at 3 seconds. YouTube
+long-form wants ~30 seconds. Instagram has redefined plays/views more than once.
+
+So the single most dangerous thing this product could do is **add view counts
+across platforms and present the total as one number.** It would systematically
+flatter whichever platform counts most generously, and any ranking built on it
+would misjudge people's work.
+
+Two hard rules follow:
+
+1. **Never pool raw counts across platforms.** A cross-platform total is a
+   presentation-layer convenience at best, and must be labelled as the sum of
+   incomparable units.
+2. **Baselines are per account, per platform.** Never per client, never global.
 
 ```
-baseline_c = median(V₇) over the channel's previous 10 videos
-PerfIndex  = V₇(video) / baseline_c
+baseline = median(V₇) over the previous 10 posts on THAT account
+PerfIndex = V₇(post) / baseline
 ```
 
-A video at 2.0 did twice its channel's typical numbers. This makes a 50k-view video on a small channel and a 5M-view video on a large one directly comparable.
+This is what makes the model work across platforms: the ratio is dimensionless.
+A post at 2.0 did twice its own account's typical numbers, and *that* comparison
+is valid between an Instagram Reel and a TikTok, even though their raw view
+counts are not.
+
+Cross-posted content therefore yields one `PerfIndex` per platform. Roll those
+up to a content-level score by averaging the indices — never by summing views.
 
 ### Step 3 — Log-transform
 
@@ -316,8 +348,12 @@ Reference screenshots were reviewed. Structure below mirrors what the team alrea
 TRACK      Timesheet · Time Tracker · Calendar
 ANALYZE    Dashboard · Reports
 MANAGE     Projects · Team · Clients
-VIDEO      Channels · Videos · Performance     ← new module
+CONTENT    Content · Accounts · Performance     ← new module
 ```
+
+"Content" rather than "Videos", and "Accounts" rather than "Channels": one piece
+of content fans out to several platform accounts, and the navigation should say
+so.
 
 Workspace switcher pinned top-left. **The team runs at least three separate workspaces** (a London entity, a Dubai entity, and a partner brand). Workspace switching is a first-class, high-frequency action — not a settings-page afterthought.
 
@@ -431,6 +467,43 @@ Fixed-window scoring requires history. Tapering schedule keeps quota low:
 ### Quota
 Data API v3: 10,000 units/day. `videos.list` = 1 unit and accepts **50 IDs per call**. 3,000 tracked videos refreshed daily ≈ 60 units. Quota is not a practical constraint for public metrics; batch aggressively regardless.
 
+### 9.5 Platform connector registry
+
+Platforms must never be a hardcoded enum or a `switch` in the scoring engine.
+Each is a row in a registry declaring what it can actually provide:
+
+```
+platforms (
+  slug,                    -- instagram | tiktok | youtube | facebook | ...
+  display_name,
+  auth_model,              -- none | oauth | oauth_with_app_review
+  supports_public_read,    -- true only for youtube today
+  view_semantics,          -- immediate | 3s | 30s | unclear  (see §5 Step 2)
+  available_metrics,       -- ['views','likes','comments','shares','saves',...]
+  refresh_policy
+)
+```
+
+Everything downstream reads from this:
+
+- **Ingestion** picks a connector by slug; each implements one interface
+  (`listPosts`, `fetchMetrics`, `refreshToken`).
+- **The UI** shows only the metrics a platform actually reports, instead of
+  rendering empty CTR columns for TikTok.
+- **Scoring** stays untouched, because it consumes normalised `PerfIndex`
+  values rather than raw platform fields.
+- **Manual entry** is itself a connector (`auth_model: none`), so a
+  hand-entered post flows through exactly the same pipeline as an API-synced
+  one, distinguished only by `platform_posts.source`.
+
+That last point matters more than it looks: it means the product works on day
+one with zero integrations, and every platform that gets connected later
+upgrades the data in place without a migration or a second code path.
+
+**Adding a platform should be: write a connector, insert a registry row.**
+If a new platform ever requires touching the scoring engine or the dashboards,
+the abstraction has leaked and should be fixed rather than worked around.
+
 ### Reliability
 - Ingestion is idempotent and resumable; store `last_synced_at` per video.
 - Deleted/privated videos are soft-flagged, never hard-deleted (history must survive).
@@ -454,7 +527,9 @@ custom_fields, custom_field_values, audit_log
 -- or cross-posted work gets double-counted.
 content_items      (client_id, title, subject, hook, length_seconds,
                     music_used, produced_at)
-accounts           (client_id, platform, handle, connection_mode)
+platforms          (slug, auth_model, view_semantics, available_metrics, ...)
+                    -- registry, not an enum (§9.5)
+accounts           (client_id, platform_slug, handle, connection_mode)
 oauth_connections  (account_id, encrypted refresh token, scopes, status)
 platform_posts     (content_item_id, account_id, platform_post_id, posted_at,
                     source: 'api' | 'manual')
@@ -470,6 +545,57 @@ time_entries.content_item_id                        -- the join
 ```
 
 Every tenant-scoped table carries `org_id`.
+
+---
+
+## 9.6 Architecture Constraint — Supabase + Vercel only
+
+**No separate backend service.** This is a deliberate constraint, held until
+something concrete forces otherwise.
+
+Current runtime dependencies, in full:
+
+```
+next  react  react-dom  @supabase/ssr  @supabase/supabase-js
+```
+
+That is the whole list. No ORM, no state-management library, no UI kit, no icon
+package, no date library, no API server.
+
+| Concern | Where it lives |
+|---|---|
+| UI + routing | Next.js App Router on Vercel |
+| Server logic | Server Components and Server Actions — no separate API tier |
+| Auth & sessions | Supabase Auth via `@supabase/ssr`, refreshed in `proxy.ts` |
+| Authorisation | Postgres RLS, not application code |
+| Database | Supabase Postgres, schema in `supabase/migrations` |
+| Migrations | Supabase CLI over `--db-url` |
+
+### How later phases stay inside this envelope
+
+The phases most likely to tempt a backend, and how they avoid one:
+
+- **Scheduled metric ingestion** → Vercel Cron hitting a Route Handler, or
+  Supabase `pg_cron` for database-side work. Neither is a new service.
+- **OAuth token storage/refresh** → Supabase Vault for encryption; refresh runs
+  in the same scheduled handler.
+- **Long-running imports** (Clockify backfill, bulk sync) → chunked and
+  resumable behind a Route Handler, so no job queue is required.
+- **Score recomputation** → a Postgres function on a schedule; the maths in
+  §5 is plain SQL-friendly arithmetic.
+- **Webhooks from platforms** → Route Handlers.
+
+### What would justify revisiting
+
+Adopt something new only when one of these is actually observed, not
+anticipated:
+
+- Ingestion exceeding Vercel's function timeout even when chunked
+- A genuine need for durable job retries with backoff across many connectors
+- Real-time fan-out beyond what Supabase Realtime handles
+
+Until then, extra infrastructure is cost and operational surface with no
+corresponding benefit.
 
 ---
 
@@ -496,11 +622,12 @@ Full Clockify + full YouTube attribution + full multi-tenancy is a multi-quarter
 | **0 — Foundation** | Auth, orgs, memberships, RLS baseline, schema | Everything depends on tenancy being right |
 | **1 — Core tracking** | Timer, entries, projects/tasks/clients/tags, timesheet, basic reports | Replaces the Excel sheet; earliest real value |
 | **1.5 — Clockify migration** | Import existing entries via API; **fuzzy-match descriptions → video records**; reconcile projects/tasks/clients | Turns years of history into the backfill Phase 3 needs |
-| **2 — YouTube ingest** | Channels, video sync, snapshots, public metrics, video↔time join | Unlocks the differentiator |
+| **2 — Content layer (manual)** | Platform registry, accounts, content items, cross-post links, manual metric entry, content↔time join | Works with zero client cooperation; replaces the spreadsheet immediately |
+| **2.5 — Platform connectors** | Instagram and TikTok OAuth first (98% of output), then YouTube, then Facebook | Ordered by actual volume, not by API convenience |
 | **3 — Scoring** | Baselines, PerfIndex, shrinkage, role dashboards, boost detection | Needs Phase 2 history to be meaningful |
 | **4 — Billing** | Rates, budgets, expenses, invoicing, cost-per-1k-views | Revenue-facing |
 | **5 — Client portal** | Client role, scoped dashboards, exports, shared links | External exposure — after RLS is battle-tested |
-| **6 — OAuth analytics** | Analytics API, CTR/retention, per-role attribution | Gated on client cooperation |
+| **6 — Deep analytics** | Retention, CTR, reach and saves where each platform exposes them; per-role attribution | Gated on client authorisation and per-platform capability |
 | **7 — Team ops** | Approvals, PTO, scheduling, permissions | Scales with headcount |
 | **8 — Advanced** | Kiosk, GPS, SSO, audit, public API, integrations | Enterprise surface |
 
