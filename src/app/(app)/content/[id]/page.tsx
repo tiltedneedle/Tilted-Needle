@@ -3,13 +3,25 @@ import { notFound } from "next/navigation";
 import ContentDetail from "@/components/ContentDetail";
 import { createClient } from "@/lib/supabase/server";
 import { requireSession } from "@/lib/workspace";
+import { one } from "@/lib/types";
 import type {
   Account,
+  Client,
   ContentAssignment,
   ContentItem,
   PlatformPost,
   Role,
 } from "@/lib/types";
+
+export type SnapshotRow = {
+  platform_post_id: string;
+  captured_at: string;
+  views: number | null;
+  likes: number | null;
+  comments: number | null;
+  shares: number | null;
+  saves: number | null;
+};
 
 export default async function ContentDetailPage({
   params,
@@ -31,7 +43,7 @@ export default async function ContentDetailPage({
 
   if (!item) notFound();
 
-  const [postsRes, accountsRes, rolesRes, assignRes, membersRes, timeRes] =
+  const [postsRes, accountsRes, rolesRes, assignRes, membersRes, timeRes, clientsRes] =
     await Promise.all([
       supabase
         .from("platform_posts")
@@ -68,7 +80,23 @@ export default async function ContentDetailPage({
         .select("duration_seconds, user_id")
         .eq("content_item_id", id)
         .not("ended_at", "is", null),
+      supabase
+        .from("clients")
+        .select("id, workspace_id, name, email, is_archived")
+        .eq("workspace_id", ws)
+        .order("name"),
     ]);
+
+  // Snapshot history. Metrics are stored as a time series so scoring can
+  // evaluate at a fixed maturity window; without this the history is invisible.
+  const postIds = ((postsRes.data ?? []) as { id: string }[]).map((p) => p.id);
+  const historyRes = postIds.length
+    ? await supabase
+        .from("post_snapshots")
+        .select("platform_post_id, captured_at, views, likes, comments, shares, saves")
+        .in("platform_post_id", postIds)
+        .order("captured_at", { ascending: false })
+    : { data: [] };
 
   type Member = { user_id: string; profile: { full_name: string | null } | null };
   const members = (membersRes.data ?? []) as unknown as Member[];
@@ -93,9 +121,11 @@ export default async function ContentDetailPage({
         assignments={(assignRes.data ?? []) as unknown as ContentAssignment[]}
         members={members.map((m) => ({
           userId: m.user_id,
-          name: m.profile?.full_name ?? "Unknown",
+          name: one(m.profile)?.full_name ?? "Unknown",
         }))}
         trackedSeconds={totalSeconds}
+        history={(historyRes.data ?? []) as SnapshotRow[]}
+        clients={(clientsRes.data ?? []) as unknown as Client[]}
       />
     </div>
   );

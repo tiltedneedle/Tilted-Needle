@@ -1,10 +1,10 @@
-import Link from "next/link";
 import PageHeader from "@/components/PageHeader";
 import NewContentForm from "@/components/NewContentForm";
+import ContentList from "@/components/ContentList";
 import { createClient } from "@/lib/supabase/server";
 import { requireSession } from "@/lib/workspace";
-import { PLATFORM_COLORS, one } from "@/lib/types";
-import type { Client, ContentItem } from "@/lib/types";
+import { one } from "@/lib/types";
+import type { Client, ContentItem, Platform } from "@/lib/types";
 
 type PostRow = {
   content_item_id: string;
@@ -17,7 +17,7 @@ export default async function ContentPage() {
   const supabase = await createClient();
   const ws = session.active.id;
 
-  const [itemsRes, postsRes, clientsRes] = await Promise.all([
+  const [itemsRes, postsRes, clientsRes, platformsRes, timeRes] = await Promise.all([
     supabase
       .from("content_items")
       .select(
@@ -37,6 +37,19 @@ export default async function ContentPage() {
       .select("id, workspace_id, name, email, is_archived")
       .eq("workspace_id", ws)
       .order("name"),
+    supabase
+      .from("platforms")
+      .select("*")
+      .eq("is_enabled", true)
+      .order("sort_order"),
+    // Hours invested per piece of content -- the half of the join that time
+    // tracking contributes (PRD 6.7).
+    supabase
+      .from("time_entries")
+      .select("content_item_id, duration_seconds")
+      .eq("workspace_id", ws)
+      .not("content_item_id", "is", null)
+      .not("ended_at", "is", null),
   ]);
 
   const items = (itemsRes.data ?? []) as unknown as ContentItem[];
@@ -54,6 +67,18 @@ export default async function ContentPage() {
       .set(p.account.platform_slug, one(p.metrics)?.views ?? 0);
   }
 
+  const hoursByItem = new Map<string, number>();
+  for (const t of (timeRes.data ?? []) as {
+    content_item_id: string | null;
+    duration_seconds: number | null;
+  }[]) {
+    if (!t.content_item_id) continue;
+    hoursByItem.set(
+      t.content_item_id,
+      (hoursByItem.get(t.content_item_id) ?? 0) + (t.duration_seconds ?? 0),
+    );
+  }
+
   return (
     <div className="mx-auto max-w-5xl px-6 py-6">
       <PageHeader
@@ -66,62 +91,15 @@ export default async function ContentPage() {
         clients={(clientsRes.data ?? []) as unknown as Client[]}
       />
 
-      {items.length === 0 ? (
-        <div className="card p-10 text-center text-sm text-[var(--muted)]">
-          No content yet. Add a video above, then attach the platforms it ran on.
-        </div>
-      ) : (
-        <div className="card divide-y divide-[var(--border)] overflow-hidden">
-          {items.map((item) => {
-            const platforms = byItem.get(item.id);
-            return (
-              <Link
-                key={item.id}
-                href={`/content/${item.id}`}
-                className="flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-[var(--bg-subtle)]"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm">{item.title}</div>
-                  <div className="mt-0.5 flex items-center gap-2 text-xs text-[var(--muted)]">
-                    {item.client?.name && <span>{item.client.name}</span>}
-                    {item.produced_at && <span>{item.produced_at}</span>}
-                    {item.length_seconds != null && (
-                      <span className="tabular">
-                        {Math.floor(item.length_seconds / 60)}:
-                        {String(item.length_seconds % 60).padStart(2, "0")}
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex shrink-0 items-center gap-2">
-                  {platforms && platforms.size > 0 ? (
-                    [...platforms.entries()].map(([slug, views]) => (
-                      <span
-                        key={slug}
-                        className="flex items-center gap-1 rounded bg-[var(--bg-subtle)] px-1.5 py-0.5 text-xs"
-                        title={`${slug}: ${views.toLocaleString()} views`}
-                      >
-                        <span
-                          className="size-1.5 rounded-full"
-                          style={{
-                            background: PLATFORM_COLORS[slug] ?? "var(--muted)",
-                          }}
-                        />
-                        <span className="tabular">{views.toLocaleString()}</span>
-                      </span>
-                    ))
-                  ) : (
-                    <span className="text-xs text-[var(--muted)]">
-                      not posted yet
-                    </span>
-                  )}
-                </div>
-              </Link>
-            );
-          })}
-        </div>
-      )}
+      <ContentList
+        items={items}
+        clients={(clientsRes.data ?? []) as unknown as Client[]}
+        platforms={(platformsRes.data ?? []) as unknown as Platform[]}
+        viewsByItem={Object.fromEntries(
+          [...byItem.entries()].map(([k, v]) => [k, Object.fromEntries(v)]),
+        )}
+        secondsByItem={Object.fromEntries(hoursByItem)}
+      />
     </div>
   );
 }

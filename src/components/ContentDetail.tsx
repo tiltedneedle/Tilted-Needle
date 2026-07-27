@@ -5,20 +5,24 @@ import { useRouter } from "next/navigation";
 import {
   addPlatformPost,
   assignRole,
+  deleteContentItem,
   deletePlatformPost,
   recordSnapshot,
   unassignRole,
+  updateContentItem,
   updatePlatformPost,
 } from "@/app/actions";
-import { formatDurationShort } from "@/lib/format";
+import { formatDurationShort, parseDuration } from "@/lib/format";
 import { PLATFORM_COLORS, one } from "@/lib/types";
 import type {
   Account,
+  Client,
   ContentAssignment,
   ContentItem,
   PlatformPost,
   Role,
 } from "@/lib/types";
+import type { SnapshotRow } from "@/app/(app)/content/[id]/page";
 
 export default function ContentDetail({
   workspaceId,
@@ -29,6 +33,8 @@ export default function ContentDetail({
   assignments,
   members,
   trackedSeconds,
+  history,
+  clients,
 }: {
   workspaceId: string;
   item: ContentItem;
@@ -38,12 +44,29 @@ export default function ContentDetail({
   assignments: ContentAssignment[];
   members: { userId: string; name: string }[];
   trackedSeconds: number;
+  history: SnapshotRow[];
+  clients: Client[];
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [addAccountId, setAddAccountId] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
+  const [showHistory, setShowHistory] = useState<string | null>(null);
+  const [editMeta, setEditMeta] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [meta, setMeta] = useState({
+    title: item.title,
+    clientId: item.client_id ?? "",
+    subject: item.subject ?? "",
+    hook: item.hook ?? "",
+    musicUsed: item.music_used ?? "",
+    length: item.length_seconds
+      ? `${Math.floor(item.length_seconds / 60)}:${String(item.length_seconds % 60).padStart(2, "0")}`
+      : "",
+    producedAt: item.produced_at ?? "",
+    notes: item.notes ?? "",
+  });
   const [draft, setDraft] = useState({
     views: "",
     likes: "",
@@ -89,12 +112,154 @@ export default function ContentDetail({
     refresh();
   }
 
+  async function saveMeta() {
+    const secs = meta.length.trim() ? parseDuration(meta.length) : null;
+    if (meta.length.trim() && secs == null)
+      return setError("Length must look like 0:38, 38s, or 1m30s.");
+    if (!meta.title.trim()) return setError("Title is required.");
+    const res = await updateContentItem(item.id, {
+      title: meta.title.trim(),
+      client_id: meta.clientId || null,
+      subject: meta.subject.trim() || null,
+      hook: meta.hook.trim() || null,
+      music_used: meta.musicUsed.trim() || null,
+      length_seconds: secs,
+      produced_at: meta.producedAt || null,
+      notes: meta.notes.trim() || null,
+    });
+    if (res.error) return setError(res.error);
+    setEditMeta(false);
+    setError(null);
+    refresh();
+  }
+
+  if (editMeta) {
+    return (
+      <div className="card animate-rise space-y-2 p-3">
+        <h2 className="text-sm font-semibold">Edit content</h2>
+        <div className="flex flex-wrap gap-2">
+          <input
+            className="input min-w-[240px] flex-1"
+            value={meta.title}
+            onChange={(e) => setMeta({ ...meta, title: e.target.value })}
+            placeholder="Title"
+          />
+          <select
+            className="input max-w-[180px]"
+            value={meta.clientId}
+            onChange={(e) => setMeta({ ...meta, clientId: e.target.value })}
+          >
+            <option value="">No client</option>
+            {clients
+              .filter((c) => !c.is_archived)
+              .map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+          </select>
+          <input
+            type="date"
+            className="input max-w-[160px]"
+            value={meta.producedAt}
+            onChange={(e) => setMeta({ ...meta, producedAt: e.target.value })}
+          />
+          <input
+            className="input max-w-[110px] text-center"
+            value={meta.length}
+            onChange={(e) => setMeta({ ...meta, length: e.target.value })}
+            placeholder="0:38"
+            aria-label="Length"
+          />
+        </div>
+        <input
+          className="input"
+          value={meta.subject}
+          onChange={(e) => setMeta({ ...meta, subject: e.target.value })}
+          placeholder="Subject"
+        />
+        <input
+          className="input"
+          value={meta.hook}
+          onChange={(e) => setMeta({ ...meta, hook: e.target.value })}
+          placeholder="Hook"
+        />
+        <input
+          className="input"
+          value={meta.musicUsed}
+          onChange={(e) => setMeta({ ...meta, musicUsed: e.target.value })}
+          placeholder="Music used"
+        />
+        <textarea
+          className="input min-h-[70px]"
+          value={meta.notes}
+          onChange={(e) => setMeta({ ...meta, notes: e.target.value })}
+          placeholder="Notes"
+        />
+        {error && (
+          <p className="text-sm text-[var(--danger)]" role="alert">
+            {error}
+          </p>
+        )}
+        <div className="flex gap-2">
+          <button className="btn-primary" onClick={saveMeta}>
+            Save
+          </button>
+          <button
+            className="btn"
+            onClick={() => {
+              setEditMeta(false);
+              setError(null);
+            }}
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <>
       <div className="mb-1 flex flex-wrap items-baseline gap-3">
         <h1 className="text-xl font-semibold tracking-tight">{item.title}</h1>
-        {item.client?.name && (
-          <span className="text-sm text-[var(--muted)]">{item.client.name}</span>
+        {one(item.client)?.name && (
+          <span className="text-sm text-[var(--muted)]">
+            {one(item.client)?.name}
+          </span>
+        )}
+        <div className="flex-1" />
+        <button className="btn px-2 py-1 text-xs" onClick={() => setEditMeta(true)}>
+          Edit
+        </button>
+        {confirmDelete ? (
+          <span className="flex items-center gap-1 text-xs">
+            <span className="text-[var(--muted)]">Delete this and its posts?</span>
+            <button
+              className="rounded bg-[var(--danger)] px-2 py-1 text-xs text-white"
+              onClick={async () => {
+                const res = await deleteContentItem(item.id);
+                if (res.error) {
+                  setError(res.error);
+                  setConfirmDelete(false);
+                  return;
+                }
+                router.push("/content");
+              }}
+            >
+              Delete
+            </button>
+            <button className="btn px-2 py-1 text-xs" onClick={() => setConfirmDelete(false)}>
+              Cancel
+            </button>
+          </span>
+        ) : (
+          <button
+            className="rounded px-2 py-1 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--danger)]"
+            onClick={() => setConfirmDelete(true)}
+          >
+            Delete
+          </button>
         )}
       </div>
       <div className="mb-5 flex flex-wrap items-center gap-3 text-sm text-[var(--muted)]">
@@ -161,6 +326,7 @@ export default function ContentDetail({
           const slug = one(p.account)?.platform_slug ?? "unknown";
           const m = one(p.metrics);
           const isEditing = editing === p.id;
+          const forPost = history.filter((h) => h.platform_post_id === p.id);
           return (
             <div key={p.id} className="card group p-3">
               <div className="flex flex-wrap items-center gap-2">
@@ -210,6 +376,14 @@ export default function ContentDetail({
                       }}
                     >
                       Update metrics
+                    </button>
+                    <button
+                      className="btn px-2 py-1 text-xs"
+                      onClick={() =>
+                        setShowHistory(showHistory === p.id ? null : p.id)
+                      }
+                    >
+                      History ({history.filter((h) => h.platform_post_id === p.id).length})
                     </button>
                     <button
                       className="row-actions rounded px-2 py-1 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--danger)]"
@@ -271,6 +445,8 @@ export default function ContentDetail({
                   )}
                 </div>
               )}
+
+              {showHistory === p.id && <SnapshotHistory rows={forPost} />}
             </div>
           );
         })}
@@ -359,6 +535,70 @@ export default function ContentDetail({
         hand — see PRD §3.5.
       </p>
     </>
+  );
+}
+
+/**
+ * The stored time series, made visible. Scoring evaluates at a fixed maturity
+ * window rather than on lifetime totals, so the history is the data that
+ * matters -- a single current number cannot support it.
+ */
+function SnapshotHistory({ rows }: { rows: SnapshotRow[] }) {
+  if (rows.length === 0) {
+    return (
+      <p className="animate-rise mt-2 text-xs text-[var(--muted)]">
+        No snapshots recorded yet.
+      </p>
+    );
+  }
+
+  const peak = Math.max(...rows.map((r) => r.views ?? 0), 1);
+  // Ascending for the reader: growth should run left to right.
+  const ordered = [...rows].reverse();
+
+  return (
+    <div className="animate-rise mt-3 border-t border-[var(--border)] pt-2">
+      <div className="mb-1.5 text-xs text-[var(--muted)]">
+        Snapshot history — {rows.length} recorded
+      </div>
+      <div className="space-y-1">
+        {ordered.map((r, i) => {
+          const prev = i > 0 ? (ordered[i - 1].views ?? 0) : null;
+          const views = r.views ?? 0;
+          const delta = prev == null ? null : views - prev;
+          return (
+            <div key={r.captured_at + i} className="flex items-center gap-2 text-xs">
+              <span className="w-28 shrink-0 text-[var(--muted)]">
+                {new Date(r.captured_at).toLocaleDateString([], {
+                  day: "numeric",
+                  month: "short",
+                })}{" "}
+                {new Date(r.captured_at).toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </span>
+              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[var(--bg-subtle)]">
+                <div
+                  className="h-full rounded-full bg-[var(--accent)] transition-[width] duration-300"
+                  style={{ width: `${Math.max(2, (views / peak) * 100)}%` }}
+                />
+              </div>
+              <span className="tabular w-20 shrink-0 text-right">
+                {views.toLocaleString()}
+              </span>
+              <span
+                className={`tabular w-16 shrink-0 text-right ${
+                  delta && delta > 0 ? "text-emerald-500" : "text-[var(--muted)]"
+                }`}
+              >
+                {delta == null ? "—" : delta > 0 ? `+${delta.toLocaleString()}` : delta}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
