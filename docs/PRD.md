@@ -224,7 +224,118 @@ Client selected the **full Clockify surface**. Documented in full here; sequence
 
 ---
 
-## 7. Data & Ingestion
+## 7. Information Architecture (derived from the live Clockify workspace)
+
+Reference screenshots were reviewed. Structure below mirrors what the team already uses, so muscle memory carries over.
+
+### 7.1 Navigation
+
+```
+TRACK      Timesheet · Time Tracker · Calendar
+ANALYZE    Dashboard · Reports
+MANAGE     Projects · Team · Clients
+VIDEO      Channels · Videos · Performance     ← new module
+```
+
+Workspace switcher pinned top-left. **The team runs at least three separate workspaces** (a London entity, a Dubai entity, and a partner brand). Workspace switching is a first-class, high-frequency action — not a settings-page afterthought.
+
+### 7.2 Dashboard
+
+| Element | Behaviour |
+|---|---|
+| Scope controls | Project selector · **Only me / Team** toggle · month navigator with ‹ › stepping |
+| KPI row | Total time · Top Project · Top Client (em-dash when none) |
+| Daily bar chart | One bar per day across the period, segmented and colour-coded by project |
+| Donut + breakdown | Ranked list: entity · duration · **percentage share**, donut total in centre |
+| Most tracked activities | Top-N panel (selector: Top 10), each row = activity name + `Project: Task` + duration |
+
+### 7.3 Reports
+
+Four tabs: **Summary · Detailed · Weekly · Shared**.
+
+- **Period:** preset ranges (This week…) with ‹ › stepping
+- **Filter bar:** Team · Client · Project · Task · Tag · Status · Description · Kiosk
+- **Filter visibility:** a FILTER menu toggles which filter chips are shown
+- **Every entity picker needs:** inline search · Select all · **Active/Archived show-toggle** · null option (`Without Client`, `Without description`)
+- **Explicit `APPLY FILTER`** — filters do not auto-apply. Deliberate: these queries are expensive.
+- **Two-level Group by** (e.g. Project → Description) plus a secondary grouping dimension (Billability)
+- **Rounding toggle** on totals
+- Results table: entry-count badge · title · duration, sortable
+- Bar chart + donut alongside the table
+- **Export** (CSV/XLSX/PDF) · Print · **Share link** (the Shared tab lists these)
+
+### 7.4 Team
+
+- Tabs: **FULL · LIMITED · GROUPS** — two seat tiers plus group management
+- Filters: All/Active/Inactive · Role · Group · name/email search
+- Table: Name · Email · Role · Group
+- **Deactivated members render struck-through and remain visible** — history must survive departures. Never hard-delete a member.
+
+### 7.5 The finding that matters most
+
+In the live workspace the hierarchy is:
+
+```
+Project      = client or content line   (Youmi · YN8 SF · YN8 YT LF · Ameerh Long Form)
+Task         = production stage         (Editing · Revisions · Admin)
+Description  = THE VIDEO TITLE          (Youmi Beauty Vlog · Podcast with JJ · Drifting with AP Dhillon)
+```
+
+**The team is already tracking time per video — in a free-text description field.**
+
+That is the entire YouTube join, sitting in an unindexed string. It means:
+
+1. **Historical backfill is possible today.** Existing entries can be fuzzy-matched to YouTube videos by title, giving real hours-per-video from day one instead of waiting for new data.
+2. **`time_entries.video_id` replaces the convention with a real foreign key** — no more typos splitting one video across three spellings.
+3. **Task names are already role-shaped.** *Editing* and *Revisions* map onto the 5-role model. Roles should extend the existing task vocabulary, not compete with it.
+
+Migration should keep the description field free-text *and* add the video link, so nothing breaks while the team adopts it.
+
+---
+
+## 8. Design System
+
+Target: **Notion's calm, content-first feel** applied to a data-dense tool.
+
+### 8.1 The tension to manage
+
+Notion is airy and text-led. Clockify is a dense grid people hit dozens of times a day. Applying Notion's generous spacing naively to a timesheet would push a week's rows below the fold and make the tool *slower to use*.
+
+Resolution: Notion's **surface language** (restraint, subtle borders, muted palette, typographic hierarchy, hover-revealed controls) with **dense, purpose-built data layouts**. Airy chrome, compact data.
+
+### 8.2 Language
+
+- Neutral grey-scale base; colour reserved for data, status, and one accent
+- Subtle 1px borders over drop shadows; shadows only for true elevation (menus, modals)
+- Hover-revealed row actions — no permanent button clutter
+- Slash-command / command palette (`⌘K`) for navigation and quick entry
+- Inline editing everywhere; avoid modal round-trips for single-field edits
+- Dark mode as a first-class theme (the team already works in dark Clockify)
+
+### 8.3 Motion — deliberately restrained
+
+The team will use the timer **50+ times a day**. Animation that delights on first use becomes friction on the five-hundredth.
+
+| Rule | Value |
+|---|---|
+| Interaction feedback | 120–180 ms |
+| Layout transitions | 200–260 ms |
+| Easing | `cubic-bezier(0.2, 0, 0, 1)` |
+| Never animate | Timesheet grid cells, report table rows, running-timer digits |
+
+Worth animating: timer start/stop state change, optimistic entry insertion, panel and drawer transitions, chart draw-in on first paint only, drag-to-create on the calendar, toast and undo affordances.
+
+**`prefers-reduced-motion` must disable all non-essential motion.** Non-negotiable — this is an accessibility requirement, not a preference.
+
+Suggested stack: Framer Motion for orchestration, CSS transitions for simple state, View Transitions API for route changes, virtualised lists (TanStack Virtual) so long report tables stay at 60fps.
+
+### 8.4 Perceived speed beats animation
+
+Time tracking lives or dies on responsiveness. Optimistic updates on every mutation, skeletons only past ~300 ms, aggressive caching of the project/task/client pickers, and full keyboard operation for the tracker. A snappy interface with restrained motion will feel better than a slower one with elaborate transitions.
+
+---
+
+## 9. Data & Ingestion
 
 ### Snapshot cadence
 Fixed-window scoring requires history. Tapering schedule keeps quota low:
@@ -246,7 +357,10 @@ Data API v3: 10,000 units/day. `videos.list` = 1 unit and accepts **50 IDs per c
 ### Schema sketch
 
 ```
-organizations, memberships, user_groups
+organizations                 -- the tenant; a company may run several
+workspaces                    -- London / Dubai / partner brand, switchable
+memberships                   -- (user, workspace, role, seat_type, is_active)
+user_groups, user_group_members
 clients, projects, tasks, tags
 time_entries, time_entry_tags
 rates, budgets, expenses, invoices, invoice_lines
@@ -268,7 +382,7 @@ Every tenant-scoped table carries `org_id`.
 
 ---
 
-## 8. Security
+## 10. Security
 
 The repository is **public** and the Supabase publishable key ships in the browser bundle. Row Level Security is therefore the *only* thing standing between tenants.
 
@@ -282,7 +396,7 @@ The repository is **public** and the Supabase publishable key ships in the brows
 
 ---
 
-## 9. Proposed Phasing
+## 11. Proposed Phasing
 
 Full Clockify + full YouTube attribution + full multi-tenancy is a multi-quarter build. Sequenced so something is usable early:
 
@@ -290,6 +404,7 @@ Full Clockify + full YouTube attribution + full multi-tenancy is a multi-quarter
 |---|---|---|
 | **0 — Foundation** | Auth, orgs, memberships, RLS baseline, schema | Everything depends on tenancy being right |
 | **1 — Core tracking** | Timer, entries, projects/tasks/clients/tags, timesheet, basic reports | Replaces the Excel sheet; earliest real value |
+| **1.5 — Clockify migration** | Import existing entries via API; **fuzzy-match descriptions → video records**; reconcile projects/tasks/clients | Turns years of history into the backfill Phase 3 needs |
 | **2 — YouTube ingest** | Channels, video sync, snapshots, public metrics, video↔time join | Unlocks the differentiator |
 | **3 — Scoring** | Baselines, PerfIndex, shrinkage, role dashboards, boost detection | Needs Phase 2 history to be meaningful |
 | **4 — Billing** | Rates, budgets, expenses, invoicing, cost-per-1k-views | Revenue-facing |
@@ -298,11 +413,13 @@ Full Clockify + full YouTube attribution + full multi-tenancy is a multi-quarter
 | **7 — Team ops** | Approvals, PTO, scheduling, permissions | Scales with headcount |
 | **8 — Advanced** | Kiosk, GPS, SSO, audit, public API, integrations | Enterprise surface |
 
-**Phase 3 has a cold-start problem:** scoring needs ~10 videos of history per channel for a stable baseline. Either backfill from the Excel sheet or accept that meaningful ranks appear a few weeks after launch. Flag this to the client early — it is the most likely source of "why doesn't this work yet" friction.
+**Phase 3 has a cold-start problem:** scoring needs ~10 videos of history per channel for a stable baseline.
+
+Phase 1.5 is the mitigation. Because time-entry descriptions already carry video titles (§7.5), the existing Clockify account is itself a backfill source — pulled via the Clockify API, matched to YouTube videos by title. Done well, meaningful rankings exist on launch day rather than two months later. Match confidence must be surfaced for human review; a silently wrong match misattributes someone's work.
 
 ---
 
-## 10. Success Metrics
+## 12. Success Metrics
 
 - Excel tracker retired within 30 days of Phase 1.
 - ≥90% of tracked videos have all 5 roles assigned.
@@ -312,17 +429,27 @@ Full Clockify + full YouTube attribution + full multi-tenancy is a multi-quarter
 
 ---
 
-## 11. Open Questions
+## 13. Open Questions
+
+**Resolved by the workspace screenshots:**
+- Navigation, dashboard, report, and team layouts — captured in §7
+- Multi-workspace is a real requirement, not hypothetical
+- Existing Clockify data exists and should be migrated (Phase 1.5)
+- Time is already tracked per video via the description field (§7.5)
 
 **Blocking:**
-1. **The Excel sheet has not been provided.** It is the authoritative source for required fields and for historical backfill. Everything in §6.6 is provisional until reviewed.
-2. Will clients realistically grant read-only OAuth? Determines whether §5 Step 6 ever ships.
-3. Requirements message was truncated mid-sentence — the final requirement is unknown.
+1. **Excel sheet still not provided.** Partially superseded by the screenshots, but needed if it holds fields Clockify does not (view counts, role assignments, ratings).
+2. **Clockify API access** — an API key is required for Phase 1.5 migration. Confirm the plan tier permits export.
+3. Will clients realistically grant read-only OAuth? Determines whether §5 Step 6 ever ships.
+4. Requirements message was truncated mid-sentence — the final requirement is unknown.
 
 **Needs decision:**
-4. Scoring window — V₇ or V₂₈? Depends on typical view velocity per niche.
-5. Shorts vs. long-form: separate baselines? (Strongly recommended — the view scales are incomparable.)
-6. Are the 5 roles fixed, or should roles be configurable per org?
-7. Can one person hold multiple roles on one video? (Assumed yes.)
-8. Existing Clockify data to migrate, or greenfield?
-9. Are scores visible to the people being scored, or managers only? Affects UI and morale considerably.
+5. Scoring window — V₇ or V₂₈? Depends on typical view velocity per niche.
+6. Shorts vs. long-form: separate baselines? (Strongly recommended — YN8 SF and YN8 YT LF suggest the split already exists operationally, and the view scales are incomparable.)
+7. Are the 5 roles fixed, or configurable per workspace? Current task vocabulary (Editing, Revisions, Admin) is narrower than the 5-role model — how do they reconcile?
+8. Can one person hold multiple roles on one video? (Assumed yes.)
+9. **Are scores visible to the people being scored, or managers only?** Affects UI and morale considerably. Recommend deciding before any UI is built.
+10. FULL vs LIMITED seat tiers — what exactly does a LIMITED member lose access to?
+11. Do the three workspaces share a user directory and clients, or stay fully isolated?
+
+**Handling note:** the reference screenshots contain team names and email addresses. That PII is deliberately excluded from this document, which lives in a public repository. Keep it out of committed files, fixtures, and seed data.
