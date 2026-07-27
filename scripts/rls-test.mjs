@@ -315,6 +315,44 @@ async function mkUser(email) {
     .eq("workspace_id", wsB.id);
   check("client cannot reach another workspace", (cCross?.length ?? 0) === 0);
 
+  // --- Phase 6: OAuth connections and owner-only analytics -------------
+  const { data: analyticsRow, error: analyticsErr } = await a.client
+    .from("post_analytics")
+    .insert({
+      workspace_id: wsA.id, platform_post_id: post.id,
+      impressions: 10000, ctr: 0.048, avg_watch_seconds: 22,
+      retention_30s: 0.45, source: "manual",
+    })
+    .select()
+    .single();
+  check("owner can record manual analytics", !analyticsErr && !!analyticsRow, analyticsErr?.message);
+
+  const { data: cAnalytics } = await cc.from("post_analytics").select("*");
+  check("client with a matching account sees its own analytics",
+    cAnalytics?.some((r) => r.id === analyticsRow.id) === true);
+
+  const { data: bAnalytics } = await b.client.from("post_analytics").select("*");
+  check("tenant B cannot see tenant A's analytics", (bAnalytics?.length ?? 0) === 0);
+
+  const { data: cOauth } = await cc.from("oauth_connections").select("*");
+  check("client cannot see OAuth connection rows", (cOauth?.length ?? 0) === 0);
+
+  const { error: cAnalyticsWrite } = await cc.from("post_analytics").insert({
+    workspace_id: wsA.id, platform_post_id: post.id, ctr: 0.99, source: "manual",
+  });
+  check("client cannot write analytics", !!cAnalyticsWrite, cAnalyticsWrite ? "" : "INSERT SUCCEEDED");
+
+  const { error: cVaultRpc } = await cc.rpc("vault_store_refresh_token", {
+    p_secret: "stolen", p_name: "x",
+  });
+  check("client cannot call the vault wrapper", !!cVaultRpc, cVaultRpc ? "" : "RPC SUCCEEDED");
+
+  const { error: aVaultRpc } = await a.client.rpc("vault_store_refresh_token", {
+    p_secret: "stolen", p_name: "x",
+  });
+  check("no authenticated user can call the vault wrapper directly",
+    !!aVaultRpc, aVaultRpc ? "" : "RPC SUCCEEDED");
+
   // Staff are unaffected by the tightened policies.
   const { data: staffClients } = await a.client.from("clients").select("*");
   check("staff still see every client in their workspace",

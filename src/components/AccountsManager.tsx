@@ -6,18 +6,25 @@ import { createAccount, setArchived } from "@/app/actions";
 import { PLATFORM_COLORS } from "@/lib/types";
 import type { Account, Client, Platform } from "@/lib/types";
 
+type ConnectorStatus = { configured: boolean; missing: string[] };
+type Connection = { account_id: string; status: string; connected_at: string };
+
 export default function AccountsManager({
   workspaceId,
   accounts,
   platforms,
   clients,
   canManage,
+  connections,
+  connectorStatus,
 }: {
   workspaceId: string;
   accounts: Account[];
   platforms: Platform[];
   clients: Client[];
   canManage: boolean;
+  connections: Connection[];
+  connectorStatus: Record<string, ConnectorStatus>;
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -26,6 +33,28 @@ export default function AccountsManager({
   const [clientId, setClientId] = useState("");
   const [showArchived, setShowArchived] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [disconnecting, setDisconnecting] = useState<string | null>(null);
+
+  const connectionByAccount = new Map(connections.map((c) => [c.account_id, c]));
+
+  async function disconnect(a: Account) {
+    setDisconnecting(a.id);
+    try {
+      const res = await fetch(`/api/oauth/${a.platform_slug}/disconnect`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountId: a.id }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setError(body.error ?? "Could not disconnect.");
+        return;
+      }
+      startTransition(() => router.refresh());
+    } finally {
+      setDisconnecting(null);
+    }
+  }
 
   const visible = accounts.filter((a) => (showArchived ? true : !a.is_archived));
 
@@ -150,37 +179,79 @@ export default function AccountsManager({
               </div>
 
               <div className="card divide-y divide-[var(--border)] overflow-hidden">
-                {byPlatform.get(p.slug)!.map((a) => (
-                  <div
-                    key={a.id}
-                    className="group flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-[var(--bg-subtle)]"
-                  >
-                    <span
-                      className={`text-sm ${a.is_archived ? "line-through opacity-60" : ""}`}
+                {byPlatform.get(p.slug)!.map((a) => {
+                  const conn = connectionByAccount.get(a.id);
+                  const cs = connectorStatus[p.slug];
+                  const isConnected = a.connection_mode === "oauth" && conn?.status === "active";
+                  return (
+                    <div
+                      key={a.id}
+                      className="group flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 transition-colors hover:bg-[var(--bg-subtle)]"
                     >
-                      {a.handle}
-                    </span>
-                    {a.client?.name && (
-                      <span className="text-xs text-[var(--muted)]">
-                        {a.client.name}
-                      </span>
-                    )}
-                    <div className="flex-1" />
-                    {/* Manual is a first-class mode, not a degraded one: the
-                        pipeline is identical either way (PRD 9.5). */}
-                    <span className="rounded bg-[var(--bg-subtle)] px-1.5 py-0.5 text-xs capitalize text-[var(--muted)]">
-                      {a.connection_mode}
-                    </span>
-                    {canManage && (
-                      <button
-                        className="row-actions rounded px-2 py-1 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--fg)]"
-                        onClick={() => void toggle(a)}
+                      <span
+                        className={`text-sm ${a.is_archived ? "line-through opacity-60" : ""}`}
                       >
-                        {a.is_archived ? "Restore" : "Archive"}
-                      </button>
-                    )}
-                  </div>
-                ))}
+                        {a.handle}
+                      </span>
+                      {a.client?.name && (
+                        <span className="text-xs text-[var(--muted)]">
+                          {a.client.name}
+                        </span>
+                      )}
+                      <div className="flex-1" />
+
+                      {/* The label PRD section 4 requires: a client user
+                          scoring by outcome alone must never look identical
+                          to one with CTR/retention behind it. */}
+                      {isConnected ? (
+                        <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-xs text-emerald-500">
+                          Enhanced — connected
+                        </span>
+                      ) : (
+                        <span className="rounded bg-[var(--bg-subtle)] px-1.5 py-0.5 text-xs text-[var(--muted)]">
+                          Baseline — public metrics only
+                        </span>
+                      )}
+
+                      {canManage && !a.is_archived && (
+                        <>
+                          {isConnected ? (
+                            <button
+                              className="rounded px-2 py-1 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--danger)] disabled:opacity-50"
+                              disabled={disconnecting === a.id}
+                              onClick={() => void disconnect(a)}
+                            >
+                              {disconnecting === a.id ? "Disconnecting…" : "Disconnect"}
+                            </button>
+                          ) : cs?.configured ? (
+                            <a
+                              className="btn px-2 py-1 text-xs"
+                              href={`/api/oauth/${p.slug}/connect?account_id=${a.id}`}
+                            >
+                              Connect
+                            </a>
+                          ) : (
+                            <span
+                              className="rounded px-2 py-1 text-xs text-[var(--muted)] opacity-60"
+                              title={`Needs ${cs?.missing.join(" and ")} set on the server`}
+                            >
+                              Connect (not configured)
+                            </span>
+                          )}
+                        </>
+                      )}
+
+                      {canManage && (
+                        <button
+                          className="row-actions rounded px-2 py-1 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--fg)]"
+                          onClick={() => void toggle(a)}
+                        >
+                          {a.is_archived ? "Restore" : "Archive"}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </section>
           ))}

@@ -686,6 +686,40 @@ export async function deleteInvoice(id: string): Promise<Result> {
   return {};
 }
 
+/* ---- Phase 6: owner-only analytics (manual path) ------------------------ */
+
+/**
+ * Manual entry for CTR/retention, the always-available path for a client to
+ * hand over Studio-export numbers without waiting on OAuth credentials (PRD
+ * 4, 11 open question #2). Same table, same downstream scoring, as an OAuth
+ * sync would populate.
+ */
+export async function recordAnalytics(input: {
+  workspaceId: string;
+  platformPostId: string;
+  impressions: number | null;
+  ctrPercent: number | null;
+  avgWatchSeconds: number | null;
+  retention30sPercent: number | null;
+  retention60sPercent: number | null;
+}): Promise<Result> {
+  const supabase = await createClient();
+  const pct = (v: number | null) => (v == null ? null : v / 100);
+  const { error } = await supabase.from("post_analytics").insert({
+    workspace_id: input.workspaceId,
+    platform_post_id: input.platformPostId,
+    impressions: input.impressions,
+    ctr: pct(input.ctrPercent),
+    avg_watch_seconds: input.avgWatchSeconds,
+    retention_30s: pct(input.retention30sPercent),
+    retention_60s: pct(input.retention60sPercent),
+    source: "manual",
+  });
+  if (error) return { error: error.message };
+  revalidatePath("/content");
+  return {};
+}
+
 /** Archive rather than delete: entries reference these rows as history. */
 export async function setArchived(
   table: "clients" | "projects" | "tasks" | "tags" | "accounts",

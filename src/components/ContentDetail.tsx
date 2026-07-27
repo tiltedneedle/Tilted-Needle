@@ -7,6 +7,7 @@ import {
   assignRole,
   deleteContentItem,
   deletePlatformPost,
+  recordAnalytics,
   recordSnapshot,
   unassignRole,
   updateContentItem,
@@ -22,7 +23,7 @@ import type {
   PlatformPost,
   Role,
 } from "@/lib/types";
-import type { SnapshotRow } from "@/app/(app)/content/[id]/page";
+import type { AnalyticsRow, SnapshotRow } from "@/app/(app)/content/[id]/page";
 
 export default function ContentDetail({
   workspaceId,
@@ -34,6 +35,7 @@ export default function ContentDetail({
   members,
   trackedSeconds,
   history,
+  analytics,
   clients,
 }: {
   workspaceId: string;
@@ -45,6 +47,7 @@ export default function ContentDetail({
   members: { userId: string; name: string }[];
   trackedSeconds: number;
   history: SnapshotRow[];
+  analytics: AnalyticsRow[];
   clients: Client[];
 }) {
   const router = useRouter();
@@ -53,6 +56,14 @@ export default function ContentDetail({
   const [addAccountId, setAddAccountId] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState<string | null>(null);
+  const [editingAnalytics, setEditingAnalytics] = useState<string | null>(null);
+  const [analyticsDraft, setAnalyticsDraft] = useState({
+    impressions: "",
+    ctr: "",
+    avgWatch: "",
+    retention30: "",
+    retention60: "",
+  });
   const [editMeta, setEditMeta] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [meta, setMeta] = useState({
@@ -109,6 +120,28 @@ export default function ContentDetail({
     if (res.error) return setError(res.error);
     setEditing(null);
     setDraft({ views: "", likes: "", comments: "", shares: "", saves: "" });
+    refresh();
+  }
+
+  /**
+   * The always-available path into the same table an OAuth sync would fill --
+   * a client can hand over their own Studio export today rather than waiting
+   * on Phase 6 platform credentials (PRD 4, 11 open question #2).
+   */
+  async function saveAnalytics(postId: string) {
+    const num = (v: string) => (v.trim() === "" ? null : Number(v));
+    const res = await recordAnalytics({
+      workspaceId,
+      platformPostId: postId,
+      impressions: num(analyticsDraft.impressions),
+      ctrPercent: num(analyticsDraft.ctr),
+      avgWatchSeconds: num(analyticsDraft.avgWatch),
+      retention30sPercent: num(analyticsDraft.retention30),
+      retention60sPercent: num(analyticsDraft.retention60),
+    });
+    if (res.error) return setError(res.error);
+    setEditingAnalytics(null);
+    setAnalyticsDraft({ impressions: "", ctr: "", avgWatch: "", retention30: "", retention60: "" });
     refresh();
   }
 
@@ -447,6 +480,16 @@ export default function ContentDetail({
               )}
 
               {showHistory === p.id && <SnapshotHistory rows={forPost} />}
+
+              <EnhancedMetrics
+                analytics={analytics.filter((a) => a.platform_post_id === p.id)}
+                editing={editingAnalytics === p.id}
+                draft={analyticsDraft}
+                setDraft={setAnalyticsDraft}
+                onEdit={() => setEditingAnalytics(p.id)}
+                onCancel={() => setEditingAnalytics(null)}
+                onSave={() => void saveAnalytics(p.id)}
+              />
             </div>
           );
         })}
@@ -535,6 +578,154 @@ export default function ContentDetail({
         hand — see PRD §3.5.
       </p>
     </>
+  );
+}
+
+type AnalyticsDraft = {
+  impressions: string;
+  ctr: string;
+  avgWatch: string;
+  retention30: string;
+  retention60: string;
+};
+
+/**
+ * The data PRD section 4 is built around: CTR and retention are what
+ * separate "this boosted" from "here is why" -- and both require the
+ * account owner's consent. This section is what makes that constraint
+ * visible in the product rather than only in the PRD: it shows the latest
+ * reading, labels its source, and offers manual entry as the always-open
+ * door regardless of whether OAuth is configured.
+ */
+function EnhancedMetrics({
+  analytics,
+  editing,
+  draft,
+  setDraft,
+  onEdit,
+  onCancel,
+  onSave,
+}: {
+  analytics: AnalyticsRow[];
+  editing: boolean;
+  draft: AnalyticsDraft;
+  setDraft: (d: AnalyticsDraft) => void;
+  onEdit: () => void;
+  onCancel: () => void;
+  onSave: () => void;
+}) {
+  const latest = analytics[0] ?? null;
+
+  return (
+    <div className="mt-3 border-t border-[var(--border)] pt-2">
+      <div className="mb-1.5 flex items-center gap-2">
+        <span className="text-xs font-medium text-[var(--muted)]">
+          Enhanced metrics
+        </span>
+        {latest && (
+          <span className="rounded bg-[var(--bg-subtle)] px-1.5 py-0.5 text-[10px] uppercase text-[var(--muted)]">
+            {latest.source}
+          </span>
+        )}
+        <div className="flex-1" />
+        {!editing && (
+          <button
+            className="text-xs text-[var(--muted)] underline decoration-dotted underline-offset-2 hover:text-[var(--fg)]"
+            onClick={onEdit}
+          >
+            {latest ? "Update" : "Add from a Studio export"}
+          </button>
+        )}
+      </div>
+
+      {editing ? (
+        <div className="animate-rise flex flex-wrap items-end gap-2">
+          <label className="text-xs text-[var(--muted)]">
+            Impressions
+            <input
+              className="input tabular mt-1 w-28 py-1"
+              value={draft.impressions}
+              onChange={(e) => setDraft({ ...draft, impressions: e.target.value })}
+            />
+          </label>
+          <label className="text-xs text-[var(--muted)]">
+            CTR %
+            <input
+              className="input tabular mt-1 w-20 py-1"
+              value={draft.ctr}
+              onChange={(e) => setDraft({ ...draft, ctr: e.target.value })}
+            />
+          </label>
+          <label className="text-xs text-[var(--muted)]">
+            Avg watch (s)
+            <input
+              className="input tabular mt-1 w-24 py-1"
+              value={draft.avgWatch}
+              onChange={(e) => setDraft({ ...draft, avgWatch: e.target.value })}
+            />
+          </label>
+          <label className="text-xs text-[var(--muted)]">
+            Retention @30s %
+            <input
+              className="input tabular mt-1 w-24 py-1"
+              value={draft.retention30}
+              onChange={(e) => setDraft({ ...draft, retention30: e.target.value })}
+            />
+          </label>
+          <label className="text-xs text-[var(--muted)]">
+            Retention @60s %
+            <input
+              className="input tabular mt-1 w-24 py-1"
+              value={draft.retention60}
+              onChange={(e) => setDraft({ ...draft, retention60: e.target.value })}
+            />
+          </label>
+          <button className="btn-primary py-1.5" onClick={onSave}>
+            Save
+          </button>
+          <button className="btn py-1.5" onClick={onCancel}>
+            Cancel
+          </button>
+          <p className="w-full text-xs text-[var(--muted)]">
+            From YouTube Studio → Analytics, or the connected account once it
+            syncs. Percentages, not fractions.
+          </p>
+        </div>
+      ) : latest ? (
+        <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
+          <Metric
+            label="Impressions"
+            value={latest.impressions}
+          />
+          <span>
+            <span className="text-xs text-[var(--muted)]">CTR </span>
+            <span className="tabular font-medium">
+              {latest.ctr != null ? `${(latest.ctr * 100).toFixed(1)}%` : "—"}
+            </span>
+          </span>
+          <span>
+            <span className="text-xs text-[var(--muted)]">Avg watch </span>
+            <span className="tabular font-medium">
+              {latest.avg_watch_seconds != null ? `${latest.avg_watch_seconds}s` : "—"}
+            </span>
+          </span>
+          <span>
+            <span className="text-xs text-[var(--muted)]">Retention @30s </span>
+            <span className="tabular font-medium">
+              {latest.retention_30s != null
+                ? `${(latest.retention_30s * 100).toFixed(0)}%`
+                : "—"}
+            </span>
+          </span>
+        </div>
+      ) : (
+        <p className="text-xs text-[var(--muted)]">
+          No CTR or retention data. Public metrics can show a post boosted,
+          not why — that needs this data, from a connected account or a
+          Studio export (Accounts page).
+        </p>
+      )}
+    </div>
   );
 }
 

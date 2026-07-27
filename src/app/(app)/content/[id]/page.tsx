@@ -23,6 +23,17 @@ export type SnapshotRow = {
   saves: number | null;
 };
 
+export type AnalyticsRow = {
+  platform_post_id: string;
+  captured_at: string;
+  impressions: number | null;
+  ctr: number | null;
+  avg_watch_seconds: number | null;
+  retention_30s: number | null;
+  retention_60s: number | null;
+  source: string;
+};
+
 export default async function ContentDetailPage({
   params,
 }: {
@@ -98,6 +109,19 @@ export default async function ContentDetailPage({
         .order("captured_at", { ascending: false })
     : { data: [] };
 
+  // Owner-only metrics -- the data that actually explains why a post
+  // performed (PRD 4). Absent unless an account is connected or someone has
+  // pasted numbers in from a Studio export.
+  const analyticsRes = postIds.length
+    ? await supabase
+        .from("post_analytics")
+        .select(
+          "platform_post_id, captured_at, impressions, ctr, avg_watch_seconds, retention_30s, retention_60s, source",
+        )
+        .in("platform_post_id", postIds)
+        .order("captured_at", { ascending: false })
+    : { data: [] };
+
   type Member = { user_id: string; profile: { full_name: string | null } | null };
   const members = (membersRes.data ?? []) as unknown as Member[];
   const timeRows = (timeRes.data ?? []) as { duration_seconds: number | null }[];
@@ -125,6 +149,7 @@ export default async function ContentDetailPage({
         }))}
         trackedSeconds={totalSeconds}
         history={(historyRes.data ?? []) as SnapshotRow[]}
+        analytics={(analyticsRes.data ?? []) as AnalyticsRow[]}
         clients={(clientsRes.data ?? []) as unknown as Client[]}
       />
     </div>
