@@ -25,6 +25,7 @@ const NAV = [
     group: "Content",
     items: [
       { href: "/content", label: "Content", icon: PlayIcon },
+      { href: "/performance", label: "Performance", icon: TrophyIcon },
       { href: "/accounts", label: "Accounts", icon: ShareIcon },
     ],
   },
@@ -184,6 +185,9 @@ function UsersIcon() {
 }
 function PlayIcon() {
   return <svg {...s}><rect x="2.5" y="5" width="19" height="14" rx="2.5" /><path d="M10.5 9.5v5l4.5-2.5z" /></svg>;
+}
+function TrophyIcon() {
+  return <svg {...s}><path d="M7 4h10v5a5 5 0 0 1-10 0z" /><path d="M7 6H4.5v1.5A3.5 3.5 0 0 0 8 11M17 6h2.5v1.5A3.5 3.5 0 0 1 16 11" /><path d="M12 14v3M9 20h6M10 17h4" /></svg>;
 }
 function ShareIcon() {
   return <svg {...s}><circle cx="18" cy="5" r="2.6" /><circle cx="6" cy="12" r="2.6" /><circle cx="18" cy="19" r="2.6" /><path d="M8.4 10.8 15.6 6.4M8.4 13.2l7.2 4.4" /></svg>;
