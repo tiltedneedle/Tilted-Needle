@@ -197,36 +197,75 @@ Never compare lifetime views across videos of different ages. Snapshot every vid
 
 This requires storing a **time series**, not a current value — see §7 ingestion.
 
-### Step 2 — Normalize against that account's own baseline
+### Step 2 — Score each platform separately, then average
 
-**A "view" is not the same unit on any two platforms.** TikTok counts a view the
-instant playback starts. Facebook historically counted at 3 seconds. YouTube
-long-form wants ~30 seconds. Instagram has redefined plays/views more than once.
+**Platforms are scored in isolation. Nothing is pooled or interlinked.**
 
-So the single most dangerous thing this product could do is **add view counts
-across platforms and present the total as one number.** It would systematically
-flatter whichever platform counts most generously, and any ranking built on it
-would misjudge people's work.
+Each platform has its own metrics, its own definition of a view, and its own
+notion of what "good" looks like. TikTok counts a view the instant playback
+starts; Facebook historically counted at 3 seconds; YouTube long-form wants
+~30; Instagram has redefined plays more than once. Instagram rewards saves and
+shares, TikTok rewards completion, YouTube rewards click-through and retention.
 
-Two hard rules follow:
-
-1. **Never pool raw counts across platforms.** A cross-platform total is a
-   presentation-layer convenience at best, and must be labelled as the sum of
-   incomparable units.
-2. **Baselines are per account, per platform.** Never per client, never global.
+So the pipeline is:
 
 ```
-baseline = median(V₇) over the previous 10 posts on THAT account
+   Instagram posts ──▶ Instagram score   (Instagram's metrics, Instagram's baseline)
+   TikTok posts    ──▶ TikTok score      (TikTok's metrics, TikTok's baseline)
+   YouTube posts   ──▶ YouTube score     (YouTube's metrics, YouTube's baseline)
+   Facebook posts  ──▶ Facebook score    (Facebook's metrics, Facebook's baseline)
+                              │
+                              ▼
+                      Overall = mean(platform scores)
+```
+
+Within a platform:
+
+```
+baseline  = median(V₇) over the previous 10 posts on THAT account
 PerfIndex = V₇(post) / baseline
 ```
 
-This is what makes the model work across platforms: the ratio is dimensionless.
-A post at 2.0 did twice its own account's typical numbers, and *that* comparison
-is valid between an Instagram Reel and a TikTok, even though their raw view
-counts are not.
+The ratio is dimensionless, which is the whole trick: "1.8× this account's
+normal" is a meaningful number on any platform, even though the raw counts
+behind it are not comparable. Platform scores stay in their own lane right
+through log-transform, recency weighting, and shrinkage (Steps 3–5); only the
+finished per-platform scores are ever combined.
 
-Cross-posted content therefore yields one `PerfIndex` per platform. Roll those
-up to a content-level score by averaging the indices — never by summing views.
+**Hard rules**
+
+1. Never sum or average raw counts across platforms. A cross-platform view
+   total is a presentation convenience at best, and must be labelled as a sum
+   of incomparable units.
+2. Baselines are per account, per platform. Never per client, never global.
+3. Only fully-computed per-platform scores may be averaged into an overall.
+
+**Cross-posted content** yields one score per platform it ran on, and its
+overall is the mean of those — so a video that lands on Instagram and flops on
+TikTok reads as genuinely mixed, rather than being rescued by whichever
+platform happened to inflate the count.
+
+#### The weighting decision
+
+The default is an **unweighted mean**: every platform a person or piece of
+content appears on counts once, regardless of volume.
+
+This is the right default — it measures *how well the work performs on each
+platform*, which is what a per-platform score is for. But the consequence needs
+stating, because it will come up the first time someone disputes a ranking:
+
+> A creator with 50 Instagram posts and 2 TikToks has TikTok contributing half
+> their overall score.
+
+If that reads as wrong for the team, the alternative is weighting each platform
+by post count — which makes the overall track volume instead of quality. Both
+are defensible; they answer different questions. Whichever is chosen, the UI
+must always show the **per-platform breakdown beside the overall**, so nobody is
+judged on a single blended figure whose composition is invisible.
+
+Platforms with no posts in the period are excluded from the mean rather than
+counted as zero. A missing platform is absence of evidence, not bad
+performance.
 
 ### Step 3 — Log-transform
 
@@ -255,15 +294,28 @@ Score      = (n / (n + k)) · personRaw  +  (k / (n + k)) · roleMean
 
 With n=1 the score is ~83% role-average. At n=20 it is ~80% their own record. Confidence rises only as evidence does.
 
-### Step 6 — Role-specific signal (connected channels only)
+### Step 6 — Role-specific signal (connected accounts only)
 
-| Role | Primary signal | Rationale |
-|---|---|---|
-| Idea guy | CTR vs. channel baseline | Concept and title drive the click |
-| Thumbnail/Videographer | CTR + first-frame retention | Visual draw |
-| Script guy | Retention at 30s / 60s | The hook is the script's job |
-| Editor | Retention curve AUC, avg view duration | Sustained watch is the edit |
-| QC | Dislike ratio, comment sentiment, re-upload rate | Defect prevention |
+Signals are declared per platform in the connector registry (§9.5), because
+each platform exposes a different set. The same role is therefore judged on
+different evidence depending on where the content ran — which is exactly the
+point of scoring platforms separately.
+
+| Role | YouTube | Instagram | TikTok | Facebook |
+|---|---|---|---|---|
+| Idea | CTR vs. baseline | Reach ÷ follower count | Views vs. baseline | Reach vs. baseline |
+| Videographer / thumbnail | CTR + first-frame retention | Cover-frame reach | Early drop-off | 3s view rate |
+| Script | Retention at 30s / 60s | Avg watch time | Completion rate | Avg watch time |
+| Editor | Retention AUC, avg view duration | Avg watch time, saves | Completion rate, re-watch | Complete views |
+| QC | Dislike ratio, comment sentiment | Comment sentiment | Comment sentiment | Reaction mix |
+
+Where a platform cannot supply a role's signal, that role is **not scored on
+that platform** — it is not silently substituted with views. A role with no
+usable signal anywhere in the period is reported as "insufficient data", never
+as a low score.
+
+Until accounts are connected, no platform supplies these, and §5 falls back to
+outcome-only scoring (Steps 1–5) for everyone on the content.
 
 Each computed as its own `PerfIndex` against the channel baseline, then run through Steps 3–5 identically.
 
@@ -272,9 +324,13 @@ Each computed as its own `PerfIndex` against the channel baseline, then run thro
 Surface percentile bands within role (Top 10% / Above / At / Below baseline) plus a confidence indicator driven by `n`. **Do not display a precise-looking number derived from three videos.**
 
 ### Guardrails
-- Minimum 3 videos before a person is ranked publicly at all.
+- Minimum 3 posts before a person is ranked publicly at all — applied **per
+  platform**, so a strong Instagram record cannot lend false confidence to a
+  two-post TikTok score.
 - Show sample size beside every score, always.
 - Never rank across different roles — editors compete only with editors.
+- **Always display the per-platform breakdown next to the overall.** The overall
+  is a summary of the platform scores, never a replacement for them.
 
 ---
 
@@ -480,9 +536,15 @@ platforms (
   supports_public_read,    -- true only for youtube today
   view_semantics,          -- immediate | 3s | 30s | unclear  (see §5 Step 2)
   available_metrics,       -- ['views','likes','comments','shares','saves',...]
+  scoring_config,          -- which metric drives each role on THIS platform
+  maturity_window_days,    -- V7 on fast platforms, V28 where reach accrues slowly
   refresh_policy
 )
 ```
+
+`scoring_config` and `maturity_window_days` are what make "each platform scored
+by its own policies" data rather than code. A platform whose reach builds over
+weeks gets a longer window without touching the scoring engine.
 
 Everything downstream reads from this:
 
@@ -540,7 +602,9 @@ post_analytics     (platform_post_id, date, reach, impressions, ctr,
 content_assignments (content_item_id, user_id, role_id, source)
                     -- source: 'derived' from tracked time, or 'manual'
 roles              (name, signal_config)
-scores             (user_id, role_id, period, score, n, percentile)
+-- Scores are stored per platform. The overall is the mean of these rows, never
+-- a separately-computed figure, so the breakdown can always be shown beside it.
+platform_scores    (user_id, role_id, platform_slug, period, score, n, percentile)
 time_entries.content_item_id                        -- the join
 ```
 
@@ -668,7 +732,8 @@ Phase 1.5 is the mitigation. Because time-entry descriptions already carry video
 4. Requirements message was truncated mid-sentence — the final requirement is unknown.
 
 **Needs decision:**
-5. Scoring window — V₇ or V₂₈? Depends on typical view velocity per niche.
+5. Scoring window per platform — V₇ or V₂₈? Now set per platform in the registry, but each needs a starting value based on how fast reach accrues there.
+5a. **Overall score weighting** — unweighted mean across platforms (default, measures quality per platform) or weighted by post count (tracks volume)? See §5 Step 2.
 6. Shorts vs. long-form: separate baselines? (Strongly recommended — YN8 SF and YN8 YT LF suggest the split already exists operationally, and the view scales are incomparable.)
 7. Are the 5 roles fixed, or configurable per workspace? Current task vocabulary (Editing, Revisions, Admin) is narrower than the 5-role model — how do they reconcile?
 8. Can one person hold multiple roles on one video? (Assumed yes.)
