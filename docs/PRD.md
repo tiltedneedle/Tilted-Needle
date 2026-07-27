@@ -54,21 +54,98 @@ Multi-tenant with row-level isolation. A user may belong to multiple organizatio
 
 ---
 
+## 3.5 Data Reality Check (from the live tracker, reviewed 2026-07-27)
+
+The client tracking sheet was analysed: 7 client tabs, 159 posts. Two findings
+contradict the original brief and reshape the product.
+
+### Finding 1 — This is not a YouTube product
+
+| Platform | Posts | Share |
+|---|---:|---:|
+| Instagram | 79 | 49.7% |
+| TikTok | 77 | 48.4% |
+| **YouTube** | **3** | **1.9%** |
+
+The brief says "Tracking YouTube Videos." The data says Instagram and TikTok are
+**98% of tracked output**. A YouTube-first build would address three posts.
+
+All content is short-form: video lengths run 0:33–1:19. There is effectively no
+long-form catalogue.
+
+### Finding 2 — Role attribution has no data at all
+
+| Column | Filled |
+|---|---:|
+| Views, Likes, Best Performing, Date Posted | 100% |
+| Subject, Hook, Response in Comments, Video Length | 94% |
+| Music Used | **0%** |
+| Video Engagement | **0%** |
+| Videographer, Editor, Time, Script, Video Idea, who QC | **0%** |
+
+The 5-role columns exist on exactly one client tab and have **never been
+filled**. The ranking system in §5 therefore has zero history to learn from, and
+no backfill is possible from this source.
+
+`Music Used` and `Video Engagement` are likewise aspirational — build them only
+if someone commits to populating them.
+
+### What this implies
+
+1. **Platform priority inverts.** Instagram and TikTok first; YouTube becomes a
+   minor third.
+2. **Roles should be derived from tracked time, not typed twice.** Clockify
+   already records who logged *Editing* or *Revisions* against a given video
+   title. That is the same fact the role columns ask for, already being captured
+   as a by-product of time tracking. Asking people to also fill a spreadsheet
+   column is duplicate entry that has a 0% compliance record.
+3. **Same content, many platforms.** The identical video is cross-posted and
+   performs wildly differently — one post drew 77,600 views on Instagram and
+   7,364 on TikTok. The model must be `content_item → platform_posts`, not
+   `channel → video`, or cross-posted work is double-counted or averaged into
+   nonsense.
+4. **The qualitative columns are a workaround.** `Hook` records the literal
+   opening line; `Response in Comments` grades sentiment. The team captures these
+   by hand precisely because the APIs will not give them retention or CTR.
+
+---
+
 ## 4. The Attribution Constraint (read before designing dashboards)
 
 The brief asks to "check why a video is boosting" *without* connecting client accounts. **These two requirements are in direct conflict**, and the PRD resolves it explicitly rather than papering over it.
 
-### What each data source provides
+### What each platform actually allows
 
-| Metric | Data API v3 (key only) | Analytics API (owner OAuth) |
+This is where the original advice needs correcting. YouTube is the *permissive*
+platform — and it is the one they barely use.
+
+| Platform | Without the client connecting an account | With client authorisation |
 |---|---|---|
-| Views, likes, comments | ✅ | ✅ |
-| Title, tags, duration, publish time | ✅ | ✅ |
-| Impressions & **CTR** | ❌ | ✅ |
-| **Audience retention curve** | ❌ | ✅ |
-| Average view duration / watch time | ❌ | ✅ |
-| Traffic sources, demographics | ❌ | ✅ |
-| Subscribers gained, revenue | ❌ | ✅ |
+| **YouTube** | Data API v3 with just an API key: views, likes, comments, title, duration | Analytics API: CTR, retention, watch time, traffic sources, demographics |
+| **Instagram** | **Nothing.** No public API exists for reading another account's post metrics | Graph API: requires an IG Business/Creator account linked to a Facebook Page, plus Meta app review. Gives reach, impressions, saves, shares, watch time |
+| **TikTok** | **Nothing.** Display API needs user OAuth; the Research API is restricted to accredited academics | Display API: views, likes, comments, shares for the authorising account |
+
+### The consequence for 98% of their content
+
+For YouTube, a public baseline is possible — views and likes need no permission.
+**For Instagram and TikTok there is no public tier at all.** The choice is binary:
+the client authorises, or the numbers are typed in by hand.
+
+That is precisely why the tracking sheet exists, and why the brief worries about
+"connecting the client's Meta account." There is no clever way around it — the
+restriction is a platform policy, not a technical gap.
+
+So the honest options for Instagram and TikTok are:
+
+1. **Client authorises** (one-time, read-only, revocable) — the only route to
+   automated, trustworthy metrics.
+2. **Continued manual entry**, but moved into the app with validation and
+   history instead of a spreadsheet.
+3. **Assisted manual entry** — paste a post URL, the app scrapes the public page
+   for view/like counts. Brittle, breaks without notice, and sits against both
+   platforms' terms. Not recommended as a foundation.
+
+### Why per-role attribution is harder here than on YouTube
 
 ### Why this decides the whole ranking design
 
@@ -87,11 +164,16 @@ With public data alone, every one of the 5 people on a video receives the *ident
 
 ### Decision: hybrid, degrading gracefully
 
-- **Baseline (always):** Data API v3 for every tracked channel. No client cooperation needed.
-- **Enhanced (per client):** one-time read-only OAuth (`yt-analytics.readonly`) unlocks CTR and retention for that channel.
-- The UI must **visibly label** which mode each channel is in. Enhanced-mode scores and baseline-mode scores are never mixed in a single ranking table without a marker.
+- **Manual entry is the guaranteed floor** for every account, on every platform. It is how the team works today and the only thing that works with zero client cooperation. Moving it into the app with validation, history, and no re-keying is itself a win.
+- **Connected accounts** (IG/TikTok OAuth, YouTube OAuth) replace manual entry with automatic sync and unlock the deeper metrics.
+- **YouTube only** additionally supports a keyless public baseline via Data API v3.
+- The UI must **visibly label** each account's mode. Automatically-synced and hand-entered figures are never silently mixed in one ranking table.
 
-**Product consequence:** true per-role attribution is a feature of *connected* channels. For unconnected channels the app reports outcome, not contribution. This must be stated plainly to the client — it is the difference between a defensible internal metric and a number that quietly misjudges people's work.
+**Product consequence:** true per-role attribution is a feature of *connected* accounts. For unconnected accounts the app reports outcome, not contribution — the difference between a defensible internal metric and a number that quietly misjudges people's work.
+
+On Instagram and TikTok the gap is wider still: even connected accounts expose no per-second retention curve of the kind YouTube provides, so cleanly separating the scriptwriter's hook from the editor's pacing stays largely out of reach. What *is* available — reach, saves, shares, average watch time — supports a coarser split than the five-way one the brief imagines.
+
+The team already senses this, which is why they hand-record `Hook` and `Response in Comments`: those columns are a human substitute for the retention data the platforms withhold.
 
 ---
 
@@ -367,15 +449,24 @@ rates, budgets, expenses, invoices, invoice_lines
 approvals, time_off_policies, time_off_requests
 custom_fields, custom_field_values, audit_log
 
-channels           (client_id, yt_channel_id, connection_mode)
-oauth_connections  (channel_id, encrypted refresh token, scopes, status)
-videos             (channel_id, yt_video_id, published_at, ...)
-video_snapshots    (video_id, captured_at, views, likes, comments)     -- public
-video_analytics    (video_id, date, impressions, ctr, avd, retention)  -- OAuth only
-video_assignments  (video_id, user_id, role_id)                        -- the 5 entities
+-- Cross-posting is the norm: one video ships to Instagram and TikTok and
+-- performs very differently on each. Content and post are separate entities,
+-- or cross-posted work gets double-counted.
+content_items      (client_id, title, subject, hook, length_seconds,
+                    music_used, produced_at)
+accounts           (client_id, platform, handle, connection_mode)
+oauth_connections  (account_id, encrypted refresh token, scopes, status)
+platform_posts     (content_item_id, account_id, platform_post_id, posted_at,
+                    source: 'api' | 'manual')
+post_snapshots     (platform_post_id, captured_at, views, likes, comments,
+                    shares, saves)
+post_analytics     (platform_post_id, date, reach, impressions, ctr,
+                    avg_watch_seconds)              -- connected accounts only
+content_assignments (content_item_id, user_id, role_id, source)
+                    -- source: 'derived' from tracked time, or 'manual'
 roles              (name, signal_config)
 scores             (user_id, role_id, period, score, n, percentile)
-time_entries.video_id                                                  -- the join
+time_entries.content_item_id                        -- the join
 ```
 
 Every tenant-scoped table carries `org_id`.
@@ -437,10 +528,16 @@ Phase 1.5 is the mitigation. Because time-entry descriptions already carry video
 - Existing Clockify data exists and should be migrated (Phase 1.5)
 - Time is already tracked per video via the description field (§7.5)
 
+**Resolved by the tracking sheet (§3.5):**
+- Platform mix is Instagram/TikTok, not YouTube
+- Role columns exist but have never been filled — no attribution history
+- Content is cross-posted; all of it short-form
+- The team reliably records views, likes, comments, subject, hook, and sentiment
+
 **Blocking:**
-1. **Excel sheet still not provided.** Partially superseded by the screenshots, but needed if it holds fields Clockify does not (view counts, role assignments, ratings).
-2. **Clockify API access** — an API key is required for Phase 1.5 migration. Confirm the plan tier permits export.
-3. Will clients realistically grant read-only OAuth? Determines whether §5 Step 6 ever ships.
+1. **Will clients authorise Instagram/TikTok access?** For 98% of content there is no public fallback, so this single answer decides whether the product automates anything or remains structured manual entry.
+2. **Clockify API access** — a key is required for Phase 1.5 migration. Confirm the plan tier permits export.
+3. **Do we derive roles from tracked time instead of asking for them?** Recommended: the spreadsheet columns have 0% compliance, while the same fact is already captured by time entries.
 4. Requirements message was truncated mid-sentence — the final requirement is unknown.
 
 **Needs decision:**
