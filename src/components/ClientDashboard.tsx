@@ -14,6 +14,7 @@ export default function ClientDashboard({
   itemCount,
   trackedSeconds,
   items,
+  readOnly = false,
 }: {
   totals: PlatformTotals[];
   itemCount: number;
@@ -24,6 +25,8 @@ export default function ClientDashboard({
     producedAt: string | null;
     platforms: { platform: string; views: number }[];
   }[];
+  /** Client-facing: hides internal figures and the links into staff pages. */
+  readOnly?: boolean;
 }) {
   if (itemCount === 0) {
     return (
@@ -37,13 +40,18 @@ export default function ClientDashboard({
 
   return (
     <>
-      <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
+      <div
+        className={`mb-4 grid gap-3 ${readOnly ? "grid-cols-2" : "grid-cols-2 sm:grid-cols-3"}`}
+      >
         <Stat label="Videos delivered" value={String(itemCount)} />
         <Stat label="Posts published" value={String(totalPosts)} />
-        <Stat
-          label="Time invested"
-          value={trackedSeconds ? formatDurationShort(trackedSeconds) : "—"}
-        />
+        {/* Internal hours never appear in the client-facing view. */}
+        {!readOnly && (
+          <Stat
+            label="Time invested"
+            value={trackedSeconds ? formatDurationShort(trackedSeconds) : "—"}
+          />
+        )}
       </div>
 
       <div className="mb-2 flex items-baseline justify-between">
@@ -97,7 +105,7 @@ export default function ClientDashboard({
                       <span className="tabular">{(eng * 100).toFixed(2)}%</span>
                     </span>
                   )}
-                  {hpk != null && (
+                  {!readOnly && hpk != null && (
                     <span title="Hours of tracked work per 1,000 views on this platform">
                       Hours / 1k views{" "}
                       <span className="tabular">{hpk.toFixed(2)}</span>
@@ -110,51 +118,66 @@ export default function ClientDashboard({
         </div>
       )}
 
-      {/* Hours are the honest stand-in until cost rates land in Phase 4 --
-          cost per 1,000 views needs a rate to multiply by. */}
-      <p className="-mt-4 mb-6 text-xs text-[var(--muted)]">
-        Hours per 1,000 views divides this client&apos;s total tracked time by
-        each platform&apos;s reach. It becomes cost per 1,000 views once cost
-        rates exist.
-      </p>
+      {!readOnly && (
+        <p className="-mt-4 mb-6 text-xs text-[var(--muted)]">
+          Hours per 1,000 views divides this client&apos;s total tracked time by
+          each platform&apos;s reach. It becomes cost per 1,000 views once cost
+          rates exist.
+        </p>
+      )}
+      {readOnly && <div className="mb-6" />}
 
       <h2 className="mb-2 text-sm font-semibold">Content</h2>
       <div className="card divide-y divide-[var(--border)] overflow-hidden">
-        {items.map((item) => (
-          <Link
-            key={item.id}
-            href={`/content/${item.id}`}
-            className="flex items-center gap-3 px-3 py-2 transition-colors hover:bg-[var(--bg-subtle)]"
-          >
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-sm">{item.title}</div>
-              {item.producedAt && (
-                <div className="text-xs text-[var(--muted)]">{item.producedAt}</div>
-              )}
-            </div>
-            <div className="flex shrink-0 items-center gap-1.5">
-              {item.platforms.length === 0 ? (
-                <span className="text-xs text-[var(--muted)]">not posted</span>
-              ) : (
-                item.platforms.map((p) => (
-                  <span
-                    key={p.platform}
-                    className="flex items-center gap-1 rounded bg-[var(--bg-subtle)] px-1.5 py-0.5 text-xs"
-                    title={`${p.platform}: ${p.views.toLocaleString()} views`}
-                  >
+        {items.map((item) => {
+          const inner = (
+            <>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm">{item.title}</div>
+                {item.producedAt && (
+                  <div className="text-xs text-[var(--muted)]">{item.producedAt}</div>
+                )}
+              </div>
+              <div className="flex shrink-0 items-center gap-1.5">
+                {item.platforms.length === 0 ? (
+                  <span className="text-xs text-[var(--muted)]">not posted</span>
+                ) : (
+                  item.platforms.map((p) => (
                     <span
-                      className="size-1.5 rounded-full"
-                      style={{
-                        background: PLATFORM_COLORS[p.platform] ?? "var(--muted)",
-                      }}
-                    />
-                    <span className="tabular">{p.views.toLocaleString()}</span>
-                  </span>
-                ))
-              )}
+                      key={p.platform}
+                      className="flex items-center gap-1 rounded bg-[var(--bg-subtle)] px-1.5 py-0.5 text-xs"
+                      title={`${p.platform}: ${p.views.toLocaleString()} views`}
+                    >
+                      <span
+                        className="size-1.5 rounded-full"
+                        style={{
+                          background: PLATFORM_COLORS[p.platform] ?? "var(--muted)",
+                        }}
+                      />
+                      <span className="tabular">{p.views.toLocaleString()}</span>
+                    </span>
+                  ))
+                )}
+              </div>
+            </>
+          );
+
+          // Clients have no content detail page to open -- that view carries
+          // credits and internal notes.
+          return readOnly ? (
+            <div key={item.id} className="flex items-center gap-3 px-3 py-2">
+              {inner}
             </div>
-          </Link>
-        ))}
+          ) : (
+            <Link
+              key={item.id}
+              href={`/content/${item.id}`}
+              className="flex items-center gap-3 px-3 py-2 transition-colors hover:bg-[var(--bg-subtle)]"
+            >
+              {inner}
+            </Link>
+          );
+        })}
       </div>
     </>
   );

@@ -208,6 +208,121 @@ async function mkUser(email) {
   });
   check("B cannot inject content into A", !!bInject, bInject ? "" : "INSERT SUCCEEDED");
 
+  /* -- Phase 5: client portal isolation --------------------------------- */
+  //
+  // A client user is an external party with a login. They must see their own
+  // content and nothing else -- not other clients, not time, not money, not
+  // the staff roster. This is the highest-stakes boundary in the app.
+
+  // Second client in tenant A, with its own content.
+  const { data: otherClient } = await a.client.from("clients")
+    .insert({ workspace_id: wsA.id, name: "Other Client A" }).select().single();
+  const { data: otherItem } = await a.client.from("content_items")
+    .insert({
+      workspace_id: wsA.id, client_id: otherClient.id,
+      title: "Other client secret content",
+    }).select().single();
+
+  const clientUser = await mkUser(`rls-c-${stamp}@example.com`);
+  const { error: linkErr } = await admin.rpc("set_client_membership", {
+    ws: wsA.id, target_user: clientUser.id, target_client: clientA.id,
+  });
+  // The RPC runs as the caller; use a direct insert with the service role.
+  if (linkErr) {
+    const { error: insErr } = await admin.from("memberships").insert({
+      workspace_id: wsA.id, user_id: clientUser.id,
+      role: "client", seat: "limited", client_id: clientA.id,
+    });
+    check("client membership can be created", !insErr, insErr?.message);
+  } else {
+    check("client membership can be created", true);
+  }
+
+  const cc = clientUser.client;
+
+  // Sees its own.
+  const { data: ownClients } = await cc.from("clients").select("*");
+  check("client sees only its own client row",
+    ownClients?.length === 1 && ownClients[0].id === clientA.id,
+    `saw ${ownClients?.length}`);
+
+  const { data: ownContent } = await cc.from("content_items").select("*");
+  check("client sees its own content",
+    ownContent?.some((c) => c.id === item.id) === true);
+  check("client cannot see another client's content",
+    !ownContent?.some((c) => c.id === otherItem.id),
+    `saw ${ownContent?.length} items`);
+
+  const { data: ownPosts } = await cc.from("platform_posts").select("*");
+  check("client sees its own posts", (ownPosts?.length ?? 0) === 1);
+
+  const { data: ownSnaps } = await cc.from("post_snapshots").select("*");
+  check("client sees its own snapshots", (ownSnaps?.length ?? 0) >= 1);
+
+  const { data: ownAcc } = await cc.from("accounts").select("*");
+  check("client sees its own accounts", (ownAcc?.length ?? 0) === 1);
+
+  // Must not see internal data.
+  const { data: cTime } = await cc.from("time_entries").select("*");
+  check("client sees no time entries at all", (cTime?.length ?? 0) === 0,
+    `saw ${cTime?.length}`);
+
+  const { data: cAssign } = await cc.from("content_assignments").select("*");
+  check("client cannot see staffing assignments", (cAssign?.length ?? 0) === 0);
+
+  const { data: cInv } = await cc.from("invoices").select("*");
+  check("client cannot see invoices", (cInv?.length ?? 0) === 0);
+
+  const { data: cExp } = await cc.from("expenses").select("*");
+  check("client cannot see expenses", (cExp?.length ?? 0) === 0);
+
+  const { data: cRates } = await cc.from("time_entry_billing").select("*");
+  check("client cannot see resolved rates", (cRates?.length ?? 0) === 0);
+
+  const { data: cProfiles } = await cc.from("profiles").select("*");
+  check("client cannot enumerate the team",
+    (cProfiles?.length ?? 0) <= 1, `saw ${cProfiles?.length} profiles`);
+
+  const { data: cMembers } = await cc.from("memberships").select("*");
+  check("client sees only its own membership",
+    (cMembers?.length ?? 0) === 1, `saw ${cMembers?.length}`);
+
+  const { data: cTasks } = await cc.from("tasks").select("*");
+  check("client cannot see internal tasks", (cTasks?.length ?? 0) === 0);
+
+  // Read-only: every write path must be refused.
+  const { error: cWrite } = await cc.from("content_items")
+    .insert({ workspace_id: wsA.id, client_id: clientA.id, title: "By client" });
+  check("client cannot create content", !!cWrite, cWrite ? "" : "INSERT SUCCEEDED");
+
+  const { data: cUpd } = await cc.from("content_items")
+    .update({ title: "renamed by client" }).eq("id", item.id).select();
+  check("client cannot edit content", (cUpd?.length ?? 0) === 0);
+
+  const { error: cSnap } = await cc.from("post_snapshots").insert({
+    workspace_id: wsA.id, platform_post_id: post.id, views: 999999,
+  });
+  check("client cannot record metrics", !!cSnap, cSnap ? "" : "INSERT SUCCEEDED");
+
+  const { error: cTimeIns } = await cc.from("time_entries").insert({
+    workspace_id: wsA.id, user_id: clientUser.id, description: "by client",
+    started_at: new Date().toISOString(),
+  });
+  check("client cannot track time", !!cTimeIns, cTimeIns ? "" : "INSERT SUCCEEDED");
+
+  // And still nothing from the other tenant.
+  const { data: cCross } = await cc.from("content_items").select("*")
+    .eq("workspace_id", wsB.id);
+  check("client cannot reach another workspace", (cCross?.length ?? 0) === 0);
+
+  // Staff are unaffected by the tightened policies.
+  const { data: staffClients } = await a.client.from("clients").select("*");
+  check("staff still see every client in their workspace",
+    (staffClients?.length ?? 0) === 2, `saw ${staffClients?.length}`);
+  const { data: staffContent } = await a.client.from("content_items").select("*");
+  check("staff still see every content item",
+    (staffContent?.length ?? 0) === 2, `saw ${staffContent?.length}`);
+
   // Anonymous access must see nothing at all.
   const anon = createClient(SUPABASE_URL, PUBLISHABLE, { auth: { persistSession: false } });
   const { data: anonWs } = await anon.from("workspaces").select("*");
@@ -232,6 +347,8 @@ async function mkUser(email) {
 
   // Cleanup. workspaces.owner_id is ON DELETE RESTRICT, so the workspace must
   // go first -- deleting the user alone fails silently and leaves orphans.
+  await admin.auth.admin.deleteUser(clientUser.id).catch(() => {});
+
   for (const [user, ws] of [
     [a, wsA],
     [b, wsB],

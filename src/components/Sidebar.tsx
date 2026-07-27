@@ -6,6 +6,18 @@ import { useState, useTransition } from "react";
 import { switchWorkspace, signOut } from "@/app/actions";
 import type { WorkspaceSummary } from "@/lib/workspace";
 
+/**
+ * A client user is an external party. They get one destination; every other
+ * route would 404 or come back empty under the Phase 5 policies anyway, and
+ * showing links to pages they cannot open reads as broken.
+ */
+const CLIENT_NAV = [
+  {
+    group: "Your account",
+    items: [{ href: "/portal", label: "Overview", icon: ChartIcon }],
+  },
+];
+
 const NAV = [
   {
     group: null,
@@ -122,7 +134,7 @@ export default function Sidebar({
       </div>
 
       <nav className="flex-1 overflow-y-auto px-2 pb-2">
-        {NAV.map((section, i) => (
+        {(active.role === "client" ? CLIENT_NAV : NAV).map((section, i) => (
           <div key={i} className="mb-4">
             {section.group && (
               <div className="px-3 pb-1 text-[11px] font-medium uppercase tracking-wide text-[var(--muted)]">

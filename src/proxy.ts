@@ -4,6 +4,11 @@ import { createServerClient } from "@supabase/ssr";
 const PUBLIC_PATHS = ["/login", "/auth"];
 
 export async function proxy(request: NextRequest) {
+  // Server Components cannot read the current path. Setting it on the request
+  // headers here is what makes it visible to the client-role guard in the app
+  // layout, so it must happen before any response is constructed.
+  request.headers.set("x-pathname", request.nextUrl.pathname);
+
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(
