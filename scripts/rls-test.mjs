@@ -137,12 +137,87 @@ async function mkUser(email) {
     .delete().eq("workspace_id", wsA.id).select();
   check("B cannot delete A's entries", (bDel?.length ?? 0) === 0);
 
+  // --- Phase 2 content layer ---
+  const { data: acct, error: acctErr } = await a.client
+    .from("accounts")
+    .insert({
+      workspace_id: wsA.id,
+      client_id: clientA.id,
+      platform_slug: "instagram",
+      handle: "@tenant_a",
+    })
+    .select()
+    .single();
+  check("owner can create an account", !acctErr && !!acct, acctErr?.message);
+
+  const { data: item, error: itemErr } = await a.client
+    .from("content_items")
+    .insert({ workspace_id: wsA.id, client_id: clientA.id, title: "Secret content A" })
+    .select()
+    .single();
+  check("owner can create content", !itemErr && !!item, itemErr?.message);
+
+  const { data: post, error: postErr } = await a.client
+    .from("platform_posts")
+    .insert({
+      workspace_id: wsA.id,
+      content_item_id: item.id,
+      account_id: acct.id,
+      source: "manual",
+    })
+    .select()
+    .single();
+  check("owner can create a post", !postErr && !!post, postErr?.message);
+
+  const { error: snapErr } = await a.client.from("post_snapshots").insert({
+    workspace_id: wsA.id,
+    platform_post_id: post.id,
+    views: 12345,
+    likes: 678,
+  });
+  check("owner can record a snapshot", !snapErr, snapErr?.message);
+
+  // The platform registry is shared reference data, readable by everyone.
+  const { data: plats } = await b.client.from("platforms").select("slug");
+  check("registry readable by any member", (plats?.length ?? 0) >= 4);
+  const { error: platWrite } = await b.client
+    .from("platforms")
+    .insert({ slug: "rogue", display_name: "Rogue" });
+  check("registry not writable by members", !!platWrite, platWrite ? "" : "INSERT SUCCEEDED");
+
+  // Isolation across the new tables.
+  const { data: bAcc } = await b.client.from("accounts").select("*");
+  check("B cannot read A's accounts", (bAcc?.length ?? 0) === 0);
+  const { data: bItems } = await b.client.from("content_items").select("*");
+  check("B cannot read A's content", (bItems?.length ?? 0) === 0);
+  const { data: bPosts } = await b.client.from("platform_posts").select("*");
+  check("B cannot read A's posts", (bPosts?.length ?? 0) === 0);
+  const { data: bSnaps } = await b.client.from("post_snapshots").select("*");
+  check("B cannot read A's snapshots", (bSnaps?.length ?? 0) === 0);
+
+  // The metrics view must be filtered by the caller's RLS, not the view
+  // owner's -- this is what security_invoker buys.
+  const { data: bMetrics } = await b.client.from("post_current_metrics").select("*");
+  check("metrics view does not leak across tenants", (bMetrics?.length ?? 0) === 0);
+  const { data: aMetrics } = await a.client.from("post_current_metrics").select("*");
+  check("metrics view returns own rows", (aMetrics?.length ?? 0) === 1);
+
+  const { error: bInject } = await b.client.from("content_items").insert({
+    workspace_id: wsA.id,
+    title: "Injected by B",
+  });
+  check("B cannot inject content into A", !!bInject, bInject ? "" : "INSERT SUCCEEDED");
+
   // Anonymous access must see nothing at all.
   const anon = createClient(SUPABASE_URL, PUBLISHABLE, { auth: { persistSession: false } });
   const { data: anonWs } = await anon.from("workspaces").select("*");
   check("anonymous reads no workspaces", (anonWs?.length ?? 0) === 0);
   const { data: anonTe } = await anon.from("time_entries").select("*");
   check("anonymous reads no time entries", (anonTe?.length ?? 0) === 0);
+  const { data: anonContent } = await anon.from("content_items").select("*");
+  check("anonymous reads no content", (anonContent?.length ?? 0) === 0);
+  const { data: anonMetrics } = await anon.from("post_current_metrics").select("*");
+  check("anonymous reads no metrics", (anonMetrics?.length ?? 0) === 0);
 
   // One running timer per user.
   await a.client.from("time_entries").insert({
@@ -155,9 +230,19 @@ async function mkUser(email) {
   });
   check("second concurrent timer rejected", !!dupTimer, dupTimer ? "" : "ALLOWED TWO TIMERS");
 
-  // Cleanup
-  await admin.auth.admin.deleteUser(a.id);
-  await admin.auth.admin.deleteUser(b.id);
+  // Cleanup. workspaces.owner_id is ON DELETE RESTRICT, so the workspace must
+  // go first -- deleting the user alone fails silently and leaves orphans.
+  for (const [user, ws] of [
+    [a, wsA],
+    [b, wsB],
+  ]) {
+    if (ws) {
+      const { error } = await admin.from("workspaces").delete().eq("id", ws.id);
+      if (error) console.log(`  cleanup: workspace ${ws.id} -> ${error.message}`);
+    }
+    const { error } = await admin.auth.admin.deleteUser(user.id);
+    if (error) console.log(`  cleanup: user ${user.id} -> ${error.message}`);
+  }
 
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);

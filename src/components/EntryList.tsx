@@ -16,9 +16,11 @@ import type { TimeEntry } from "@/lib/types";
 export default function EntryList({
   entries,
   workspaceId,
+  contentItems = [],
 }: {
   entries: TimeEntry[];
   workspaceId: string;
+  contentItems?: { id: string; title: string }[];
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -117,18 +119,43 @@ export default function EntryList({
                       </button>
                     )}
 
-                    {e.project && (
-                      <div className="mt-0.5 flex items-center gap-1.5 text-xs text-[var(--muted)]">
-                        <span
-                          className="size-2 shrink-0 rounded-full"
-                          style={{ background: e.project.color }}
-                        />
-                        <span className="truncate">
-                          {e.project.name}
-                          {e.task ? `: ${e.task.name}` : ""}
+                    <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-[var(--muted)]">
+                      {e.project && (
+                        <span className="flex items-center gap-1.5">
+                          <span
+                            className="size-2 shrink-0 rounded-full"
+                            style={{ background: e.project.color }}
+                          />
+                          <span className="truncate">
+                            {e.project.name}
+                            {e.task ? `: ${e.task.name}` : ""}
+                          </span>
                         </span>
-                      </div>
-                    )}
+                      )}
+
+                      {/* The join: attaching an entry to content is what makes
+                          hours-per-video and cost-per-1k-views possible. */}
+                      {contentItems.length > 0 && (
+                        <select
+                          className="rounded border border-transparent bg-transparent px-1 py-0.5 text-xs text-[var(--muted)] transition-colors hover:border-[var(--border)] hover:text-[var(--fg)]"
+                          value={e.content_item_id ?? ""}
+                          onChange={async (ev) => {
+                            await updateEntry(e.id, {
+                              contentItemId: ev.target.value || null,
+                            });
+                            startTransition(() => router.refresh());
+                          }}
+                          aria-label="Link to content"
+                        >
+                          <option value="">— no content —</option>
+                          {contentItems.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.title}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
                   </div>
 
                   <div className="hidden shrink-0 text-xs text-[var(--muted)] sm:block">

@@ -16,7 +16,7 @@ export default function SimpleListManager({
   onCreate,
 }: {
   rows: Row[];
-  table: "clients" | "tags";
+  table: "clients" | "tags" | "accounts";
   addLabel: string;
   placeholder: string;
   emptyText: string;

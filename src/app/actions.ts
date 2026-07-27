@@ -150,6 +150,7 @@ export async function updateEntry(
     description?: string;
     projectId?: string | null;
     taskId?: string | null;
+    contentItemId?: string | null;
     startedAt?: string;
     endedAt?: string;
     isBillable?: boolean;
@@ -160,6 +161,7 @@ export async function updateEntry(
   if (patch.description !== undefined) row.description = patch.description;
   if (patch.projectId !== undefined) row.project_id = patch.projectId;
   if (patch.taskId !== undefined) row.task_id = patch.taskId;
+  if (patch.contentItemId !== undefined) row.content_item_id = patch.contentItemId;
   if (patch.startedAt !== undefined) row.started_at = patch.startedAt;
   if (patch.endedAt !== undefined) row.ended_at = patch.endedAt;
   if (patch.isBillable !== undefined) row.is_billable = patch.isBillable;
@@ -237,9 +239,180 @@ export async function createTag(workspaceId: string, name: string): Promise<Resu
   return {};
 }
 
+/* ---- Phase 2: accounts, content, posts, metrics ------------------------- */
+
+export async function createAccount(input: {
+  workspaceId: string;
+  clientId: string | null;
+  platformSlug: string;
+  handle: string;
+}): Promise<Result> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("accounts").insert({
+    workspace_id: input.workspaceId,
+    client_id: input.clientId,
+    platform_slug: input.platformSlug,
+    handle: input.handle.trim(),
+  });
+  if (error) {
+    if (error.code === "23505")
+      return { error: "That handle already exists for this platform." };
+    return { error: error.message };
+  }
+  revalidatePath("/accounts");
+  return {};
+}
+
+export async function createContentItem(input: {
+  workspaceId: string;
+  clientId: string | null;
+  title: string;
+  subject: string | null;
+  hook: string | null;
+  lengthSeconds: number | null;
+  producedAt: string | null;
+}): Promise<Result> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("content_items").insert({
+    workspace_id: input.workspaceId,
+    client_id: input.clientId,
+    title: input.title.trim(),
+    subject: input.subject,
+    hook: input.hook,
+    length_seconds: input.lengthSeconds,
+    produced_at: input.producedAt,
+  });
+  if (error) return { error: error.message };
+  revalidatePath("/content");
+  return {};
+}
+
+export async function updateContentItem(
+  id: string,
+  patch: Record<string, unknown>,
+): Promise<Result> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("content_items").update(patch).eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/content");
+  return {};
+}
+
+export async function deleteContentItem(id: string): Promise<Result> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("content_items").delete().eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/content");
+  return {};
+}
+
+/** Attaches a content item to a platform account -- one row per platform. */
+export async function addPlatformPost(input: {
+  workspaceId: string;
+  contentItemId: string;
+  accountId: string;
+  url: string | null;
+  postedAt: string | null;
+}): Promise<Result> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("platform_posts").insert({
+    workspace_id: input.workspaceId,
+    content_item_id: input.contentItemId,
+    account_id: input.accountId,
+    url: input.url,
+    posted_at: input.postedAt,
+    source: "manual",
+  });
+  if (error) {
+    if (error.code === "23505")
+      return { error: "This content is already posted to that account." };
+    return { error: error.message };
+  }
+  revalidatePath("/content");
+  return {};
+}
+
+export async function updatePlatformPost(
+  id: string,
+  patch: Record<string, unknown>,
+): Promise<Result> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("platform_posts").update(patch).eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/content");
+  return {};
+}
+
+export async function deletePlatformPost(id: string): Promise<Result> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("platform_posts").delete().eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/content");
+  return {};
+}
+
+/**
+ * Records metrics as a new snapshot rather than overwriting. Scoring evaluates
+ * at a fixed maturity window, which needs the history (PRD 5 Step 1).
+ */
+export async function recordSnapshot(input: {
+  workspaceId: string;
+  platformPostId: string;
+  views: number | null;
+  likes: number | null;
+  comments: number | null;
+  shares: number | null;
+  saves: number | null;
+}): Promise<Result> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("post_snapshots").insert({
+    workspace_id: input.workspaceId,
+    platform_post_id: input.platformPostId,
+    views: input.views,
+    likes: input.likes,
+    comments: input.comments,
+    shares: input.shares,
+    saves: input.saves,
+    source: "manual",
+  });
+  if (error) return { error: error.message };
+  revalidatePath("/content");
+  return {};
+}
+
+export async function assignRole(input: {
+  workspaceId: string;
+  contentItemId: string;
+  userId: string;
+  roleId: string;
+}): Promise<Result> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("content_assignments").insert({
+    workspace_id: input.workspaceId,
+    content_item_id: input.contentItemId,
+    user_id: input.userId,
+    role_id: input.roleId,
+    source: "manual",
+  });
+  if (error) {
+    if (error.code === "23505") return { error: "Already assigned." };
+    return { error: error.message };
+  }
+  revalidatePath("/content");
+  return {};
+}
+
+export async function unassignRole(id: string): Promise<Result> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("content_assignments").delete().eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/content");
+  return {};
+}
+
 /** Archive rather than delete: entries reference these rows as history. */
 export async function setArchived(
-  table: "clients" | "projects" | "tasks" | "tags",
+  table: "clients" | "projects" | "tasks" | "tags" | "accounts",
   id: string,
   archived: boolean,
 ): Promise<Result> {

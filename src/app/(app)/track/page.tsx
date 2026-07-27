@@ -5,10 +5,11 @@ import { requireSession } from "@/lib/workspace";
 import type { Project, Task, TimeEntry } from "@/lib/types";
 
 const ENTRY_SELECT = `
-  id, workspace_id, user_id, project_id, task_id, description,
+  id, workspace_id, user_id, project_id, task_id, content_item_id, description,
   started_at, ended_at, duration_seconds, is_billable,
   project:projects(id, name, color, client:clients(id, name)),
-  task:tasks(id, name)
+  task:tasks(id, name),
+  content:content_items(id, title)
 `;
 
 export default async function TrackPage() {
@@ -16,7 +17,7 @@ export default async function TrackPage() {
   const supabase = await createClient();
   const ws = session.active.id;
 
-  const [projectsRes, tasksRes, runningRes, entriesRes] = await Promise.all([
+  const [projectsRes, tasksRes, runningRes, entriesRes, contentRes] = await Promise.all([
     supabase
       .from("projects")
       .select("id, workspace_id, client_id, name, color, is_billable, is_archived, client:clients(id, name)")
@@ -44,6 +45,12 @@ export default async function TrackPage() {
       .not("ended_at", "is", null)
       .order("started_at", { ascending: false })
       .limit(100),
+    supabase
+      .from("content_items")
+      .select("id, title")
+      .eq("workspace_id", ws)
+      .order("produced_at", { ascending: false, nullsFirst: false })
+      .limit(200),
   ]);
 
   const projects = (projectsRes.data ?? []) as unknown as Project[];
@@ -62,7 +69,11 @@ export default async function TrackPage() {
         tasks={tasks}
         running={running}
       />
-      <EntryList entries={entries} workspaceId={ws} />
+      <EntryList
+        entries={entries}
+        workspaceId={ws}
+        contentItems={(contentRes.data ?? []) as { id: string; title: string }[]}
+      />
     </div>
   );
 }

@@ -22,6 +22,13 @@ const NAV = [
     ],
   },
   {
+    group: "Content",
+    items: [
+      { href: "/content", label: "Content", icon: PlayIcon },
+      { href: "/accounts", label: "Accounts", icon: ShareIcon },
+    ],
+  },
+  {
     group: "Manage",
     items: [
       { href: "/projects", label: "Projects", icon: FolderIcon },
@@ -174,6 +181,12 @@ function TagIcon() {
 }
 function UsersIcon() {
   return <svg {...s}><circle cx="9" cy="8" r="3.2" /><path d="M2.5 20a6.5 6.5 0 0 1 13 0M17 11a3 3 0 1 0 0-6M18 20a6.4 6.4 0 0 0-2-4.6" /></svg>;
+}
+function PlayIcon() {
+  return <svg {...s}><rect x="2.5" y="5" width="19" height="14" rx="2.5" /><path d="M10.5 9.5v5l4.5-2.5z" /></svg>;
+}
+function ShareIcon() {
+  return <svg {...s}><circle cx="18" cy="5" r="2.6" /><circle cx="6" cy="12" r="2.6" /><circle cx="18" cy="19" r="2.6" /><path d="M8.4 10.8 15.6 6.4M8.4 13.2l7.2 4.4" /></svg>;
 }
 function ChevronIcon({ className = "" }: { className?: string }) {
   return <svg {...s} width={13} height={13} className={`shrink-0 transition-transform duration-150 ${className}`}><path d="m6 9 6 6 6-6" /></svg>;

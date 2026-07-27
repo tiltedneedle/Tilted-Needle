@@ -60,6 +60,7 @@ export type TimeEntry = {
   user_id: string;
   project_id: string | null;
   task_id: string | null;
+  content_item_id: string | null;
   description: string;
   started_at: string;
   ended_at: string | null;
@@ -69,6 +70,105 @@ export type TimeEntry = {
     client?: Pick<Client, "id" | "name"> | null;
   } | null;
   task?: Pick<Task, "id" | "name"> | null;
+  content?: { id: string; title: string } | null;
+};
+
+/* ---- Phase 2: multi-platform content ---------------------------------- */
+
+export type Platform = {
+  slug: string;
+  display_name: string;
+  auth_model: "none" | "oauth" | "oauth_review";
+  supports_public_read: boolean;
+  view_semantics: string;
+  available_metrics: string[];
+  maturity_window_days: number;
+  sort_order: number;
+};
+
+export type Account = {
+  id: string;
+  workspace_id: string;
+  client_id: string | null;
+  platform_slug: string;
+  handle: string;
+  connection_mode: string;
+  is_archived: boolean;
+  client?: Pick<Client, "id" | "name"> | null;
+};
+
+export type ContentItem = {
+  id: string;
+  workspace_id: string;
+  client_id: string | null;
+  title: string;
+  subject: string | null;
+  hook: string | null;
+  music_used: string | null;
+  length_seconds: number | null;
+  produced_at: string | null;
+  notes: string | null;
+  client?: Pick<Client, "id" | "name"> | null;
+};
+
+export type PostMetrics = {
+  views: number | null;
+  likes: number | null;
+  comments: number | null;
+  shares: number | null;
+  saves: number | null;
+  reach: number | null;
+  captured_at: string;
+};
+
+export type PlatformPost = {
+  id: string;
+  workspace_id: string;
+  content_item_id: string;
+  account_id: string;
+  url: string | null;
+  posted_at: string | null;
+  source: string;
+  is_best_performing: boolean;
+  comment_sentiment: string | null;
+  // Embedded relations may arrive as arrays -- unwrap with one().
+  account?: Account | Account[] | null;
+  metrics?: PostMetrics | PostMetrics[] | null;
+};
+
+export type Role = {
+  id: string;
+  workspace_id: string;
+  slug: string;
+  name: string;
+  sort_order: number;
+};
+
+export type ContentAssignment = {
+  id: string;
+  content_item_id: string;
+  user_id: string;
+  role_id: string;
+  source: string;
+  profile?: { full_name: string | null } | null;
+};
+
+/**
+ * PostgREST returns embedded rows from a *view* as an array, because a view
+ * carries no unique constraint to prove the relationship is one-to-one.
+ * post_current_metrics is one row per post by construction, so unwrap it.
+ */
+export function one<T>(embedded: T | T[] | null | undefined): T | null {
+  if (Array.isArray(embedded)) return embedded[0] ?? null;
+  return embedded ?? null;
+}
+
+/** Platform brand colours, for chips and legends only -- never for data encoding. */
+export const PLATFORM_COLORS: Record<string, string> = {
+  instagram: "#e1306c",
+  tiktok: "#00f2ea",
+  youtube: "#ff0000",
+  facebook: "#1877f2",
 };
 
 /** Managers and above can see the whole workspace and edit others' entries. */
