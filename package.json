@@ -12,7 +12,9 @@
     "db:push": "node scripts/db.mjs db push",
     "db:new": "supabase migration new",
     "test:rls": "node scripts/rls-test.mjs",
-    "test:scoring": "node scripts/scoring-test.mjs"
+    "test:scoring": "node scripts/scoring-test.mjs",
+    "test:billing": "node scripts/billing-test.mjs",
+    "test": "node scripts/scoring-test.mjs && node scripts/billing-test.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.3",

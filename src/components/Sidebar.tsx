@@ -30,6 +30,14 @@ const NAV = [
     ],
   },
   {
+    group: "Billing",
+    items: [
+      { href: "/invoices", label: "Invoices", icon: InvoiceIcon },
+      { href: "/expenses", label: "Expenses", icon: ReceiptIcon },
+      { href: "/rates", label: "Rates", icon: RateIcon },
+    ],
+  },
+  {
     group: "Manage",
     items: [
       { href: "/projects", label: "Projects", icon: FolderIcon },
@@ -185,6 +193,15 @@ function UsersIcon() {
 }
 function PlayIcon() {
   return <svg {...s}><rect x="2.5" y="5" width="19" height="14" rx="2.5" /><path d="M10.5 9.5v5l4.5-2.5z" /></svg>;
+}
+function InvoiceIcon() {
+  return <svg {...s}><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z" /><path d="M9 8h6M9 12h6" /></svg>;
+}
+function ReceiptIcon() {
+  return <svg {...s}><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 8h8M8 12h8M8 16h4" /></svg>;
+}
+function RateIcon() {
+  return <svg {...s}><circle cx="12" cy="12" r="9" /><path d="M14.5 9.2a2.6 2.6 0 0 0-2.5-1.4c-1.5 0-2.4.8-2.4 1.9 0 2.6 5.1 1.4 5.1 4 0 1.2-1 2.1-2.7 2.1a2.9 2.9 0 0 1-2.7-1.5M12 6.2v11.6" /></svg>;
 }
 function TrophyIcon() {
   return <svg {...s}><path d="M7 4h10v5a5 5 0 0 1-10 0z" /><path d="M7 6H4.5v1.5A3.5 3.5 0 0 0 8 11M17 6h2.5v1.5A3.5 3.5 0 0 1 16 11" /><path d="M12 14v3M9 20h6M10 17h4" /></svg>;

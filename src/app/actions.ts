@@ -410,6 +410,282 @@ export async function unassignRole(id: string): Promise<Result> {
   return {};
 }
 
+/* ---- Phase 4: rates, expenses, invoices --------------------------------- */
+
+/** Empty string clears a rate so it falls through to the next level. */
+function toRate(v: string): number | null {
+  const t = v.trim();
+  if (t === "") return null;
+  const n = Number(t);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+export async function updateWorkspaceBilling(
+  workspaceId: string,
+  defaultRate: string,
+  currency: string,
+): Promise<Result> {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("workspaces")
+    .update({
+      default_billable_rate: toRate(defaultRate),
+      currency: currency.trim().toUpperCase() || "USD",
+    })
+    .eq("id", workspaceId);
+  if (error) return { error: error.message };
+  revalidatePath("/rates");
+  return {};
+}
+
+export async function updateMemberRates(
+  membershipId: string,
+  billable: string,
+  cost: string,
+): Promise<Result> {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("memberships")
+    .update({ billable_rate: toRate(billable), cost_rate: toRate(cost) })
+    .eq("id", membershipId);
+  if (error) return { error: error.message };
+  revalidatePath("/rates");
+  return {};
+}
+
+export async function updateProjectBilling(
+  projectId: string,
+  patch: { billable_rate?: string; budget_amount?: string; budget_hours?: string },
+): Promise<Result> {
+  const supabase = await createClient();
+  const row: Record<string, number | null> = {};
+  if (patch.billable_rate !== undefined) row.billable_rate = toRate(patch.billable_rate);
+  if (patch.budget_amount !== undefined) row.budget_amount = toRate(patch.budget_amount);
+  if (patch.budget_hours !== undefined) row.budget_hours = toRate(patch.budget_hours);
+  const { error } = await supabase.from("projects").update(row).eq("id", projectId);
+  if (error) return { error: error.message };
+  revalidatePath("/projects");
+  revalidatePath("/rates");
+  return {};
+}
+
+export async function createExpense(input: {
+  workspaceId: string;
+  projectId: string | null;
+  category: string;
+  notes: string;
+  amount: number;
+  spentOn: string;
+  isBillable: boolean;
+}): Promise<Result> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+  if (!(input.amount > 0)) return { error: "Amount must be greater than zero." };
+
+  const { error } = await supabase.from("expenses").insert({
+    workspace_id: input.workspaceId,
+    project_id: input.projectId,
+    user_id: user.id,
+    category: input.category.trim() || null,
+    notes: input.notes.trim() || null,
+    amount: input.amount,
+    spent_on: input.spentOn,
+    is_billable: input.isBillable,
+  });
+  if (error) return { error: error.message };
+  revalidatePath("/expenses");
+  return {};
+}
+
+export async function deleteExpense(id: string): Promise<Result> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("expenses").delete().eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/expenses");
+  return {};
+}
+
+/**
+ * Builds an invoice from everything unbilled for a client, then marks those
+ * rows as invoiced so a second run cannot bill them again.
+ *
+ * Time is grouped by resolved rate rather than listed per entry: a month of
+ * tracking is hundreds of rows, and a client wants "112h at $50", not a ledger.
+ */
+export async function generateInvoice(input: {
+  workspaceId: string;
+  clientId: string;
+  upToDate: string;
+}): Promise<Result & { invoiceId?: string }> {
+  const supabase = await createClient();
+
+  const { data: ws } = await supabase
+    .from("workspaces")
+    .select("currency")
+    .eq("id", input.workspaceId)
+    .maybeSingle();
+
+  const { data: projects } = await supabase
+    .from("projects")
+    .select("id, name")
+    .eq("workspace_id", input.workspaceId)
+    .eq("client_id", input.clientId);
+
+  const projectIds = (projects ?? []).map((p) => p.id);
+  if (projectIds.length === 0)
+    return { error: "This client has no projects, so there is nothing to bill." };
+
+  const { data: entries } = await supabase
+    .from("time_entries")
+    .select("id, project_id, duration_seconds, is_billable")
+    .eq("workspace_id", input.workspaceId)
+    .in("project_id", projectIds)
+    .is("invoice_id", null)
+    .eq("is_billable", true)
+    .not("ended_at", "is", null)
+    .lte("started_at", `${input.upToDate}T23:59:59`);
+
+  const { data: expenses } = await supabase
+    .from("expenses")
+    .select("id, project_id, amount, category, notes")
+    .eq("workspace_id", input.workspaceId)
+    .in("project_id", projectIds)
+    .is("invoice_id", null)
+    .eq("is_billable", true)
+    .lte("spent_on", input.upToDate);
+
+  const billableEntries = entries ?? [];
+  const billableExpenses = expenses ?? [];
+  if (billableEntries.length === 0 && billableExpenses.length === 0)
+    return { error: "Nothing unbilled for this client up to that date." };
+
+  // One query for every rate. Resolving per entry meant a round trip per row.
+  const rates = new Map<string, number>();
+  const { data: rateRows } = await supabase
+    .from("time_entry_billing")
+    .select("time_entry_id, billable_rate")
+    .in(
+      "time_entry_id",
+      billableEntries.map((e) => e.id),
+    );
+  for (const r of (rateRows ?? []) as {
+    time_entry_id: string;
+    billable_rate: number | null;
+  }[]) {
+    if (r.billable_rate != null) rates.set(r.time_entry_id, Number(r.billable_rate));
+  }
+
+  const projectName = new Map((projects ?? []).map((p) => [p.id, p.name]));
+  const grouped = new Map<string, { seconds: number; rate: number; project: string }>();
+  for (const e of billableEntries) {
+    const rate = rates.get(e.id);
+    if (rate == null) continue; // No rate configured -- excluded, not billed at 0.
+    const key = `${e.project_id}::${rate}`;
+    if (!grouped.has(key))
+      grouped.set(key, {
+        seconds: 0,
+        rate,
+        project: projectName.get(e.project_id ?? "") ?? "Work",
+      });
+    grouped.get(key)!.seconds += e.duration_seconds ?? 0;
+  }
+
+  if (grouped.size === 0 && billableExpenses.length === 0)
+    return {
+      error:
+        "Unbilled time exists but no billable rate is configured, so nothing could be priced.",
+    };
+
+  const { data: existing } = await supabase
+    .from("invoices")
+    .select("number")
+    .eq("workspace_id", input.workspaceId);
+
+  const { nextInvoiceNumber } = await import("@/lib/billing");
+  const number = nextInvoiceNumber((existing ?? []).map((i) => i.number));
+
+  const { data: invoice, error: invErr } = await supabase
+    .from("invoices")
+    .insert({
+      workspace_id: input.workspaceId,
+      client_id: input.clientId,
+      number,
+      currency: ws?.currency ?? "USD",
+    })
+    .select()
+    .single();
+  if (invErr || !invoice) return { error: invErr?.message ?? "Could not create invoice." };
+
+  let sort = 0;
+  const lines = [...grouped.values()].map((g) => ({
+    workspace_id: input.workspaceId,
+    invoice_id: invoice.id,
+    description: `${g.project} — time`,
+    quantity: Number((g.seconds / 3600).toFixed(2)),
+    unit_amount: g.rate,
+    sort_order: sort++,
+  }));
+
+  for (const x of billableExpenses) {
+    lines.push({
+      workspace_id: input.workspaceId,
+      invoice_id: invoice.id,
+      description: x.category
+        ? `${x.category}${x.notes ? ` — ${x.notes}` : ""}`
+        : (x.notes ?? "Expense"),
+      quantity: 1,
+      unit_amount: Number(x.amount),
+      sort_order: sort++,
+    });
+  }
+
+  const { error: lineErr } = await supabase.from("invoice_lines").insert(lines);
+  if (lineErr) {
+    // Roll back rather than leave an invoice with no lines behind.
+    await supabase.from("invoices").delete().eq("id", invoice.id);
+    return { error: lineErr.message };
+  }
+
+  const billedEntryIds = billableEntries
+    .filter((e) => rates.has(e.id))
+    .map((e) => e.id);
+  if (billedEntryIds.length)
+    await supabase
+      .from("time_entries")
+      .update({ invoice_id: invoice.id })
+      .in("id", billedEntryIds);
+  if (billableExpenses.length)
+    await supabase
+      .from("expenses")
+      .update({ invoice_id: invoice.id })
+      .in("id", billableExpenses.map((x) => x.id));
+
+  revalidatePath("/invoices");
+  return { invoiceId: invoice.id };
+}
+
+export async function updateInvoiceStatus(id: string, status: string): Promise<Result> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("invoices").update({ status }).eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/invoices");
+  return {};
+}
+
+/** Releases the billed time and expenses so they can be invoiced again. */
+export async function deleteInvoice(id: string): Promise<Result> {
+  const supabase = await createClient();
+  await supabase.from("time_entries").update({ invoice_id: null }).eq("invoice_id", id);
+  await supabase.from("expenses").update({ invoice_id: null }).eq("invoice_id", id);
+  const { error } = await supabase.from("invoices").delete().eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/invoices");
+  return {};
+}
+
 /** Archive rather than delete: entries reference these rows as history. */
 export async function setArchived(
   table: "clients" | "projects" | "tasks" | "tags" | "accounts",
