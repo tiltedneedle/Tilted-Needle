@@ -74,18 +74,33 @@ export default function FilterBar({
       ))}
 
       {searchKey && (
-        <input
-          className="input max-w-[200px] py-1.5 text-sm"
-          placeholder={searchPlaceholder}
-          defaultValue={searchValue ?? ""}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") set(searchKey, (e.target as HTMLInputElement).value);
+        // A real form, so Enter submits natively rather than depending on a
+        // keydown handler -- which is both the accessible default and one
+        // less thing to get wrong.
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            const input = e.currentTarget.elements.namedItem("q") as HTMLInputElement;
+            set(searchKey, input.value);
           }}
-          onBlur={(e) => {
-            if (e.target.value !== (searchValue ?? "")) set(searchKey, e.target.value);
-          }}
-          aria-label={searchPlaceholder}
-        />
+        >
+          <input
+            // Keyed on the committed value: the box is uncontrolled so typing
+            // does not navigate on every keystroke, but it must still reset
+            // when the URL changes underneath it -- clearing a chip, or
+            // pressing Clear all, otherwise leaves stale text sitting there.
+            key={searchValue ?? ""}
+            name="q"
+            type="search"
+            className="input max-w-[200px] py-1.5 text-sm"
+            placeholder={searchPlaceholder}
+            defaultValue={searchValue ?? ""}
+            onBlur={(e) => {
+              if (e.target.value !== (searchValue ?? "")) set(searchKey, e.target.value);
+            }}
+            aria-label={searchPlaceholder}
+          />
+        </form>
       )}
 
       <div className="flex-1" />
