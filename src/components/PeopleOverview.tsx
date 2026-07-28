@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { formatDurationShort } from "@/lib/format";
+import { datedName, downloadCsv, toCsv } from "@/lib/exportCsv";
 import { asMultiplier, tierFor, TIER_LABELS, type Tier } from "@/lib/scoring";
 import { PLATFORM_COLORS } from "@/lib/types";
 import { Empty, SectionHeading } from "@/components/Stat";
@@ -23,6 +24,44 @@ const SORTS = [
   { key: "time", label: "Hours" },
 ] as const;
 type SortKey = (typeof SORTS)[number]["key"];
+
+/**
+ * One row per person per content role, because a single blended score across
+ * roles is exactly the number this product refuses to present. Sample size
+ * travels with every score so a 1.8x from two posts cannot be read as
+ * equivalent to a 1.8x from twenty.
+ */
+function exportPeople(rows: Data["people"]) {
+  const out: unknown[][] = [];
+  for (const p of rows) {
+    const base = [p.name, p.workspaceRole, p.seat, p.isActive ? "active" : "deactivated",
+      p.groups.join(" / "), p.videoCount, p.ongoingCount,
+      (p.trackedSeconds / 3600).toFixed(2), p.capacityHours];
+    if (p.byRole.length === 0) {
+      out.push([...base, "", "", "", ""]);
+      continue;
+    }
+    for (const r of p.byRole) {
+      const n = r.platforms.reduce((s, x) => s + x.n, 0);
+      out.push([
+        ...base,
+        r.roleName,
+        r.overall != null ? asMultiplier(r.overall).toFixed(2) : "",
+        n,
+        r.platforms.map((x) => `${x.platform}:${x.rankable ? asMultiplier(x.score).toFixed(2) : "n/a"}`).join(" "),
+      ]);
+    }
+  }
+  downloadCsv(
+    datedName("people"),
+    toCsv(
+      ["Name", "Workspace role", "Seat", "Status", "Groups", "Videos", "Ongoing",
+        "Hours tracked", "Weekly capacity", "Content role", "Overall", "Sample size",
+        "Per platform"],
+      out,
+    ),
+  );
+}
 
 export default function PeopleOverview({ data }: { data: Data }) {
   const [sort, setSort] = useState<SortKey>("score");
@@ -88,6 +127,13 @@ export default function PeopleOverview({ data }: { data: Data }) {
       <section>
         <SectionHeading title={`Everyone (${rows.length})`}>
           <div className="flex flex-wrap items-center gap-1">
+            <button
+              className="mr-1 rounded px-2 py-0.5 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--fg)]"
+              onClick={() => exportPeople(rows)}
+              title="Download exactly what is on screen, filters included"
+            >
+              Export CSV
+            </button>
             {SORTS.map((s) => (
               <button
                 key={s.key}

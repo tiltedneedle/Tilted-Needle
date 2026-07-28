@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { formatDurationShort } from "@/lib/format";
 import { engagementRate } from "@/lib/rollup";
+import { datedName, downloadCsv, toCsv } from "@/lib/exportCsv";
 import { PlatformChips } from "@/components/PlatformReach";
 import { Empty, SectionHeading } from "@/components/Stat";
 import type { ClientSummary, VideoSummary } from "@/lib/dashboards";
@@ -19,6 +20,45 @@ type SortKey = (typeof SORTS)[number]["key"];
 /** Highest single-platform view count, used only for ordering within a list. */
 function peakViews(v: VideoSummary): number {
   return v.platforms.reduce((m, p) => Math.max(m, p.views), 0);
+}
+
+/**
+ * One row per video per platform. Flattening this way rather than one row per
+ * video with a "total views" column is the whole point: a combined figure
+ * across platforms would be meaningless, and a spreadsheet is exactly where
+ * someone would be tempted to sum it.
+ */
+function exportVideos(rows: VideoSummary[]) {
+  const out: unknown[][] = [];
+  for (const v of rows) {
+    if (v.platforms.length === 0) {
+      out.push([v.title, v.clientName ?? "", v.producedAt ?? "", "", "", "", "",
+        v.bestIndex?.toFixed(2) ?? "", (v.trackedSeconds / 3600).toFixed(2), "not posted"]);
+      continue;
+    }
+    for (const p of v.platforms) {
+      out.push([
+        v.title,
+        v.clientName ?? "",
+        v.producedAt ?? "",
+        p.platform,
+        p.views,
+        p.likes,
+        p.comments,
+        v.bestIndex?.toFixed(2) ?? "",
+        (v.trackedSeconds / 3600).toFixed(2),
+        "published",
+      ]);
+    }
+  }
+  downloadCsv(
+    datedName("content"),
+    toCsv(
+      ["Video", "Client", "Produced", "Platform", "Views", "Likes", "Comments",
+        "Boost index", "Hours tracked", "Status"],
+      out,
+    ),
+  );
 }
 
 export default function ContentOverview({
@@ -115,6 +155,13 @@ export default function ContentOverview({
       <section>
         <SectionHeading title={`Videos (${rows.length})`}>
           <div className="flex flex-wrap items-center gap-1">
+            <button
+              className="mr-1 rounded px-2 py-0.5 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--fg)]"
+              onClick={() => exportVideos(rows)}
+              title="Download exactly what is on screen, filters included"
+            >
+              Export CSV
+            </button>
             {SORTS.map((s) => (
               <button
                 key={s.key}

@@ -46,10 +46,12 @@ export default function FilterBar({
     router.push(qs ? `${basePath}?${qs}` : basePath);
   }
 
-  const active = filters.some((f) => f.value) || !!searchValue;
+  const activeFilters = filters.filter((f) => f.value);
+  const active = activeFilters.length > 0 || !!searchValue;
 
   return (
-    <div className="card mb-5 flex flex-wrap items-center gap-2 p-2.5">
+    <div className="card mb-5 p-2.5">
+      <div className="flex flex-wrap items-center gap-2">
       {filters.map((f) => (
         <label key={f.key} className="relative">
           <span className="sr-only">{f.label}</span>
@@ -93,8 +95,43 @@ export default function FilterBar({
           className="rounded px-2 py-1 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--fg)]"
           onClick={() => router.push(basePath)}
         >
-          Clear
+          Clear all
         </button>
+      )}
+      </div>
+
+      {/* With this many filters, the selects alone stop being scannable --
+          the chips say what is actually applied, and remove one at a time. */}
+      {active && (
+        <div className="animate-rise mt-2 flex flex-wrap items-center gap-1.5 border-t border-[var(--border)] pt-2">
+          <span className="text-[11px] uppercase tracking-wide text-[var(--muted)]">
+            Filtered by
+          </span>
+          {activeFilters.map((f) => {
+            const label =
+              f.options.find((o) => o.value === f.value)?.label ?? f.value;
+            return (
+              <button
+                key={f.key}
+                className="flex items-center gap-1 rounded bg-[var(--accent)]/10 px-2 py-0.5 text-xs text-[var(--accent)] transition-colors hover:bg-[var(--accent)]/20"
+                onClick={() => set(f.key, "", f.clears)}
+                title={`Remove the ${f.label.toLowerCase()} filter`}
+              >
+                {label}
+                <span aria-hidden>×</span>
+                <span className="sr-only">Remove filter</span>
+              </button>
+            );
+          })}
+          {searchValue && searchKey && (
+            <button
+              className="flex items-center gap-1 rounded bg-[var(--accent)]/10 px-2 py-0.5 text-xs text-[var(--accent)] transition-colors hover:bg-[var(--accent)]/20"
+              onClick={() => set(searchKey, "")}
+            >
+              “{searchValue}”<span aria-hidden>×</span>
+            </button>
+          )}
+        </div>
       )}
     </div>
   );
