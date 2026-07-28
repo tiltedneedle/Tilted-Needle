@@ -63,6 +63,14 @@ const NAV = [
       { href: "/clients", label: "Clients", icon: BriefcaseIcon },
       { href: "/tags", label: "Tags", icon: TagIcon },
       { href: "/team", label: "Team", icon: UsersIcon },
+      { href: "/kiosks", label: "Kiosks", icon: KioskIcon },
+    ],
+  },
+  {
+    group: "Admin",
+    items: [
+      { href: "/developers", label: "Developers", icon: CodeIcon },
+      { href: "/audit-log", label: "Audit log", icon: ShieldIcon },
     ],
   },
 ];
@@ -227,6 +235,15 @@ function TrophyIcon() {
 }
 function ShareIcon() {
   return <svg {...s}><circle cx="18" cy="5" r="2.6" /><circle cx="6" cy="12" r="2.6" /><circle cx="18" cy="19" r="2.6" /><path d="M8.4 10.8 15.6 6.4M8.4 13.2l7.2 4.4" /></svg>;
+}
+function KioskIcon() {
+  return <svg {...s}><rect x="5" y="3" width="14" height="18" rx="2" /><path d="M9 18h6M9 7h6v6H9z" /></svg>;
+}
+function CodeIcon() {
+  return <svg {...s}><path d="m9 8-4 4 4 4M15 8l4 4-4 4" /></svg>;
+}
+function ShieldIcon() {
+  return <svg {...s}><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z" /><path d="m9 12 2 2 4-4" /></svg>;
 }
 function CalendarIcon() {
   return <svg {...s}><rect x="3.5" y="4.5" width="17" height="16" rx="2" /><path d="M3.5 9.5h17M8 3v3M16 3v3" /></svg>;

@@ -5,6 +5,8 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { ACTIVE_WORKSPACE_COOKIE } from "@/lib/workspace";
+import { logAudit } from "@/lib/audit";
+import { dispatchWebhook } from "@/lib/webhooks";
 
 type Result = { error?: string };
 
@@ -426,6 +428,9 @@ export async function updateWorkspaceBilling(
   currency: string,
 ): Promise<Result> {
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   const { error } = await supabase
     .from("workspaces")
     .update({
@@ -434,6 +439,16 @@ export async function updateWorkspaceBilling(
     })
     .eq("id", workspaceId);
   if (error) return { error: error.message };
+  if (user) {
+    await logAudit(supabase, {
+      workspaceId,
+      actorId: user.id,
+      action: "rate.workspace_default_updated",
+      entityType: "workspaces",
+      entityId: workspaceId,
+      detail: { default_rate: toRate(defaultRate), currency },
+    });
+  }
   revalidatePath("/rates");
   return {};
 }
@@ -444,11 +459,29 @@ export async function updateMemberRates(
   cost: string,
 ): Promise<Result> {
   const supabase = await createClient();
-  const { error } = await supabase
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const { data: row, error } = await supabase
     .from("memberships")
     .update({ billable_rate: toRate(billable), cost_rate: toRate(cost) })
-    .eq("id", membershipId);
+    .eq("id", membershipId)
+    .select("workspace_id")
+    .single();
   if (error) return { error: error.message };
+  // Cost rate is close to salary information -- worth its own audit action
+  // name rather than folding it into a generic "rate updated" entry that
+  // would understate what actually changed.
+  if (user) {
+    await logAudit(supabase, {
+      workspaceId: row.workspace_id,
+      actorId: user.id,
+      action: "rate.member_updated",
+      entityType: "memberships",
+      entityId: membershipId,
+      detail: { billable_rate: toRate(billable), cost_rate: toRate(cost) },
+    });
+  }
   revalidatePath("/rates");
   return {};
 }
@@ -521,6 +554,9 @@ export async function generateInvoice(input: {
   upToDate: string;
 }): Promise<Result & { invoiceId?: string }> {
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   const { data: ws } = await supabase
     .from("workspaces")
@@ -663,14 +699,51 @@ export async function generateInvoice(input: {
       .update({ invoice_id: invoice.id })
       .in("id", billableExpenses.map((x) => x.id));
 
+  const total = lines.reduce((s, l) => s + l.quantity * l.unit_amount, 0);
+  if (user) {
+    await logAudit(supabase, {
+      workspaceId: input.workspaceId,
+      actorId: user.id,
+      action: "invoice.generated",
+      entityType: "invoices",
+      entityId: invoice.id,
+      detail: { number: invoice.number, client_id: input.clientId, total },
+    });
+  }
+  void dispatchWebhook(supabase, input.workspaceId, "invoice.generated", {
+    invoice_id: invoice.id,
+    number: invoice.number,
+    client_id: input.clientId,
+    total,
+    currency: invoice.currency,
+  });
+
   revalidatePath("/invoices");
   return { invoiceId: invoice.id };
 }
 
 export async function updateInvoiceStatus(id: string, status: string): Promise<Result> {
   const supabase = await createClient();
-  const { error } = await supabase.from("invoices").update({ status }).eq("id", id);
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const { data: row, error } = await supabase
+    .from("invoices")
+    .update({ status })
+    .eq("id", id)
+    .select("workspace_id")
+    .single();
   if (error) return { error: error.message };
+  if (user) {
+    await logAudit(supabase, {
+      workspaceId: row.workspace_id,
+      actorId: user.id,
+      action: "invoice.status_changed",
+      entityType: "invoices",
+      entityId: id,
+      detail: { status },
+    });
+  }
   revalidatePath("/invoices");
   return {};
 }
@@ -763,7 +836,7 @@ export async function reviewTimesheet(
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not signed in." };
 
-  const { error } = await supabase
+  const { data: row, error } = await supabase
     .from("timesheet_submissions")
     .update({
       status,
@@ -771,8 +844,26 @@ export async function reviewTimesheet(
       reviewed_by: user.id,
       reviewed_at: new Date().toISOString(),
     })
-    .eq("id", id);
+    .eq("id", id)
+    .select("workspace_id, user_id, period_start, period_end")
+    .single();
   if (error) return { error: error.message };
+
+  await logAudit(supabase, {
+    workspaceId: row.workspace_id,
+    actorId: user.id,
+    action: `timesheet.${status}`,
+    entityType: "timesheet_submissions",
+    entityId: id,
+    detail: { period_start: row.period_start, period_end: row.period_end, note },
+  });
+  void dispatchWebhook(supabase, row.workspace_id, `timesheet.${status}`, {
+    submission_id: id,
+    user_id: row.user_id,
+    period_start: row.period_start,
+    period_end: row.period_end,
+  });
+
   revalidatePath("/approvals");
   return {};
 }
@@ -901,11 +992,31 @@ export async function reviewTimeOffRequest(
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not signed in." };
-  const { error } = await supabase
+  const { data: row, error } = await supabase
     .from("time_off_requests")
     .update({ status, reviewed_by: user.id, reviewed_at: new Date().toISOString() })
-    .eq("id", id);
+    .eq("id", id)
+    .select("workspace_id, user_id, start_date, end_date, hours")
+    .single();
   if (error) return { error: error.message };
+
+  await logAudit(supabase, {
+    workspaceId: row.workspace_id,
+    actorId: user.id,
+    action: `time_off_request.${status}`,
+    entityType: "time_off_requests",
+    entityId: id,
+  });
+  if (status === "approved") {
+    void dispatchWebhook(supabase, row.workspace_id, "time_off_request.approved", {
+      request_id: id,
+      user_id: row.user_id,
+      start_date: row.start_date,
+      end_date: row.end_date,
+      hours: row.hours,
+    });
+  }
+
   revalidatePath("/time-off");
   return {};
 }
@@ -918,6 +1029,165 @@ export async function cancelTimeOffRequest(id: string): Promise<Result> {
     .eq("id", id);
   if (error) return { error: error.message };
   revalidatePath("/time-off");
+  return {};
+}
+
+/* ---- Phase 8: API keys, webhooks, kiosks --------------------------------- */
+
+export async function createApiKey(
+  workspaceId: string,
+  name: string,
+): Promise<Result & { key?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+  if (!name.trim()) return { error: "Name is required." };
+
+  const { generateApiKey } = await import("@/lib/apikeys");
+  const { key, prefix, hash } = generateApiKey();
+
+  const { error } = await supabase.from("api_keys").insert({
+    workspace_id: workspaceId,
+    name: name.trim(),
+    key_prefix: prefix,
+    key_hash: hash,
+    created_by: user.id,
+  });
+  if (error) return { error: error.message };
+
+  await logAudit(supabase, {
+    workspaceId,
+    actorId: user.id,
+    action: "api_key.created",
+    entityType: "api_keys",
+    detail: { name: name.trim(), prefix },
+  });
+
+  revalidatePath("/developers");
+  // The only time the plaintext key is ever available -- it is not
+  // recoverable from key_hash afterward, only rotated by creating a new one.
+  return { key };
+}
+
+export async function revokeApiKey(id: string): Promise<Result> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const { data: row, error } = await supabase
+    .from("api_keys")
+    .update({ revoked_at: new Date().toISOString() })
+    .eq("id", id)
+    .select("workspace_id")
+    .single();
+  if (error) return { error: error.message };
+  if (user) {
+    await logAudit(supabase, {
+      workspaceId: row.workspace_id,
+      actorId: user.id,
+      action: "api_key.revoked",
+      entityType: "api_keys",
+      entityId: id,
+    });
+  }
+  revalidatePath("/developers");
+  return {};
+}
+
+export async function createWebhook(input: {
+  workspaceId: string;
+  url: string;
+  events: string[];
+}): Promise<Result & { secret?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+
+  let parsed: URL;
+  try {
+    parsed = new URL(input.url);
+  } catch {
+    return { error: "Enter a valid URL." };
+  }
+  if (parsed.protocol !== "https:") return { error: "Webhook URLs must use HTTPS." };
+  if (input.events.length === 0) return { error: "Select at least one event." };
+
+  const { randomBytes } = await import("node:crypto");
+  const secret = randomBytes(24).toString("hex");
+
+  const { error } = await supabase.from("webhooks").insert({
+    workspace_id: input.workspaceId,
+    url: input.url,
+    events: input.events,
+    secret,
+    created_by: user.id,
+  });
+  if (error) return { error: error.message };
+
+  revalidatePath("/developers");
+  // Like the API key, the signing secret is shown once; a receiver
+  // verifies deliveries with it and would need a new one if it is lost.
+  return { secret };
+}
+
+export async function toggleWebhook(id: string, isActive: boolean): Promise<Result> {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("webhooks")
+    .update({ is_active: isActive })
+    .eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/developers");
+  return {};
+}
+
+export async function deleteWebhook(id: string): Promise<Result> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("webhooks").delete().eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/developers");
+  return {};
+}
+
+export async function createKiosk(workspaceId: string, name: string, projectId: string | null): Promise<Result> {
+  const supabase = await createClient();
+  if (!name.trim()) return { error: "Name is required." };
+  const { randomBytes } = await import("node:crypto");
+  const deviceToken = `kiosk_${randomBytes(16).toString("hex")}`;
+  const { error } = await supabase.from("kiosks").insert({
+    workspace_id: workspaceId,
+    name: name.trim(),
+    device_token: deviceToken,
+    project_id: projectId,
+  });
+  if (error) return { error: error.message };
+  revalidatePath("/kiosks");
+  return {};
+}
+
+export async function toggleKiosk(id: string, isActive: boolean): Promise<Result> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("kiosks").update({ is_active: isActive }).eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/kiosks");
+  return {};
+}
+
+export async function setMemberKioskPin(membershipId: string, pin: string): Promise<Result> {
+  if (!/^\d{4,8}$/.test(pin)) return { error: "PIN must be 4 to 8 digits." };
+  const supabase = await createClient();
+  const { createHash } = await import("node:crypto");
+  const pinHash = createHash("sha256").update(pin).digest("hex");
+  const { error } = await supabase.rpc("set_kiosk_pin", {
+    p_membership_id: membershipId,
+    p_pin_hash: pinHash,
+  });
+  if (error) return { error: error.message };
+  revalidatePath("/kiosks");
   return {};
 }
 

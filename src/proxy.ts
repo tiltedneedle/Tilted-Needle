@@ -1,7 +1,13 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
-const PUBLIC_PATHS = ["/login", "/auth"];
+// Routes with their own authentication scheme, not a Supabase cookie
+// session: the public API is a Bearer key, the kiosk device page and its
+// clock-in route are a shared-device token plus a PIN. Gating them behind
+// this session check would make them unreachable by the exact caller they
+// are meant to serve -- a curl request or an unauthenticated kiosk tablet
+// has no session cookie to check.
+const PUBLIC_PATHS = ["/login", "/auth", "/api/v1", "/api/kiosk", "/kiosk"];
 
 export async function proxy(request: NextRequest) {
   // Server Components cannot read the current path. Setting it on the request

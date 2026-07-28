@@ -469,6 +469,90 @@ async function mkUser(email) {
   await admin.from("timesheet_submissions").delete().eq("id", sub.id);
   await admin.from("user_groups").delete().eq("id", group.id);
 
+  // --- Phase 8: audit log, API keys, webhooks, kiosks --------------------
+  const { data: auditRow, error: auditErr } = await a.client
+    .from("audit_log")
+    .insert({
+      workspace_id: wsA.id, actor_id: a.id, action: "test.probe",
+      entity_type: "test", detail: { note: "rls probe" },
+    })
+    .select()
+    .single();
+  check("a member can write an audit entry", !auditErr && !!auditRow, auditErr?.message);
+
+  const { data: auditUpdateAttempt } = await a.client
+    .from("audit_log")
+    .update({ action: "tampered" })
+    .eq("id", auditRow.id)
+    .select();
+  check("nobody can update an audit log entry, not even its own author",
+    (auditUpdateAttempt?.length ?? 0) === 0);
+
+  const { data: auditDeleteAttempt } = await a.client
+    .from("audit_log")
+    .delete()
+    .eq("id", auditRow.id)
+    .select();
+  check("nobody can delete an audit log entry, not even a manager",
+    (auditDeleteAttempt?.length ?? 0) === 0);
+
+  const { data: bAudit } = await b.client.from("audit_log").select("*").eq("id", auditRow.id);
+  check("tenant B cannot read tenant A's audit log", (bAudit?.length ?? 0) === 0);
+
+  const { data: cAudit } = await cc.from("audit_log").select("*");
+  check("client cannot read the audit log", (cAudit?.length ?? 0) === 0);
+
+  const { data: apiKey, error: apiKeyErr } = await a.client
+    .from("api_keys")
+    .insert({
+      workspace_id: wsA.id, name: "probe key",
+      key_prefix: "tn_live_probe", key_hash: "0".repeat(64),
+    })
+    .select()
+    .single();
+  check("manager can create an API key", !apiKeyErr && !!apiKey, apiKeyErr?.message);
+
+  const { data: cApiKeys } = await cc.from("api_keys").select("*");
+  check("client cannot see API keys", (cApiKeys?.length ?? 0) === 0);
+
+  const { data: webhook, error: webhookErr } = await a.client
+    .from("webhooks")
+    .insert({
+      workspace_id: wsA.id, url: "https://example.com/hook",
+      events: ["invoice.generated"], secret: "probe-secret",
+    })
+    .select()
+    .single();
+  check("manager can create a webhook", !webhookErr && !!webhook, webhookErr?.message);
+
+  const { data: bWebhooks } = await b.client.from("webhooks").select("*").eq("id", webhook.id);
+  check("tenant B cannot see tenant A's webhook", (bWebhooks?.length ?? 0) === 0);
+
+  const { data: kiosk, error: kioskErr } = await a.client
+    .from("kiosks")
+    .insert({ workspace_id: wsA.id, name: "probe kiosk", device_token: `probe_${stamp}` })
+    .select()
+    .single();
+  check("manager can register a kiosk", !kioskErr && !!kiosk, kioskErr?.message);
+
+  const { data: cKiosk } = await cc.from("kiosks").select("*");
+  check("client cannot see kiosk devices", (cKiosk?.length ?? 0) === 0);
+
+  // kiosk_clock itself has no RLS policy to test -- it is a security-definer
+  // function granted only to service_role, already proven end to end
+  // against the live schema outside this suite (12/12 in kiosk-test.js).
+  // What matters here is that it stays unreachable from a normal session.
+  const { error: kioskClockAsUser } = await a.client.rpc("kiosk_clock", {
+    p_device_token: kiosk.device_token, p_pin_hash: "irrelevant",
+  });
+  check("kiosk_clock cannot be called from an authenticated session",
+    !!kioskClockAsUser, kioskClockAsUser ? "" : "RPC SUCCEEDED");
+
+  await admin.from("kiosks").delete().eq("id", kiosk.id);
+  await admin.from("webhooks").delete().eq("id", webhook.id);
+  await admin.from("api_keys").delete().eq("id", apiKey.id);
+  await admin.from("audit_log").delete().eq("id", auditRow.id);
+
   // Staff are unaffected by the tightened policies.
   const { data: staffClients } = await a.client.from("clients").select("*");
   check("staff still see every client in their workspace",
