@@ -1,5 +1,6 @@
 import PageHeader from "@/components/PageHeader";
 import AccountsManager from "@/components/AccountsManager";
+import FilterBar from "@/components/FilterBar";
 import { createClient } from "@/lib/supabase/server";
 import { requireSession } from "@/lib/workspace";
 import { canManage } from "@/lib/types";
@@ -9,7 +10,14 @@ import type { Account, Client, Platform } from "@/lib/types";
 export default async function AccountsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ oauth_error?: string; oauth_connected?: string }>;
+  searchParams: Promise<{
+    oauth_error?: string;
+    oauth_connected?: string;
+    platform?: string;
+    client?: string;
+    connection?: string;
+    status?: string;
+  }>;
 }) {
   const session = await requireSession();
   const supabase = await createClient();
@@ -47,6 +55,30 @@ export default async function AccountsPage({
     ]),
   );
 
+  const allAccounts = (accountsRes.data ?? []) as unknown as Account[];
+  const platforms = (platformsRes.data ?? []) as unknown as Platform[];
+  const clients = (clientsRes.data ?? []) as unknown as Client[];
+  const connections = (connectionsRes.data ?? []) as {
+    account_id: string;
+    status: string;
+    connected_at: string;
+  }[];
+  const connectedIds = new Set(
+    connections.filter((c) => c.status === "active").map((c) => c.account_id),
+  );
+
+  // Archived accounts are hidden unless asked for -- they exist for history,
+  // and a list that leads with dead accounts buries the live ones.
+  let accounts = allAccounts.filter((a) =>
+    params.status === "archived" ? a.is_archived : params.status === "all" ? true : !a.is_archived,
+  );
+  if (params.platform) accounts = accounts.filter((a) => a.platform_slug === params.platform);
+  if (params.client) accounts = accounts.filter((a) => a.client_id === params.client);
+  if (params.connection === "connected")
+    accounts = accounts.filter((a) => connectedIds.has(a.id));
+  else if (params.connection === "manual")
+    accounts = accounts.filter((a) => !connectedIds.has(a.id));
+
   return (
     <div className="mx-auto max-w-4xl px-6 py-6">
       <PageHeader
@@ -64,19 +96,55 @@ export default async function AccountsPage({
           on content as they sync.
         </p>
       )}
+      <FilterBar
+        basePath="/accounts"
+        filters={[
+          {
+            key: "platform",
+            label: "Filter by platform",
+            allLabel: "All platforms",
+            value: params.platform ?? null,
+            options: platforms.map((p) => ({ value: p.slug, label: p.display_name })),
+          },
+          {
+            key: "client",
+            label: "Filter by client",
+            allLabel: "All clients",
+            value: params.client ?? null,
+            options: clients
+              .filter((c) => !c.is_archived)
+              .map((c) => ({ value: c.id, label: c.name })),
+          },
+          {
+            key: "connection",
+            label: "Filter by connection",
+            allLabel: "Any connection",
+            value: params.connection ?? null,
+            options: [
+              { value: "connected", label: "Connected" },
+              { value: "manual", label: "Manual entry" },
+            ],
+          },
+          {
+            key: "status",
+            label: "Filter by status",
+            allLabel: "Active only",
+            value: params.status ?? null,
+            options: [
+              { value: "archived", label: "Archived only" },
+              { value: "all", label: "Active and archived" },
+            ],
+          },
+        ]}
+      />
+
       <AccountsManager
         workspaceId={ws}
-        accounts={(accountsRes.data ?? []) as unknown as Account[]}
-        platforms={(platformsRes.data ?? []) as unknown as Platform[]}
-        clients={(clientsRes.data ?? []) as unknown as Client[]}
+        accounts={accounts}
+        platforms={platforms}
+        clients={clients}
         canManage={canManage(session.active.role)}
-        connections={
-          (connectionsRes.data ?? []) as {
-            account_id: string;
-            status: string;
-            connected_at: string;
-          }[]
-        }
+        connections={connections}
         connectorStatus={connectorStatus}
       />
     </div>

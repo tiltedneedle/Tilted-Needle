@@ -31,7 +31,6 @@ export default function AccountsManager({
   const [handle, setHandle] = useState("");
   const [platformSlug, setPlatformSlug] = useState(platforms[0]?.slug ?? "");
   const [clientId, setClientId] = useState("");
-  const [showArchived, setShowArchived] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
 
@@ -56,7 +55,9 @@ export default function AccountsManager({
     }
   }
 
-  const visible = accounts.filter((a) => (showArchived ? true : !a.is_archived));
+  // Archiving is filtered upstream, in the page's URL filters, so the two
+  // cannot disagree about what "archived" means.
+  const visible = accounts;
 
   async function create() {
     if (!handle.trim()) return setError("Handle is required.");
@@ -131,15 +132,6 @@ export default function AccountsManager({
           <button className="btn-primary" onClick={create}>
             Add account
           </button>
-          <div className="flex-1" />
-          <label className="flex cursor-pointer items-center gap-2 text-sm text-[var(--muted)]">
-            <input
-              type="checkbox"
-              checked={showArchived}
-              onChange={(e) => setShowArchived(e.target.checked)}
-            />
-            Show archived
-          </label>
         </div>
       )}
 
