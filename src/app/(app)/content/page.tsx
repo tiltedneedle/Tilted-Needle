@@ -243,6 +243,10 @@ export default async function ContentPage({
 
   /* ---- Everything ------------------------------------------------------- */
   const t = overview.totals;
+  const stillGrowing = overview.videos.filter(
+    (v) => v.recentGain != null && v.recentGain.views > 0,
+  );
+  const gained = stillGrowing.reduce((s, v) => s + (v.recentGain?.views ?? 0), 0);
   return (
     <Shell
       title="Content"
@@ -257,7 +261,16 @@ export default async function ContentPage({
           hint={t.unpublished ? `${t.unpublished} not posted yet` : "all posted"}
         />
         <Stat label="Posts" value={String(t.posts)} hint="across all platforms" />
-        <Stat label="Clients" value={String(t.clients)} hint="active" />
+        <Stat
+          label="Still growing"
+          value={gained ? `+${gained.toLocaleString()}` : "—"}
+          hint={
+            gained
+              ? `across ${stillGrowing.length} video${stillGrowing.length === 1 ? "" : "s"}, latest snapshots`
+              : "needs two snapshots to compare"
+          }
+          accent={gained > 0}
+        />
         <Stat
           label="Time invested"
           value={t.trackedSeconds ? formatDurationShort(t.trackedSeconds) : "—"}

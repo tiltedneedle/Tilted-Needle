@@ -35,6 +35,18 @@ export type VideoSummary = {
   /** Highest boost index across this video's posts, when it has been scored. */
   bestIndex: number | null;
   postCount: number;
+  /**
+   * Views gained between the two most recent snapshots, summed within the
+   * filtered platforms, with the interval those snapshots actually span.
+   *
+   * Deliberately not a fixed "last 7 days" window: snapshots are recorded by
+   * hand at irregular intervals, so a fixed window silently reports nothing
+   * whenever the cadence does not happen to match it. Reporting the real
+   * interval alongside the number is both always available and honest about
+   * what it covers. Null when there is only one snapshot -- which is
+   * different from "gained nothing", and is shown as such rather than zero.
+   */
+  recentGain: { views: number; days: number } | null;
 };
 
 export type ClientSummary = {
@@ -126,7 +138,7 @@ export async function loadContentOverview(
   rankings: RankingsResult,
   filters: ContentFilters = {},
 ): Promise<ContentOverview> {
-  const [itemsRes, postsRes, timeRes, clientsRes, platformsRes] = await Promise.all([
+  const [itemsRes, postsRes, timeRes, clientsRes, platformsRes, snapsRes] = await Promise.all([
     supabase
       .from("content_items")
       .select("id, title, produced_at, length_seconds, client_id, client:clients(id, name)")
@@ -150,6 +162,11 @@ export async function loadContentOverview(
       .select("slug, display_name")
       .eq("is_enabled", true)
       .order("sort_order"),
+    supabase
+      .from("post_snapshots")
+      .select("platform_post_id, captured_at, views")
+      .eq("workspace_id", ws)
+      .order("captured_at"),
   ]);
 
   type Item = {
@@ -185,8 +202,36 @@ export async function loadContentOverview(
     );
   }
 
+  // Snapshot series per post, so recent growth can be read off the history
+  // rather than inferred from a single current number.
+  const seriesByPost = new Map<string, { at: number; views: number }[]>();
+  for (const s of (snapsRes.data ?? []) as {
+    platform_post_id: string;
+    captured_at: string;
+    views: number | null;
+  }[]) {
+    if (s.views == null) continue;
+    if (!seriesByPost.has(s.platform_post_id)) seriesByPost.set(s.platform_post_id, []);
+    seriesByPost
+      .get(s.platform_post_id)!
+      .push({ at: new Date(s.captured_at).getTime(), views: s.views });
+  }
+
+  /** Delta between the last two readings, with the interval they span. */
+  function gainForPost(postId: string): { views: number; days: number } | null {
+    const series = seriesByPost.get(postId);
+    if (!series || series.length < 2) return null;
+    const latest = series[series.length - 1];
+    const prev = series[series.length - 2];
+    return {
+      views: latest.views - prev.views,
+      days: Math.max(0, (latest.at - prev.at) / 86400000),
+    };
+  }
+
   const byItem = new Map<string, VideoSummary["platforms"]>();
   const postsByItem = new Map<string, number>();
+  const gainByItem = new Map<string, { views: number; days: number }>();
   for (const p of posts) {
     const acct = one(p.account);
     if (!acct) continue;
@@ -202,6 +247,17 @@ export async function loadContentOverview(
       comments: m?.comments ?? 0,
     });
     postsByItem.set(p.content_item_id, (postsByItem.get(p.content_item_id) ?? 0) + 1);
+
+    const gain = gainForPost(p.id);
+    if (gain != null) {
+      const acc = gainByItem.get(p.content_item_id);
+      // Views add up within the item; the interval shown is the widest of
+      // its posts, so the figure is never claimed to cover less than it does.
+      gainByItem.set(p.content_item_id, {
+        views: (acc?.views ?? 0) + gain.views,
+        days: Math.max(acc?.days ?? 0, gain.days),
+      });
+    }
   }
 
   const bestIndexByItem = new Map<string, number>();
@@ -224,6 +280,7 @@ export async function loadContentOverview(
     trackedSeconds: secondsByItem.get(i.id) ?? 0,
     bestIndex: bestIndexByItem.get(i.id) ?? null,
     postCount: postsByItem.get(i.id) ?? 0,
+    recentGain: gainByItem.get(i.id) ?? null,
   }));
 
   /* ---- Filters ---------------------------------------------------------- */

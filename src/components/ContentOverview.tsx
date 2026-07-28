@@ -13,6 +13,7 @@ const SORTS = [
   { key: "recent", label: "Newest" },
   { key: "views", label: "Reach" },
   { key: "boost", label: "Boost" },
+  { key: "growth", label: "Growing" },
   { key: "time", label: "Time spent" },
 ] as const;
 type SortKey = (typeof SORTS)[number]["key"];
@@ -33,7 +34,8 @@ function exportVideos(rows: VideoSummary[]) {
   for (const v of rows) {
     if (v.platforms.length === 0) {
       out.push([v.title, v.clientName ?? "", v.producedAt ?? "", "", "", "", "",
-        v.bestIndex?.toFixed(2) ?? "", (v.trackedSeconds / 3600).toFixed(2), "not posted"]);
+        v.bestIndex?.toFixed(2) ?? "", v.recentGain ?? "",
+        (v.trackedSeconds / 3600).toFixed(2), "not posted"]);
       continue;
     }
     for (const p of v.platforms) {
@@ -46,6 +48,8 @@ function exportVideos(rows: VideoSummary[]) {
         p.likes,
         p.comments,
         v.bestIndex?.toFixed(2) ?? "",
+        v.recentGain?.views ?? "",
+        v.recentGain ? v.recentGain.days.toFixed(1) : "",
         (v.trackedSeconds / 3600).toFixed(2),
         "published",
       ]);
@@ -55,7 +59,7 @@ function exportVideos(rows: VideoSummary[]) {
     datedName("content"),
     toCsv(
       ["Video", "Client", "Produced", "Platform", "Views", "Likes", "Comments",
-        "Boost index", "Hours tracked", "Status"],
+        "Boost index", "Views gained", "Gain window (days)", "Hours tracked", "Status"],
       out,
     ),
   );
@@ -74,6 +78,8 @@ export default function ContentOverview({
     const list = [...videos];
     if (sort === "views") list.sort((a, b) => peakViews(b) - peakViews(a));
     else if (sort === "boost") list.sort((a, b) => (b.bestIndex ?? -1) - (a.bestIndex ?? -1));
+    else if (sort === "growth")
+      list.sort((a, b) => (b.recentGain?.views ?? -1) - (a.recentGain?.views ?? -1));
     else if (sort === "time") list.sort((a, b) => b.trackedSeconds - a.trackedSeconds);
     else list.sort((a, b) => (b.producedAt ?? "").localeCompare(a.producedAt ?? ""));
     return list;
@@ -211,6 +217,20 @@ export default function ContentOverview({
                     )}
                   </div>
                 </div>
+
+                {/* Still gaining views -- the signal that a post has legs,
+                    which a lifetime total cannot show. */}
+                {v.recentGain != null && v.recentGain.views > 0 && (
+                  <span
+                    className="tabular shrink-0 text-xs text-emerald-500"
+                    title={`Views gained over the ${v.recentGain.days.toFixed(0)} day(s) between the last two snapshots`}
+                  >
+                    +{v.recentGain.views.toLocaleString()}
+                    <span className="ml-0.5 opacity-70">
+                      /{v.recentGain.days.toFixed(0)}d
+                    </span>
+                  </span>
+                )}
 
                 {/* A boost badge only appears once the account has enough
                     history to have a baseline worth beating. */}

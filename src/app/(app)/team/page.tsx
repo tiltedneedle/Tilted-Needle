@@ -140,7 +140,12 @@ export default async function TeamPage({
 
   /* ---- One person ------------------------------------------------------- */
   if (personId) {
-    const person = unfiltered.people.find((p) => p.userId === personId);
+    // Prefer the filtered copy so a platform lens applies here too, but fall
+    // back to the full roster: a population filter (group, seat, client)
+    // should never make a person you explicitly selected unviewable.
+    const person =
+      overview.people.find((p) => p.userId === personId) ??
+      unfiltered.people.find((p) => p.userId === personId);
     if (!person) {
       return (
         <Shell title="Person" subtitle="Not found.">
