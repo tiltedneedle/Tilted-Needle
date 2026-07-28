@@ -24,7 +24,10 @@ export default function SimpleListManager({
   emptyText: string;
   canManage: boolean;
   onCreate: (name: string) => Promise<{ error?: string }>;
-  /** When set, each row links to `${detailHref}/${id}`. */
+  /**
+   * When set, each row links to `detailHref + id`. Pass a trailing "/" or "="
+   * -- the id is appended verbatim, so a query-param target works too.
+   */
   detailHref?: string;
 }) {
   const router = useRouter();
@@ -111,7 +114,7 @@ export default function SimpleListManager({
           >
             {detailHref ? (
               <Link
-                href={`${detailHref}/${r.id}`}
+                href={`${detailHref}${r.id}`}
                 className={`flex-1 text-sm transition-colors hover:text-[var(--accent)] ${
                   r.is_archived ? "line-through opacity-60" : ""
                 }`}

@@ -14,6 +14,7 @@ import {
   updatePlatformPost,
 } from "@/app/actions";
 import { formatDurationShort, parseDuration } from "@/lib/format";
+import { asMultiplier, tierFor, TIER_LABELS, type Tier } from "@/lib/scoring";
 import { PLATFORM_COLORS, one } from "@/lib/types";
 import type {
   Account,
@@ -45,6 +46,22 @@ export type AnalyticsRow = {
   source: string;
 };
 
+const TIER_CLASS: Record<Tier, string> = {
+  top: "text-emerald-500",
+  above: "text-emerald-400",
+  at: "text-[var(--muted)]",
+  below: "text-amber-500",
+  insufficient: "text-[var(--muted)] opacity-70",
+};
+
+/** A credited person's standing in the role they hold on this video. */
+export type CreditScore = {
+  userId: string;
+  roleSlug: string;
+  overall: number | null;
+  rankable: boolean;
+};
+
 export default function ContentDetail({
   workspaceId,
   item,
@@ -57,6 +74,8 @@ export default function ContentDetail({
   history,
   analytics,
   clients,
+  creditScores = [],
+  boostByPlatform = {},
 }: {
   workspaceId: string;
   item: ContentItem;
@@ -69,6 +88,10 @@ export default function ContentDetail({
   history: SnapshotRow[];
   analytics: AnalyticsRow[];
   clients: Client[];
+  /** Per-person, per-role standing, shown beside each credit (PRD 1.1.3). */
+  creditScores?: CreditScore[];
+  /** This video's own boost index per platform, keyed by platform slug. */
+  boostByPlatform?: Record<string, number>;
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -395,6 +418,23 @@ export default function ContentDetail({
                   {p.source}
                 </span>
 
+                {/* How this post did against its own account's baseline --
+                    the only comparison that means anything across platforms. */}
+                {boostByPlatform[slug] != null && (
+                  <span
+                    className={`tabular rounded px-1.5 py-0.5 text-xs font-medium ${
+                      boostByPlatform[slug] >= 2
+                        ? "bg-emerald-500/10 text-emerald-500"
+                        : boostByPlatform[slug] >= 1
+                          ? "bg-[var(--bg-subtle)] text-[var(--muted)]"
+                          : "bg-amber-500/10 text-amber-500"
+                    }`}
+                    title="Views versus this account's recent median"
+                  >
+                    {boostByPlatform[slug].toFixed(1)}× baseline
+                  </span>
+                )}
+
                 <button
                   className={`rounded px-1.5 py-0.5 text-xs transition-colors ${
                     p.is_best_performing
@@ -535,7 +575,12 @@ export default function ContentDetail({
         </div>
       )}
 
-      <h2 className="mb-2 text-sm font-semibold">Credits</h2>
+      <div className="mb-2 flex items-baseline justify-between">
+        <h2 className="text-sm font-semibold">Credits</h2>
+        <span className="text-xs text-[var(--muted)]">
+          The figure beside a name is their standing in that role
+        </span>
+      </div>
       <div className="card divide-y divide-[var(--border)] overflow-hidden">
         {roles.map((role) => {
           const holders = assignments.filter((a) => a.role_id === role.id);
@@ -545,24 +590,42 @@ export default function ContentDetail({
                 {role.name}
               </span>
               <div className="flex flex-1 flex-wrap gap-1.5">
-                {holders.map((h) => (
-                  <span
-                    key={h.id}
-                    className="group/chip flex items-center gap-1 rounded bg-[var(--bg-subtle)] px-2 py-0.5 text-xs"
-                  >
-                    {h.profile?.full_name ?? "Unknown"}
-                    <button
-                      className="opacity-0 transition-opacity group-hover/chip:opacity-100"
-                      onClick={async () => {
-                        await unassignRole(h.id);
-                        refresh();
-                      }}
-                      aria-label="Remove"
+                {holders.map((h) => {
+                  const score = creditScores.find(
+                    (s) => s.userId === h.user_id && s.roleSlug === role.slug,
+                  );
+                  const tier = tierFor(score?.overall ?? 0, !!score?.rankable);
+                  return (
+                    <span
+                      key={h.id}
+                      className="group/chip flex items-center gap-1.5 rounded bg-[var(--bg-subtle)] px-2 py-0.5 text-xs"
+                      title={
+                        score?.rankable
+                          ? `${TIER_LABELS[tier]} in this role`
+                          : "Not enough posts yet to rank them in this role"
+                      }
                     >
-                      ×
-                    </button>
-                  </span>
-                ))}
+                      <span>{h.profile?.full_name ?? "Unknown"}</span>
+                      {score?.rankable && score.overall != null ? (
+                        <span className={`tabular ${TIER_CLASS[tier]}`}>
+                          {asMultiplier(score.overall).toFixed(2)}×
+                        </span>
+                      ) : (
+                        <span className="text-[var(--muted)] opacity-70">n/a</span>
+                      )}
+                      <button
+                        className="opacity-0 transition-opacity group-hover/chip:opacity-100"
+                        onClick={async () => {
+                          await unassignRole(h.id);
+                          refresh();
+                        }}
+                        aria-label="Remove"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  );
+                })}
                 {holders.length === 0 && (
                   <span className="text-xs text-[var(--muted)]">Unassigned</span>
                 )}

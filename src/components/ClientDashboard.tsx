@@ -174,7 +174,7 @@ export default function ClientDashboard({
           ) : (
             <Link
               key={item.id}
-              href={`/performance?video=${item.id}${clientId ? `&client=${clientId}` : ""}`}
+              href={`/content?video=${item.id}${clientId ? `&client=${clientId}` : ""}`}
               className="flex items-center gap-3 px-3 py-2 transition-colors hover:bg-[var(--bg-subtle)]"
             >
               {inner}

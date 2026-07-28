@@ -18,27 +18,25 @@ const CLIENT_NAV = [
   },
 ];
 
+/**
+ * The two dashboards lead, because they are what the tool is for. Everything
+ * below them is the supporting machinery that feeds them.
+ */
 const NAV = [
   {
-    group: null,
-    items: [
-      { href: "/timesheet", label: "Timesheet", icon: GridIcon },
-      { href: "/track", label: "Time Tracker", icon: ClockIcon },
-    ],
-  },
-  {
-    group: "Analyze",
-    items: [
-      { href: "/dashboard", label: "Dashboard", icon: SquaresIcon },
-      { href: "/reports", label: "Reports", icon: ChartIcon },
-    ],
-  },
-  {
-    group: "Content",
+    group: "Dashboards",
     items: [
       { href: "/content", label: "Content", icon: PlayIcon },
-      { href: "/performance", label: "Performance", icon: TrophyIcon },
-      { href: "/accounts", label: "Accounts", icon: ShareIcon },
+      { href: "/team", label: "People", icon: TrophyIcon },
+    ],
+  },
+  {
+    group: "Track",
+    items: [
+      { href: "/track", label: "Time Tracker", icon: ClockIcon },
+      { href: "/timesheet", label: "Timesheet", icon: GridIcon },
+      { href: "/dashboard", label: "Hours", icon: SquaresIcon },
+      { href: "/reports", label: "Reports", icon: ChartIcon },
     ],
   },
   {
@@ -59,10 +57,10 @@ const NAV = [
   {
     group: "Manage",
     items: [
+      { href: "/accounts", label: "Accounts", icon: ShareIcon },
       { href: "/projects", label: "Projects", icon: FolderIcon },
       { href: "/clients", label: "Clients", icon: BriefcaseIcon },
       { href: "/tags", label: "Tags", icon: TagIcon },
-      { href: "/team", label: "Team", icon: UsersIcon },
       { href: "/kiosks", label: "Kiosks", icon: KioskIcon },
     ],
   },

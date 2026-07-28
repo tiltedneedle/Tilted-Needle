@@ -1,105 +1,309 @@
 import PageHeader from "@/components/PageHeader";
 import NewContentForm from "@/components/NewContentForm";
-import ContentList from "@/components/ContentList";
+import ContentOverview from "@/components/ContentOverview";
+import ContentDetail, { type AnalyticsRow, type SnapshotRow } from "@/components/ContentDetail";
+import ClientDetail from "@/components/ClientDetail";
+import FilterBar from "@/components/FilterBar";
+import PlatformReach from "@/components/PlatformReach";
+import { Stat, StatGrid, SectionHeading } from "@/components/Stat";
 import { createClient } from "@/lib/supabase/server";
 import { requireSession } from "@/lib/workspace";
 import { one } from "@/lib/types";
-import type { Client, ContentItem, Platform } from "@/lib/types";
+import { formatDurationShort } from "@/lib/format";
+import { computeRankings } from "@/lib/performanceData";
+import { loadContentOverview } from "@/lib/dashboards";
+import type {
+  Account,
+  Client,
+  ContentAssignment,
+  ContentItem,
+  PlatformPost,
+  Role,
+} from "@/lib/types";
 
-type PostRow = {
-  content_item_id: string;
-  account: { platform_slug: string } | null;
-  metrics: { views: number | null }[] | { views: number | null } | null;
-};
-
-export default async function ContentPage() {
+/**
+ * Dashboard 1 of 2: Content.
+ *
+ * Everything about what was made and how it performed -- videos, the clients
+ * they belong to, and the per-platform numbers behind them. People live on
+ * the other dashboard (/team); the only person data here is the credit panel
+ * on a single video, because that is a property of the video.
+ *
+ * Filters are query params, so any view of this page is a shareable URL.
+ */
+export default async function ContentPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ client?: string; video?: string }>;
+}) {
+  const { client: clientId, video: videoId } = await searchParams;
   const session = await requireSession();
   const supabase = await createClient();
   const ws = session.active.id;
 
-  const [itemsRes, postsRes, clientsRes, platformsRes, timeRes] = await Promise.all([
-    supabase
-      .from("content_items")
-      .select(
-        "id, workspace_id, client_id, title, subject, hook, music_used, length_seconds, produced_at, notes, client:clients(id, name)",
-      )
-      .eq("workspace_id", ws)
-      .order("produced_at", { ascending: false, nullsFirst: false })
-      .limit(200),
-    supabase
-      .from("platform_posts")
-      .select(
-        "content_item_id, account:accounts(platform_slug), metrics:post_current_metrics(views)",
-      )
-      .eq("workspace_id", ws),
+  const rankings = await computeRankings(supabase, ws);
+  const [overview, clientsRes, membersRes] = await Promise.all([
+    loadContentOverview(supabase, ws, rankings),
     supabase
       .from("clients")
       .select("id, workspace_id, name, email, is_archived")
       .eq("workspace_id", ws)
       .order("name"),
     supabase
-      .from("platforms")
-      .select("*")
-      .eq("is_enabled", true)
-      .order("sort_order"),
-    // Hours invested per piece of content -- the half of the join that time
-    // tracking contributes (PRD 6.7).
-    supabase
-      .from("time_entries")
-      .select("content_item_id, duration_seconds")
+      .from("memberships")
+      .select("user_id, profile:profiles(full_name)")
       .eq("workspace_id", ws)
-      .not("content_item_id", "is", null)
-      .not("ended_at", "is", null),
+      .eq("is_active", true),
   ]);
 
-  const items = (itemsRes.data ?? []) as unknown as ContentItem[];
-  const posts = (postsRes.data ?? []) as unknown as PostRow[];
+  type Member = {
+    user_id: string;
+    profile: { full_name: string | null } | { full_name: string | null }[] | null;
+  };
+  const members = ((membersRes.data ?? []) as unknown as Member[]).map((m) => ({
+    userId: m.user_id,
+    name: one(m.profile)?.full_name ?? "Unknown",
+  }));
+  const allClients = (clientsRes.data ?? []) as unknown as Client[];
 
-  // Per-platform view counts, deliberately kept separate. Summing them would
-  // add incomparable units and flatter whichever platform counts loosest
-  // (PRD 5 Step 2).
-  const byItem = new Map<string, Map<string, number>>();
-  for (const p of posts) {
-    if (!p.account) continue;
-    if (!byItem.has(p.content_item_id)) byItem.set(p.content_item_id, new Map());
-    byItem
-      .get(p.content_item_id)!
-      .set(p.account.platform_slug, one(p.metrics)?.views ?? 0);
-  }
+  // A video filter narrows to that video; a client filter narrows the video
+  // dropdown to that client's work so the two compose sensibly.
+  const videoOptions = (clientId
+    ? overview.videos.filter((v) => v.clientId === clientId)
+    : overview.videos
+  ).map((v) => ({ value: v.id, label: v.title }));
 
-  const hoursByItem = new Map<string, number>();
-  for (const t of (timeRes.data ?? []) as {
-    content_item_id: string | null;
-    duration_seconds: number | null;
-  }[]) {
-    if (!t.content_item_id) continue;
-    hoursByItem.set(
-      t.content_item_id,
-      (hoursByItem.get(t.content_item_id) ?? 0) + (t.duration_seconds ?? 0),
+  const filters = (
+    <FilterBar
+      basePath="/content"
+      filters={[
+        {
+          key: "client",
+          label: "Filter by client",
+          allLabel: "All clients",
+          value: clientId ?? null,
+          options: overview.clients.map((c) => ({ value: c.id, label: c.name })),
+          clears: ["video"],
+        },
+        {
+          key: "video",
+          label: "Filter by video",
+          allLabel: clientId ? "All of this client's videos" : "All videos",
+          value: videoId ?? null,
+          options: videoOptions,
+        },
+      ]}
+    />
+  );
+
+  /* ---- Single video ----------------------------------------------------- */
+  if (videoId) {
+    const view = await loadVideoView(supabase, ws, videoId);
+    if (!view) {
+      return (
+        <Shell title="Video" subtitle="Not found.">
+          {filters}
+          <div className="card p-8 text-sm text-[var(--muted)]">
+            That video was not found in this workspace.
+          </div>
+        </Shell>
+      );
+    }
+    // Standing of everyone credited on this video, in the role they hold on
+    // it, plus how the video itself did against each account's baseline.
+    const creditScores = rankings.people.map((p) => ({
+      userId: p.userId,
+      roleSlug: p.roleSlug,
+      overall: p.overall,
+      rankable: p.platforms.some((pl) => pl.rankable),
+    }));
+    const boostByPlatform: Record<string, number> = {};
+    for (const s of rankings.scoredByContent.get(videoId) ?? []) {
+      boostByPlatform[s.platform] = Math.max(boostByPlatform[s.platform] ?? 0, s.index);
+    }
+
+    return (
+      <Shell
+        title={view.item.title}
+        subtitle={one(view.item.client)?.name ?? "No client"}
+      >
+        {filters}
+        <ContentDetail
+          workspaceId={ws}
+          item={view.item}
+          posts={view.posts}
+          accounts={view.accounts}
+          roles={view.roles}
+          assignments={view.assignments}
+          members={members}
+          trackedSeconds={view.trackedSeconds}
+          history={view.history}
+          analytics={view.analytics}
+          clients={allClients}
+          creditScores={creditScores}
+          boostByPlatform={boostByPlatform}
+        />
+      </Shell>
     );
   }
 
+  /* ---- Single client ---------------------------------------------------- */
+  if (clientId) {
+    const client = overview.clients.find((c) => c.id === clientId);
+    if (!client) {
+      return (
+        <Shell title="Client" subtitle="Not found.">
+          {filters}
+          <div className="card p-8 text-sm text-[var(--muted)]">
+            That client was not found in this workspace.
+          </div>
+        </Shell>
+      );
+    }
+    const mine = overview.videos.filter((v) => v.clientId === clientId);
+    return (
+      <Shell
+        title={client.name}
+        subtitle="What has been delivered for this client, kept separate by platform."
+      >
+        {filters}
+        <ClientDetail client={client} videos={mine} />
+      </Shell>
+    );
+  }
+
+  /* ---- Everything ------------------------------------------------------- */
+  const t = overview.totals;
+  return (
+    <Shell
+      title="Content"
+      subtitle="Every video and client, with reach kept separate by platform."
+    >
+      {filters}
+
+      <StatGrid>
+        <Stat
+          label="Videos"
+          value={String(t.videos)}
+          hint={t.unpublished ? `${t.unpublished} not posted yet` : "all posted"}
+        />
+        <Stat label="Posts" value={String(t.posts)} hint="across all platforms" />
+        <Stat label="Clients" value={String(t.clients)} hint="active" />
+        <Stat
+          label="Time invested"
+          value={t.trackedSeconds ? formatDurationShort(t.trackedSeconds) : "—"}
+          hint="tracked against content"
+        />
+      </StatGrid>
+
+      <section className="mb-7">
+        <SectionHeading
+          title="Total reach by platform"
+          note="Each platform counts a view differently — never summed"
+        />
+        <PlatformReach totals={overview.platformTotals} />
+      </section>
+
+      <NewContentForm workspaceId={ws} clients={allClients} />
+
+      <ContentOverview videos={overview.videos} clients={overview.clients} />
+    </Shell>
+  );
+}
+
+function Shell({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="mx-auto max-w-5xl px-6 py-6">
-      <PageHeader
-        title="Content"
-        subtitle="One item per video. It fans out to each platform it was posted on."
-      />
-
-      <NewContentForm
-        workspaceId={ws}
-        clients={(clientsRes.data ?? []) as unknown as Client[]}
-      />
-
-      <ContentList
-        items={items}
-        clients={(clientsRes.data ?? []) as unknown as Client[]}
-        platforms={(platformsRes.data ?? []) as unknown as Platform[]}
-        viewsByItem={Object.fromEntries(
-          [...byItem.entries()].map(([k, v]) => [k, Object.fromEntries(v)]),
-        )}
-        secondsByItem={Object.fromEntries(hoursByItem)}
-      />
+      <PageHeader title={title} subtitle={subtitle} />
+      {children}
     </div>
   );
+}
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+async function loadVideoView(supabase: any, ws: string, id: string) {
+  const { data: item } = await supabase
+    .from("content_items")
+    .select(
+      "id, workspace_id, client_id, title, subject, hook, music_used, length_seconds, produced_at, notes, client:clients(id, name)",
+    )
+    .eq("id", id)
+    .eq("workspace_id", ws)
+    .maybeSingle();
+  if (!item) return null;
+
+  const [postsRes, accountsRes, rolesRes, assignRes, timeRes] = await Promise.all([
+    supabase
+      .from("platform_posts")
+      .select(
+        `id, workspace_id, content_item_id, account_id, url, posted_at, source,
+         is_best_performing, comment_sentiment,
+         account:accounts(id, platform_slug, handle, connection_mode),
+         metrics:post_current_metrics(views, likes, comments, shares, saves, reach, captured_at)`,
+      )
+      .eq("content_item_id", id),
+    supabase
+      .from("accounts")
+      .select("id, workspace_id, client_id, platform_slug, handle, connection_mode, is_archived")
+      .eq("workspace_id", ws)
+      .eq("is_archived", false)
+      .order("platform_slug"),
+    supabase
+      .from("roles")
+      .select("id, workspace_id, slug, name, sort_order")
+      .eq("workspace_id", ws)
+      .order("sort_order"),
+    supabase
+      .from("content_assignments")
+      .select("id, content_item_id, user_id, role_id, source, profile:profiles(full_name)")
+      .eq("content_item_id", id),
+    supabase
+      .from("time_entries")
+      .select("duration_seconds, user_id")
+      .eq("content_item_id", id)
+      .not("ended_at", "is", null),
+  ]);
+
+  const postIds = ((postsRes.data ?? []) as { id: string }[]).map((p) => p.id);
+  const historyRes = postIds.length
+    ? await supabase
+        .from("post_snapshots")
+        .select("platform_post_id, captured_at, views, likes, comments, shares, saves")
+        .in("platform_post_id", postIds)
+        .order("captured_at", { ascending: false })
+    : { data: [] };
+
+  const analyticsRes = postIds.length
+    ? await supabase
+        .from("post_analytics")
+        .select(
+          "platform_post_id, captured_at, impressions, ctr, avg_watch_seconds, retention_30s, retention_60s, source",
+        )
+        .in("platform_post_id", postIds)
+        .order("captured_at", { ascending: false })
+    : { data: [] };
+
+  const totalSeconds = ((timeRes.data ?? []) as { duration_seconds: number | null }[]).reduce(
+    (s, r) => s + (r.duration_seconds ?? 0),
+    0,
+  );
+
+  return {
+    item: item as unknown as ContentItem,
+    posts: (postsRes.data ?? []) as unknown as PlatformPost[],
+    accounts: (accountsRes.data ?? []) as unknown as Account[],
+    roles: (rolesRes.data ?? []) as unknown as Role[],
+    assignments: (assignRes.data ?? []) as unknown as ContentAssignment[],
+    trackedSeconds: totalSeconds,
+    history: (historyRes.data ?? []) as SnapshotRow[],
+    analytics: (analyticsRes.data ?? []) as AnalyticsRow[],
+  };
 }

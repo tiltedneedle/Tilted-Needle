@@ -1,25 +1,28 @@
 # Tilted Needle — Product Requirements Document
 
 **Module:** Cross-Platform Content Performance Dashboard (+ supporting time-tracking module)
-**Status:** Draft v0.3 — re-centered on the performance dashboard per direct client feedback
+**Status:** Draft v0.4 — split into two dashboards (Content, People) per direct client feedback
 **Last updated:** 2026-07-28
 
 ---
 
 ## 1. Summary
 
-**The primary deliverable is one page**: a single-screen performance dashboard
-where a manager picks a client, a video, or a person from a set of dropdown
-filters and sees everything that matters about it, without navigating between
-separate screens. Two audiences share that one page:
+**The primary deliverable is two dashboards**, each a single self-contained
+page where a manager picks from dropdown filters and sees everything that
+matters, without navigating between separate screens:
 
-1. **Video / client performance** — for any client, every video they've had
-   made, and for any video, its per-platform reach and the five people
-   credited on it (idea, script, videographer, editor, QC), each ranked by
-   how their work performed.
-2. **Team / employee overview** — the people doing the work: their
-   performance across every video they've touched, and what they're
-   currently assigned to.
+1. **Content** (`/content`) — every client and every video. For any client,
+   all the work delivered for them; for any video, its per-platform reach and
+   the five people credited on it (idea, script, videographer, editor, QC),
+   each shown with their standing in that role.
+2. **People** (`/team`) — every employee. Their performance per content role
+   and per platform, the reach of work they are credited on, hours, what they
+   are working on right now, and their employment details.
+
+The split is deliberate: these are two different questions ("how did the work
+perform" vs "how are the people doing"), asked by the same person at
+different times. Forcing both onto one surface made each of them worse.
 
 Time tracking exists **in support of this**, not as the headline feature. It
 answers "how many hours did this cost" underneath the performance numbers; it
@@ -42,86 +45,100 @@ not touching the scoring engine, the schema, or the dashboards. See §9.5.
 
 ---
 
-## 1.1 The Dashboard (primary deliverable — read this first)
+## 1.1 The two dashboards (primary deliverable — read this first)
 
-One route, one page. Everything below is a *section of that page*, not a
-separate screen a manager has to navigate to. The data behind every section
-already exists (content items, platform posts, snapshots, role assignments,
-scores, tracked time) — this section specifies how it is *presented*: as one
-filterable surface, not the half-dozen separate pages an earlier draft split
-it into (`/content`, `/performance`, `/performance/[userId]`, `/clients/[id]`).
+**Two pages, each self-contained.** Content on one, People on the other.
+Within each, filters are query params, so any view is a shareable URL and the
+browser back button works. Neither page makes you navigate away to answer a
+follow-up question — that is what "single-page" means here.
 
-### 1.1.1 Filter bar (always visible, top of page)
+An earlier draft split this material across six routes (`/content`,
+`/content/[id]`, `/performance`, `/performance/[userId]`, `/clients/[id]`,
+`/team`). Those routes still resolve, but only as redirects into the two
+dashboards below, so there is exactly one place each figure lives.
 
-- **Client** — dropdown, searchable. Selecting one scopes everything below to
-  that client only.
-- **Video** — dropdown, populated from the selected client's content once
-  one is chosen. Selecting one drills into that single video's detail.
-- **Person** — dropdown, independent of the client/video filters (a person
-  works across clients). Selecting one scopes the page to that person.
+### A. Content dashboard — `/content`
 
-These three combine, they don't replace each other: client + no video shows
-the client's full roster of videos; client + video shows one video's detail;
-person alone shows that person's cross-client record. At least one filter
-must be selected — this page does not attempt to show everything for every
-client at once.
+Everything about *what was made and how it landed*. Three states, chosen by
+the filter bar (Client, Video):
 
-### 1.1.2 Client view (Client selected, no video)
+**A1. Unfiltered — the whole workspace**
+- Header stats: videos, posts, clients, time invested.
+- **Total reach per platform** — bar per platform, never summed across them
+  (§5 Step 2 explains why a combined figure would be meaningless).
+- **Client comparison table** — every client side by side: videos, posts,
+  average engagement, time invested, reach chips per platform.
+- **Video table** — sortable by newest / reach / boost / time spent, with an
+  "unpublished only" filter for work still in progress. Boost badges appear
+  once an account has enough history to have a baseline worth beating.
+- Inline "new content" form, so adding a video does not need another page.
 
-- Header stats: videos delivered, posts published, total tracked hours.
-- **Per-platform reach table** — views/likes/comments/engagement per
-  platform, never summed across platforms (PRD 5 Step 2 explains why).
-- Video list for this client, each row showing its per-platform view chips —
-  clicking a row drills into the Video view below.
+**A2. Client selected**
+- Header stats: videos delivered, posts published, time invested, best
+  performer (boost multiplier).
+- Delivered reach per platform, plus hours per 1,000 views per platform.
+- **In progress** section — credited work not yet posted anywhere.
+- Published list with boost badges and per-platform view chips.
 
-### 1.1.3 Video view (Client + Video selected)
+**A3. Video selected**
+- Metadata: title, subject, hook, length, produced date, tracked time.
+- Per-platform performance cards, each showing **that post's boost against
+  its own account baseline**, plus snapshot history and CTR/retention when a
+  connected account or a manual Studio export has supplied them.
+- **The five-role credit panel** — the feature from the original brief:
 
-- Video metadata: title, subject, hook, length, produced date.
-- Per-platform performance cards (views/likes/comments, snapshot history,
-  CTR/retention when a connected account or manual entry has supplied them).
-- **The five-role credit panel** — this is the feature described in the
-  original brief and the one an earlier draft under-emphasized by putting it
-  on a separate `/content/[id]` page:
-
-  | Role | Credited person | This video's score for them |
+  | Role | Credited person | Their standing in that role |
   |---|---|---|
-  | Idea | (assigned member) | tier + multiplier, per platform |
-  | Script | (assigned member) | tier + multiplier, per platform |
-  | Videographer | (assigned member) | tier + multiplier, per platform |
-  | Editor | (assigned member) | tier + multiplier, per platform |
-  | Quality Control | (assigned member) | tier + multiplier, per platform |
+  | Video Idea | (assigned member) | tier + multiplier, or n/a |
+  | Script | (assigned member) | tier + multiplier, or n/a |
+  | Videographer | (assigned member) | tier + multiplier, or n/a |
+  | Editor | (assigned member) | tier + multiplier, or n/a |
+  | Quality Control | (assigned member) | tier + multiplier, or n/a |
 
-  Each row shows the assigned person's score **for this specific video**,
-  computed by the existing scoring engine (§5) against their platform's own
-  baseline — not a global average. Editable inline: reassign a role, adjust
-  best-performing flag, add a metric snapshot, without leaving the page.
+  Scores come from the existing engine (§5), computed against each
+  platform's own baseline and within the role — an editor is only ever
+  compared to other editors. "n/a" is shown honestly when the sample is too
+  small to rank, rather than inventing a number. Editable inline: assign or
+  remove a role, flag best-performing, record a snapshot, without leaving
+  the page.
 
-### 1.1.4 Person view (Person selected)
+### B. People dashboard — `/team`
 
-- Header stats: videos credited, roles held, hours tracked.
-- **Overall performance**, broken down by role and by platform (never a
-  single blended number — §5's guardrail applies here directly).
-- List of every video they're credited on, each showing which role they held
-  and that video's per-platform reach.
-- This subsumes the earlier separate `/performance/[userId]` page.
+Everything about *the employees*. Two states, chosen by the filter bar
+(Person, Content role), plus a tab for employment admin.
 
-### 1.1.5 Team / Employees section (own tab on the same page, not a filter)
+**B1. Unfiltered — the whole team**
+- Header stats: people, how many are credited on at least one video, hours
+  tracked, combined weekly capacity.
+- **Ranking by role** — a leaderboard per content role, because ranking only
+  means something within a role. Each row shows tier, multiplier, sample size.
+- **Roster table** — everyone, with workspace role, groups, content roles,
+  overall multiplier, videos credited, ongoing count, hours, and reach chips
+  per platform. Sortable by score / name / workload / hours; deactivated
+  members hidden by default but toggleable.
+- **Seats & groups tab** — the employment admin (seat type, capacity per
+  week, group membership) that used to be its own page. It lives here so
+  "everything about the employees" is literally one page, but behind a tab,
+  because reading performance and editing seats are different jobs.
 
-The second audience from §1: not "drill into one person" but "see everyone."
+**B2. Person selected**
+- Header stats: overall multiplier, videos credited, time tracked, weekly
+  capacity. Chips for workspace role, seat, active status, groups.
+- **Standing by role** — separately per content role, and within each role
+  separately per platform. Someone can be a strong editor and an average
+  videographer; a single blended number would hide that.
+- Reach on credited content, per platform, with the standing caveat that
+  these totals belong to the *content* and are shared with everyone else
+  credited on it.
+- **In progress** — credited work not yet posted anywhere.
+- Full credited-content list with roles held and time tracked per item.
 
-- Roster table: every active team member, their roles held (aggregated
-  across videos), overall score per role, and **current ongoing
-  assignments** — which videos/projects they are credited on right now.
-- Sortable by score, by role, by workload (open assignment count).
-- Clicking a row jumps into that person's Person view (§1.1.4) rather than
-  duplicating its content here.
-
-### 1.1.6 What stays off this page
+### C. What stays off both pages
 
 Time tracking's own working surfaces (the timer, the weekly timesheet grid,
-invoicing, approvals, time off) remain their own pages — they are a
-different task shape (data entry across a week) than this dashboard (read
-and filter). This page consumes their *output* (hours, for the cost context)
+invoicing, approvals, time off) remain their own pages — they are a different
+task shape (data entry across a week) than these dashboards (read and
+filter). The dashboards consume their *output* (hours, for cost context)
 without importing their UI.
 
 ---
@@ -795,7 +812,7 @@ as the data it depends on allows, not last:
 | **2 — Content layer (manual)** | Platform registry, accounts, content items, cross-post links, manual metric entry, content↔time join | Works with zero client cooperation; feeds §1.1 directly |
 | **2.5 — Platform connectors** | Instagram and TikTok OAuth first (98% of output), then YouTube, then Facebook | Ordered by actual volume, not by API convenience |
 | **3 — Scoring** | Baselines, PerfIndex, shrinkage, role tiers, boost detection | The maths behind every score §1.1 displays |
-| **3.5 — The Dashboard (§1.1)** | Single filterable page: client/video/person views, 5-role credit panel, team/employee roster | **The primary deliverable.** Everything before this phase exists to feed it. |
+| **3.5 — The two dashboards (§1.1)** | Content dashboard (workspace / client / video views, 5-role credit panel with standings) and People dashboard (role leaderboards, roster, person detail, seats & groups) | **The primary deliverable.** Everything before this phase exists to feed it. |
 | **4 — Billing** | Rates, budgets, expenses, invoicing, cost-per-1k-views | Revenue-facing; supporting-module scope |
 | **5 — Client portal** | Client role, scoped dashboards, exports, shared links | External exposure — after RLS is battle-tested |
 | **6 — Deep analytics** | Retention, CTR, reach and saves where each platform exposes them; per-role attribution | Gated on client authorisation and per-platform capability |
