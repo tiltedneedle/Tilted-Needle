@@ -66,9 +66,22 @@ export default function PersonDetail({
           hint="all recorded work"
         />
         <Stat
-          label="Capacity"
-          value={Number.isFinite(weeklyCapacity) ? `${weeklyCapacity}h` : "—"}
-          hint="per week"
+          label="This week"
+          value={
+            person.secondsThisWeek
+              ? `${(person.secondsThisWeek / 3600).toFixed(1)}h`
+              : "—"
+          }
+          hint={
+            Number.isFinite(weeklyCapacity) && weeklyCapacity > 0
+              ? `${((person.secondsThisWeek / 3600 / weeklyCapacity) * 100).toFixed(0)}% of ${weeklyCapacity}h capacity`
+              : "no capacity set"
+          }
+          accent={
+            Number.isFinite(weeklyCapacity) &&
+            weeklyCapacity > 0 &&
+            person.secondsThisWeek / 3600 > weeklyCapacity
+          }
         />
       </StatGrid>
 

@@ -21,6 +21,7 @@ const SORTS = [
   { key: "score", label: "Score" },
   { key: "name", label: "Name" },
   { key: "workload", label: "Workload" },
+  { key: "week", label: "This week" },
   { key: "time", label: "Hours" },
 ] as const;
 type SortKey = (typeof SORTS)[number]["key"];
@@ -36,7 +37,8 @@ function exportPeople(rows: Data["people"]) {
   for (const p of rows) {
     const base = [p.name, p.workspaceRole, p.seat, p.isActive ? "active" : "deactivated",
       p.groups.join(" / "), p.videoCount, p.ongoingCount,
-      (p.trackedSeconds / 3600).toFixed(2), p.capacityHours];
+      (p.trackedSeconds / 3600).toFixed(2), (p.secondsThisWeek / 3600).toFixed(2),
+      p.capacityHours];
     if (p.byRole.length === 0) {
       out.push([...base, "", "", "", ""]);
       continue;
@@ -56,10 +58,53 @@ function exportPeople(rows: Data["people"]) {
     datedName("people"),
     toCsv(
       ["Name", "Workspace role", "Seat", "Status", "Groups", "Videos", "Ongoing",
-        "Hours tracked", "Weekly capacity", "Content role", "Overall", "Sample size",
-        "Per platform"],
+        "Hours tracked", "Hours this week", "Weekly capacity", "Content role",
+        "Overall", "Sample size", "Per platform"],
       out,
     ),
+  );
+}
+
+/**
+ * Hours logged this week against the weekly capacity. Over-capacity is
+ * flagged amber rather than red: it is a signal worth seeing, not an error,
+ * and a red row for someone who worked a long week reads as an accusation.
+ */
+function Utilisation({
+  seconds,
+  capacityHours,
+}: {
+  seconds: number;
+  capacityHours: number;
+}) {
+  const hours = seconds / 3600;
+  if (!Number.isFinite(capacityHours) || capacityHours <= 0) {
+    return (
+      <span className="tabular text-xs text-[var(--muted)]">
+        {hours > 0 ? `${hours.toFixed(1)}h` : "—"}
+      </span>
+    );
+  }
+  const pct = (hours / capacityHours) * 100;
+  const over = pct > 100;
+  return (
+    <span className="inline-flex flex-col items-end gap-0.5">
+      <span className="tabular text-xs">
+        {hours.toFixed(1)}
+        <span className="text-[var(--muted)]">/{capacityHours}h</span>
+      </span>
+      <span
+        className="h-1 w-16 overflow-hidden rounded-full bg-[var(--bg-subtle)]"
+        title={`${pct.toFixed(0)}% of weekly capacity`}
+      >
+        <span
+          className={`block h-full rounded-full transition-[width] duration-500 ${
+            over ? "bg-amber-500" : "bg-[var(--accent)]"
+          }`}
+          style={{ width: `${Math.min(100, Math.max(2, pct))}%` }}
+        />
+      </span>
+    </span>
   );
 }
 
@@ -70,6 +115,7 @@ export default function PeopleOverview({ data }: { data: Data }) {
     const list = [...data.people];
     if (sort === "name") list.sort((a, b) => a.name.localeCompare(b.name));
     else if (sort === "workload") list.sort((a, b) => b.ongoingCount - a.ongoingCount);
+    else if (sort === "week") list.sort((a, b) => b.secondsThisWeek - a.secondsThisWeek);
     else if (sort === "time") list.sort((a, b) => b.trackedSeconds - a.trackedSeconds);
     else list.sort((a, b) => (b.overall ?? -99) - (a.overall ?? -99));
     return list;
@@ -163,6 +209,7 @@ export default function PeopleOverview({ data }: { data: Data }) {
                     <th className="px-3 py-2 text-right font-medium">Overall</th>
                     <th className="px-3 py-2 text-right font-medium">Videos</th>
                     <th className="px-3 py-2 text-right font-medium">Ongoing</th>
+                    <th className="px-3 py-2 text-right font-medium">This week</th>
                     <th className="px-3 py-2 text-right font-medium">Hours</th>
                     <th className="px-3 py-2 text-right font-medium">Reach</th>
                   </tr>
@@ -210,6 +257,12 @@ export default function PeopleOverview({ data }: { data: Data }) {
                           <span className="text-[var(--muted)]">—</span>
                         )}
                       </td>
+                      <td className="px-3 py-2.5 text-right">
+                        <Utilisation
+                          seconds={p.secondsThisWeek}
+                          capacityHours={p.capacityHours}
+                        />
+                      </td>
                       <td className="tabular px-3 py-2.5 text-right text-[var(--muted)]">
                         {p.trackedSeconds ? formatDurationShort(p.trackedSeconds) : "—"}
                       </td>
@@ -249,7 +302,8 @@ export default function PeopleOverview({ data }: { data: Data }) {
         <p className="mt-1.5 text-xs text-[var(--muted)]">
           Reach is the reach of content a person is credited on — shared with
           everyone else credited on it, not their individual contribution.
-          Ongoing counts credited content not yet posted anywhere.
+          Ongoing counts credited content not yet posted anywhere. “This week”
+          is hours logged since Monday, against their weekly capacity.
         </p>
       </section>
     </>

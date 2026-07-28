@@ -169,6 +169,8 @@ export default async function TeamPage({
   const t = overview.totals;
   const showAdmin = tab === "admin";
   const narrowed = overview.people.length !== unfiltered.people.length;
+  const weekHours =
+    overview.people.reduce((s, p) => s + p.secondsThisWeek, 0) / 3600;
 
   return (
     <Shell
@@ -197,9 +199,14 @@ export default async function TeamPage({
           hint={narrowed ? "these people, all time" : "all time, whole team"}
         />
         <Stat
-          label="Weekly capacity"
-          value={t.capacityHours ? `${t.capacityHours}h` : "—"}
-          hint="active members combined"
+          label="This week"
+          value={weekHours ? `${weekHours.toFixed(1)}h` : "—"}
+          hint={
+            t.capacityHours
+              ? `${((weekHours / t.capacityHours) * 100).toFixed(0)}% of ${t.capacityHours}h capacity`
+              : "no capacity set"
+          }
+          accent={t.capacityHours > 0 && weekHours > t.capacityHours}
         />
       </StatGrid>
 

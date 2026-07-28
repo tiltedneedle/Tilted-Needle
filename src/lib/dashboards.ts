@@ -364,11 +364,25 @@ export type PersonSummary = {
   videoCount: number;
   ongoingCount: number;
   trackedSeconds: number;
+  /**
+   * Hours in the current week only. Capacity is a weekly figure, so an
+   * all-time total sitting beside it invites a comparison that means nothing;
+   * this is the number that actually divides into it.
+   */
+  secondsThisWeek: number;
   /** Reach on content they are credited on, kept per platform. */
   totals: PlatformTotals[];
   /** Clients they have worked for, for the client filter. */
   clientIds: string[];
 };
+
+/** Monday 00:00 local, the week boundary the timesheet already uses. */
+export function startOfWeek(now = new Date()): Date {
+  const d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const dow = (d.getDay() + 6) % 7; // Monday = 0
+  d.setDate(d.getDate() - dow);
+  return d;
+}
 
 export type PeopleOverview = {
   people: PersonSummary[];
@@ -417,7 +431,7 @@ export async function loadPeopleOverview(
       .order("created_at"),
     supabase
       .from("time_entries")
-      .select("duration_seconds, user_id")
+      .select("duration_seconds, user_id, started_at")
       .eq("workspace_id", ws)
       .not("ended_at", "is", null),
     supabase
@@ -448,8 +462,18 @@ export async function loadPeopleOverview(
   const memberRows = (membersRes.data ?? []) as unknown as MemberRow[];
 
   const secondsByUser = new Map<string, number>();
-  for (const t of (timeRes.data ?? []) as { duration_seconds: number | null; user_id: string }[]) {
-    secondsByUser.set(t.user_id, (secondsByUser.get(t.user_id) ?? 0) + (t.duration_seconds ?? 0));
+  const weekSecondsByUser = new Map<string, number>();
+  const weekStart = startOfWeek().getTime();
+  for (const t of (timeRes.data ?? []) as {
+    duration_seconds: number | null;
+    user_id: string;
+    started_at: string;
+  }[]) {
+    const secs = t.duration_seconds ?? 0;
+    secondsByUser.set(t.user_id, (secondsByUser.get(t.user_id) ?? 0) + secs);
+    if (new Date(t.started_at).getTime() >= weekStart) {
+      weekSecondsByUser.set(t.user_id, (weekSecondsByUser.get(t.user_id) ?? 0) + secs);
+    }
   }
 
   const groupNameById = new Map(groupRows.map((g) => [g.id, g.name]));
@@ -553,6 +577,7 @@ export async function loadPeopleOverview(
       videoCount: credited.length,
       ongoingCount: ongoingByUser.get(m.user_id)?.size ?? 0,
       trackedSeconds: secondsByUser.get(m.user_id) ?? 0,
+      secondsThisWeek: weekSecondsByUser.get(m.user_id) ?? 0,
       totals: totalsByPlatform(rows),
       clientIds: [
         ...new Set(
