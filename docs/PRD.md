@@ -1,29 +1,128 @@
 # Tilted Needle — Product Requirements Document
 
-**Module:** Time Tracking & Multi-Platform Content Performance
-**Status:** Draft v0.2 — revised after reviewing the live client tracker
-**Last updated:** 2026-07-27
+**Module:** Cross-Platform Content Performance Dashboard (+ supporting time-tracking module)
+**Status:** Draft v0.3 — re-centered on the performance dashboard per direct client feedback
+**Last updated:** 2026-07-28
 
 ---
 
 ## 1. Summary
 
-An internal operations app that merges two things most agencies keep separate:
+**The primary deliverable is one page**: a single-screen performance dashboard
+where a manager picks a client, a video, or a person from a set of dropdown
+filters and sees everything that matters about it, without navigating between
+separate screens. Two audiences share that one page:
 
-1. **A full Clockify-equivalent time tracker** — who worked on what, for how long, at what cost.
-2. **A cross-platform performance layer** — how that work actually performed on Instagram, TikTok, YouTube, Facebook, and whatever the team publishes to next.
+1. **Video / client performance** — for any client, every video they've had
+   made, and for any video, its per-platform reach and the five people
+   credited on it (idea, script, videographer, editor, QC), each ranked by
+   how their work performed.
+2. **Team / employee overview** — the people doing the work: their
+   performance across every video they've touched, and what they're
+   currently assigned to.
 
-Joining these is the point. Clockify alone tells you effort. Platform analytics alone tell you outcome. Together they answer the questions an agency actually gets asked:
+Time tracking exists **in support of this**, not as the headline feature. It
+answers "how many hours did this cost" underneath the performance numbers; it
+is not itself the product. An earlier draft of this PRD inverted that
+emphasis and modeled the entire Clockify feature surface as the primary
+build. That was a misreading of the brief, corrected here: **build the
+dashboard first, keep time tracking as the supporting module the original
+brief described it as** ("this is one module of the company app").
 
-- Which editor's videos hold attention best, per hour spent?
-- What did we actually cost this client per 1,000 views delivered?
-- Does the same content earn its keep on TikTok as on Instagram?
-
-A standalone Clockify clone is a commodity. **The join is the product.**
+Clockify-specific integration (importing a Clockify account's history) is
+**out of scope**. It solved a real problem — cold-starting the performance
+model with history — but it is not close to the actual goal and should not
+consume build effort disproportionate to its value. If historical backfill
+matters later, the generic CSV/manual entry paths already in this app cover
+it without a Clockify-specific integration.
 
 **Platform-agnostic by construction.** Platforms are configuration, not code
 branches: adding LinkedIn or Snapchat later must mean registering a connector,
 not touching the scoring engine, the schema, or the dashboards. See §9.5.
+
+---
+
+## 1.1 The Dashboard (primary deliverable — read this first)
+
+One route, one page. Everything below is a *section of that page*, not a
+separate screen a manager has to navigate to. The data behind every section
+already exists (content items, platform posts, snapshots, role assignments,
+scores, tracked time) — this section specifies how it is *presented*: as one
+filterable surface, not the half-dozen separate pages an earlier draft split
+it into (`/content`, `/performance`, `/performance/[userId]`, `/clients/[id]`).
+
+### 1.1.1 Filter bar (always visible, top of page)
+
+- **Client** — dropdown, searchable. Selecting one scopes everything below to
+  that client only.
+- **Video** — dropdown, populated from the selected client's content once
+  one is chosen. Selecting one drills into that single video's detail.
+- **Person** — dropdown, independent of the client/video filters (a person
+  works across clients). Selecting one scopes the page to that person.
+
+These three combine, they don't replace each other: client + no video shows
+the client's full roster of videos; client + video shows one video's detail;
+person alone shows that person's cross-client record. At least one filter
+must be selected — this page does not attempt to show everything for every
+client at once.
+
+### 1.1.2 Client view (Client selected, no video)
+
+- Header stats: videos delivered, posts published, total tracked hours.
+- **Per-platform reach table** — views/likes/comments/engagement per
+  platform, never summed across platforms (PRD 5 Step 2 explains why).
+- Video list for this client, each row showing its per-platform view chips —
+  clicking a row drills into the Video view below.
+
+### 1.1.3 Video view (Client + Video selected)
+
+- Video metadata: title, subject, hook, length, produced date.
+- Per-platform performance cards (views/likes/comments, snapshot history,
+  CTR/retention when a connected account or manual entry has supplied them).
+- **The five-role credit panel** — this is the feature described in the
+  original brief and the one an earlier draft under-emphasized by putting it
+  on a separate `/content/[id]` page:
+
+  | Role | Credited person | This video's score for them |
+  |---|---|---|
+  | Idea | (assigned member) | tier + multiplier, per platform |
+  | Script | (assigned member) | tier + multiplier, per platform |
+  | Videographer | (assigned member) | tier + multiplier, per platform |
+  | Editor | (assigned member) | tier + multiplier, per platform |
+  | Quality Control | (assigned member) | tier + multiplier, per platform |
+
+  Each row shows the assigned person's score **for this specific video**,
+  computed by the existing scoring engine (§5) against their platform's own
+  baseline — not a global average. Editable inline: reassign a role, adjust
+  best-performing flag, add a metric snapshot, without leaving the page.
+
+### 1.1.4 Person view (Person selected)
+
+- Header stats: videos credited, roles held, hours tracked.
+- **Overall performance**, broken down by role and by platform (never a
+  single blended number — §5's guardrail applies here directly).
+- List of every video they're credited on, each showing which role they held
+  and that video's per-platform reach.
+- This subsumes the earlier separate `/performance/[userId]` page.
+
+### 1.1.5 Team / Employees section (own tab on the same page, not a filter)
+
+The second audience from §1: not "drill into one person" but "see everyone."
+
+- Roster table: every active team member, their roles held (aggregated
+  across videos), overall score per role, and **current ongoing
+  assignments** — which videos/projects they are credited on right now.
+- Sortable by score, by role, by workload (open assignment count).
+- Clicking a row jumps into that person's Person view (§1.1.4) rather than
+  duplicating its content here.
+
+### 1.1.6 What stays off this page
+
+Time tracking's own working surfaces (the timer, the weekly timesheet grid,
+invoicing, approvals, time off) remain their own pages — they are a
+different task shape (data entry across a week) than this dashboard (read
+and filter). This page consumes their *output* (hours, for the cost context)
+without importing their UI.
 
 ---
 
@@ -336,7 +435,10 @@ Surface percentile bands within role (Top 10% / Above / At / Below baseline) plu
 
 ## 6. Functional Scope
 
-Client selected the **full Clockify surface**. Documented in full here; sequenced in §9.
+The dashboard in §1.1 is the headline deliverable. What follows is the
+supporting time-tracking module: real, and still built to the same standard,
+but explicitly secondary to §1.1 — not something to expand at the dashboard's
+expense.
 
 ### 6.1 Time Tracking (Core)
 - Live timer (start/stop/resume), manual entry, bulk edit, duplicate
@@ -375,15 +477,19 @@ Client selected the **full Clockify surface**. Documented in full here; sequence
 - Audit log, webhooks, public API
 - QuickBooks/Xero export
 
-### 6.6 YouTube Module
-- Channel registration per client; OAuth connect flow with clear status
+### 6.6 Content & Performance Data Layer
+
+This is the data and logic the dashboard in §1.1 is built on — the dashboard
+is the presentation of this layer, not a separate feature.
+
+- Channel/account registration per client; OAuth connect flow with clear status
 - Video catalogue with automatic sync
 - **Role assignment: the 5 entities per video** (extensible — roles are data, not enum)
 - Metric snapshots and time-series charts
-- Per-person dashboard: assigned videos, aggregate views/likes, rank, trend
-- Per-client dashboard: total delivered views, videos shipped, spend, cost-per-1k-views
 - Boost detection: flag videos exceeding baseline by configurable threshold
-- Excel importer for historical backfill *(blocked — see §11)*
+- Historical backfill, if ever needed: generic CSV upload or manual entry.
+  **Not** a bespoke Clockify integration — see §1 and §13 for why that was
+  removed from scope.
 
 ### 6.7 The Join (differentiator)
 - Link time entries to specific videos
@@ -643,7 +749,7 @@ The phases most likely to tempt a backend, and how they avoid one:
   Supabase `pg_cron` for database-side work. Neither is a new service.
 - **OAuth token storage/refresh** → Supabase Vault for encryption; refresh runs
   in the same scheduled handler.
-- **Long-running imports** (Clockify backfill, bulk sync) → chunked and
+- **Long-running imports** (CSV backfill, bulk sync) → chunked and
   resumable behind a Route Handler, so no job queue is required.
 - **Score recomputation** → a Postgres function on a schedule; the maths in
   §5 is plain SQL-friendly arithmetic.
@@ -679,25 +785,29 @@ The repository is **public** and the Supabase publishable key ships in the brows
 
 ## 11. Proposed Phasing
 
-Full Clockify + full YouTube attribution + full multi-tenancy is a multi-quarter build. Sequenced so something is usable early:
+Sequenced so the actual deliverable — the dashboard in §1.1 — lands as early
+as the data it depends on allows, not last:
 
 | Phase | Contents | Why here |
 |---|---|---|
 | **0 — Foundation** | Auth, orgs, memberships, RLS baseline, schema | Everything depends on tenancy being right |
-| **1 — Core tracking** | Timer, entries, projects/tasks/clients/tags, timesheet, basic reports | Replaces the Excel sheet; earliest real value |
-| **1.5 — Clockify migration** | Import existing entries via API; **fuzzy-match descriptions → video records**; reconcile projects/tasks/clients | Turns years of history into the backfill Phase 3 needs |
-| **2 — Content layer (manual)** | Platform registry, accounts, content items, cross-post links, manual metric entry, content↔time join | Works with zero client cooperation; replaces the spreadsheet immediately |
+| **1 — Core tracking** | Timer, entries, projects/tasks/clients/tags, timesheet, basic reports | Supporting module (§1); replaces the Excel sheet |
+| **2 — Content layer (manual)** | Platform registry, accounts, content items, cross-post links, manual metric entry, content↔time join | Works with zero client cooperation; feeds §1.1 directly |
 | **2.5 — Platform connectors** | Instagram and TikTok OAuth first (98% of output), then YouTube, then Facebook | Ordered by actual volume, not by API convenience |
-| **3 — Scoring** | Baselines, PerfIndex, shrinkage, role dashboards, boost detection | Needs Phase 2 history to be meaningful |
-| **4 — Billing** | Rates, budgets, expenses, invoicing, cost-per-1k-views | Revenue-facing |
+| **3 — Scoring** | Baselines, PerfIndex, shrinkage, role tiers, boost detection | The maths behind every score §1.1 displays |
+| **3.5 — The Dashboard (§1.1)** | Single filterable page: client/video/person views, 5-role credit panel, team/employee roster | **The primary deliverable.** Everything before this phase exists to feed it. |
+| **4 — Billing** | Rates, budgets, expenses, invoicing, cost-per-1k-views | Revenue-facing; supporting-module scope |
 | **5 — Client portal** | Client role, scoped dashboards, exports, shared links | External exposure — after RLS is battle-tested |
 | **6 — Deep analytics** | Retention, CTR, reach and saves where each platform exposes them; per-role attribution | Gated on client authorisation and per-platform capability |
-| **7 — Team ops** | Approvals, PTO, scheduling, permissions | Scales with headcount |
-| **8 — Advanced** | Kiosk, GPS, SSO, audit, public API, integrations | Enterprise surface |
+| **7 — Team ops** | Approvals, PTO, scheduling, permissions | Supporting-module scope; scales with headcount |
+| **8 — Advanced** | Kiosk, GPS, SSO, audit, public API, integrations | Enterprise surface, supporting-module scope |
 
-**Phase 3 has a cold-start problem:** scoring needs ~10 videos of history per channel for a stable baseline.
-
-Phase 1.5 is the mitigation. Because time-entry descriptions already carry video titles (§7.5), the existing Clockify account is itself a backfill source — pulled via the Clockify API, matched to YouTube videos by title. Done well, meaningful rankings exist on launch day rather than two months later. Match confidence must be surfaced for human review; a silently wrong match misattributes someone's work.
+**Phase 3 has a cold-start problem:** scoring needs ~10 videos of history per
+channel for a stable baseline, so freshly-onboarded clients see thin scores
+for the first few weeks. This is disclosed, not solved by a bespoke
+migration tool: a generic CSV upload (§6.6) is the backfill path if a client
+wants to seed history faster, and it is the same size of effort as building
+one Clockify-specific integration would have been, without the narrowness.
 
 ---
 
@@ -716,8 +826,11 @@ Phase 1.5 is the mitigation. Because time-entry descriptions already carry video
 **Resolved by the workspace screenshots:**
 - Navigation, dashboard, report, and team layouts — captured in §7
 - Multi-workspace is a real requirement, not hypothetical
-- Existing Clockify data exists and should be migrated (Phase 1.5)
 - Time is already tracked per video via the description field (§7.5)
+
+**Resolved by direct client feedback (this revision):**
+- The dashboard in §1.1 is the primary deliverable, not the time-tracking module
+- Clockify-specific integration is out of scope — CSV/manual entry covers backfill instead
 
 **Resolved by the tracking sheet (§3.5):**
 - Platform mix is Instagram/TikTok, not YouTube
@@ -727,8 +840,7 @@ Phase 1.5 is the mitigation. Because time-entry descriptions already carry video
 
 **Blocking:**
 1. **Will clients authorise Instagram/TikTok access?** For 98% of content there is no public fallback, so this single answer decides whether the product automates anything or remains structured manual entry.
-2. **Clockify API access** — a key is required for Phase 1.5 migration. Confirm the plan tier permits export.
-3. **Do we derive roles from tracked time instead of asking for them?** Recommended: the spreadsheet columns have 0% compliance, while the same fact is already captured by time entries.
+2. **Do we derive roles from tracked time instead of asking for them?** Recommended: the spreadsheet columns have 0% compliance, while the same fact is already captured by time entries.
 4. Requirements message was truncated mid-sentence — the final requirement is unknown.
 
 **Needs decision:**
