@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   addPlatformPost,
@@ -299,10 +300,13 @@ export default function ContentDetail({
     <>
       <div className="mb-1 flex flex-wrap items-baseline gap-3">
         <h1 className="text-xl font-semibold tracking-tight">{item.title}</h1>
-        {one(item.client)?.name && (
-          <span className="text-sm text-[var(--muted)]">
-            {one(item.client)?.name}
-          </span>
+        {one(item.client) && (
+          <Link
+            href={`/content?client=${one(item.client)!.id}`}
+            className="text-sm text-[var(--muted)] transition-colors hover:text-[var(--accent)]"
+          >
+            {one(item.client)!.name}
+          </Link>
         )}
         <div className="flex-1" />
         <button className="btn px-2 py-1 text-xs" onClick={() => setEditMeta(true)}>
@@ -605,7 +609,14 @@ export default function ContentDetail({
                           : "Not enough posts yet to rank them in this role"
                       }
                     >
-                      <span>{h.profile?.full_name ?? "Unknown"}</span>
+                      {/* Into the People dashboard -- the credit panel is the
+                          natural jumping-off point between the two. */}
+                      <Link
+                        href={`/team?person=${h.user_id}`}
+                        className="transition-colors hover:text-[var(--accent)]"
+                      >
+                        {h.profile?.full_name ?? "Unknown"}
+                      </Link>
                       {score?.rankable && score.overall != null ? (
                         <span className={`tabular ${TIER_CLASS[tier]}`}>
                           {asMultiplier(score.overall).toFixed(2)}×

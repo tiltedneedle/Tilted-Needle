@@ -205,7 +205,16 @@ export default function PersonDetail({
       )}
 
       <section>
-        <SectionHeading title={`Credited content (${items.length})`} />
+        <SectionHeading title={`Credited content (${items.length})`}>
+          {/* The same set, on the Content dashboard, where it can be sliced
+              by platform and period. */}
+          <Link
+            href={`/content?person=${person.userId}`}
+            className="rounded px-2 py-0.5 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--fg)]"
+          >
+            Open in Content →
+          </Link>
+        </SectionHeading>
         {items.length === 0 ? (
           <Empty>Not credited on any content yet.</Empty>
         ) : (
