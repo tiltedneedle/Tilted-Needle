@@ -720,6 +720,207 @@ export async function recordAnalytics(input: {
   return {};
 }
 
+/* ---- Phase 7: approvals, time off, groups, capacity --------------------- */
+
+export async function submitTimesheet(input: {
+  workspaceId: string;
+  periodStart: string;
+  periodEnd: string;
+}): Promise<Result> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+
+  const { error } = await supabase.from("timesheet_submissions").upsert(
+    {
+      workspace_id: input.workspaceId,
+      user_id: user.id,
+      period_start: input.periodStart,
+      period_end: input.periodEnd,
+      status: "submitted",
+      submitted_at: new Date().toISOString(),
+      reviewed_by: null,
+      reviewed_at: null,
+    },
+    { onConflict: "workspace_id,user_id,period_start" },
+  );
+  if (error) return { error: error.message };
+  revalidatePath("/timesheet");
+  revalidatePath("/approvals");
+  return {};
+}
+
+export async function reviewTimesheet(
+  id: string,
+  status: "approved" | "rejected",
+  note: string,
+): Promise<Result> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+
+  const { error } = await supabase
+    .from("timesheet_submissions")
+    .update({
+      status,
+      review_note: note.trim() || null,
+      reviewed_by: user.id,
+      reviewed_at: new Date().toISOString(),
+    })
+    .eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/approvals");
+  return {};
+}
+
+export async function createGroup(workspaceId: string, name: string): Promise<Result> {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("user_groups")
+    .insert({ workspace_id: workspaceId, name: name.trim() });
+  if (error) {
+    if (error.code === "23505") return { error: "A group with that name already exists." };
+    return { error: error.message };
+  }
+  revalidatePath("/team");
+  return {};
+}
+
+export async function deleteGroup(id: string): Promise<Result> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("user_groups").delete().eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/team");
+  return {};
+}
+
+export async function setGroupMember(
+  groupId: string,
+  userId: string,
+  inGroup: boolean,
+): Promise<Result> {
+  const supabase = await createClient();
+  const { error } = inGroup
+    ? await supabase.from("user_group_members").insert({ group_id: groupId, user_id: userId })
+    : await supabase
+        .from("user_group_members")
+        .delete()
+        .eq("group_id", groupId)
+        .eq("user_id", userId);
+  if (error) return { error: error.message };
+  revalidatePath("/team");
+  return {};
+}
+
+export async function updateCapacity(membershipId: string, hoursPerWeek: string): Promise<Result> {
+  const n = Number(hoursPerWeek);
+  if (!Number.isFinite(n) || n < 0) return { error: "Enter a non-negative number of hours." };
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("memberships")
+    .update({ weekly_capacity_hours: n })
+    .eq("id", membershipId);
+  if (error) return { error: error.message };
+  revalidatePath("/team");
+  revalidatePath("/capacity");
+  return {};
+}
+
+export async function createTimeOffPolicy(
+  workspaceId: string,
+  name: string,
+  daysPerYear: string,
+  requiresApproval: boolean,
+): Promise<Result> {
+  const days = Number(daysPerYear);
+  if (!Number.isFinite(days) || days < 0) return { error: "Enter a non-negative number of days." };
+  const supabase = await createClient();
+  const { error } = await supabase.from("time_off_policies").insert({
+    workspace_id: workspaceId,
+    name: name.trim(),
+    days_per_year: days,
+    requires_approval: requiresApproval,
+  });
+  if (error) {
+    if (error.code === "23505") return { error: "A policy with that name already exists." };
+    return { error: error.message };
+  }
+  revalidatePath("/time-off");
+  return {};
+}
+
+export async function createTimeOffRequest(input: {
+  workspaceId: string;
+  policyId: string;
+  startDate: string;
+  endDate: string;
+  hours: number;
+  note: string;
+}): Promise<Result> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+  if (input.endDate < input.startDate) return { error: "End date is before the start date." };
+  if (!(input.hours > 0)) return { error: "Hours must be greater than zero." };
+
+  const { data: policy } = await supabase
+    .from("time_off_policies")
+    .select("requires_approval")
+    .eq("id", input.policyId)
+    .maybeSingle();
+
+  const { error } = await supabase.from("time_off_requests").insert({
+    workspace_id: input.workspaceId,
+    user_id: user.id,
+    policy_id: input.policyId,
+    start_date: input.startDate,
+    end_date: input.endDate,
+    hours: input.hours,
+    note: input.note.trim() || null,
+    // Policies that never require approval auto-approve on submission rather
+    // than sitting in a pending queue nobody is meant to review.
+    status: policy?.requires_approval === false ? "approved" : "pending",
+  });
+  if (error) return { error: error.message };
+  revalidatePath("/time-off");
+  return {};
+}
+
+export async function reviewTimeOffRequest(
+  id: string,
+  status: "approved" | "rejected",
+): Promise<Result> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+  const { error } = await supabase
+    .from("time_off_requests")
+    .update({ status, reviewed_by: user.id, reviewed_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/time-off");
+  return {};
+}
+
+export async function cancelTimeOffRequest(id: string): Promise<Result> {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("time_off_requests")
+    .update({ status: "cancelled" })
+    .eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/time-off");
+  return {};
+}
+
 /** Archive rather than delete: entries reference these rows as history. */
 export async function setArchived(
   table: "clients" | "projects" | "tasks" | "tags" | "accounts",

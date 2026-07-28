@@ -50,6 +50,13 @@ const NAV = [
     ],
   },
   {
+    group: "Team",
+    items: [
+      { href: "/approvals", label: "Approvals", icon: ApprovalIcon },
+      { href: "/time-off", label: "Time off", icon: CalendarIcon },
+    ],
+  },
+  {
     group: "Manage",
     items: [
       { href: "/projects", label: "Projects", icon: FolderIcon },
@@ -220,6 +227,12 @@ function TrophyIcon() {
 }
 function ShareIcon() {
   return <svg {...s}><circle cx="18" cy="5" r="2.6" /><circle cx="6" cy="12" r="2.6" /><circle cx="18" cy="19" r="2.6" /><path d="M8.4 10.8 15.6 6.4M8.4 13.2l7.2 4.4" /></svg>;
+}
+function CalendarIcon() {
+  return <svg {...s}><rect x="3.5" y="4.5" width="17" height="16" rx="2" /><path d="M3.5 9.5h17M8 3v3M16 3v3" /></svg>;
+}
+function ApprovalIcon() {
+  return <svg {...s}><circle cx="12" cy="12" r="9" /><path d="m8.5 12.5 2.3 2.3L15.7 9.6" /></svg>;
 }
 function ChevronIcon({ className = "" }: { className?: string }) {
   return <svg {...s} width={13} height={13} className={`shrink-0 transition-transform duration-150 ${className}`}><path d="m6 9 6 6 6-6" /></svg>;

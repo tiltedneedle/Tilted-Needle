@@ -19,7 +19,10 @@ export default async function TimesheetPage({
   const weekStart = startOfWeek(Number.isNaN(anchor.getTime()) ? new Date() : anchor);
   const weekEnd = addDays(weekStart, 7);
 
-  const [entriesRes, projectsRes, tasksRes] = await Promise.all([
+  const periodStartKey = weekStart.toISOString().slice(0, 10);
+  const periodEndKey = addDays(weekStart, 6).toISOString().slice(0, 10);
+
+  const [entriesRes, projectsRes, tasksRes, submissionRes] = await Promise.all([
     supabase
       .from("time_entries")
       .select(
@@ -47,6 +50,13 @@ export default async function TimesheetPage({
       .eq("workspace_id", ws)
       .eq("is_archived", false)
       .order("name"),
+    supabase
+      .from("timesheet_submissions")
+      .select("id, status, review_note")
+      .eq("workspace_id", ws)
+      .eq("user_id", session.userId)
+      .eq("period_start", periodStartKey)
+      .maybeSingle(),
   ]);
 
   return (
@@ -61,6 +71,11 @@ export default async function TimesheetPage({
         projects={(projectsRes.data ?? []) as unknown as Project[]}
         tasks={(tasksRes.data ?? []) as unknown as Task[]}
         workspaceId={ws}
+        periodStart={periodStartKey}
+        periodEnd={periodEndKey}
+        submission={
+          submissionRes.data as { id: string; status: string; review_note: string | null } | null
+        }
       />
     </div>
   );

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import ProjectPicker, { type Selection } from "@/components/ProjectPicker";
-import { createManualEntry } from "@/app/actions";
+import { createManualEntry, submitTimesheet } from "@/app/actions";
 import {
   addDays,
   dayKey,
@@ -21,21 +21,31 @@ function rowKeyFor(projectId: string | null, taskId: string | null): RowKey {
   return `${projectId ?? "none"}::${taskId ?? "none"}`;
 }
 
+type Submission = { id: string; status: string; review_note: string | null } | null;
+
 export default function TimesheetGrid({
   weekStartIso,
   entries,
   projects,
   tasks,
   workspaceId,
+  periodStart,
+  periodEnd,
+  submission,
 }: {
   weekStartIso: string;
   entries: TimeEntry[];
   projects: Project[];
   tasks: Task[];
   workspaceId: string;
+  periodStart: string;
+  periodEnd: string;
+  submission: Submission;
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
+  const [submitting, setSubmitting] = useState(false);
+  const locked = submission?.status === "approved";
   const [adding, setAdding] = useState<Selection>({
     projectId: null,
     taskId: null,
@@ -158,11 +168,51 @@ export default function TimesheetGrid({
             {formatDurationShort(weekTotal)}
           </span>
         </span>
+
+        {/* Approving a week is what actually locks it (via is_period_locked
+            in RLS) -- this button and badge are the front end of that,
+            not a separate source of truth. */}
+        {submission?.status === "approved" ? (
+          <span className="rounded bg-emerald-500/15 px-2 py-1 text-xs text-emerald-500">
+            Approved — locked
+          </span>
+        ) : submission?.status === "submitted" ? (
+          <span className="rounded bg-amber-500/15 px-2 py-1 text-xs text-amber-500">
+            Submitted, awaiting review
+          </span>
+        ) : (
+          <button
+            className="btn px-2.5 py-1.5 text-xs"
+            disabled={submitting || weekTotal === 0}
+            onClick={async () => {
+              setSubmitting(true);
+              const res = await submitTimesheet({ workspaceId, periodStart, periodEnd });
+              setSubmitting(false);
+              if (res.error) return setError(res.error);
+              startTransition(() => router.refresh());
+            }}
+          >
+            {submitting ? "Submitting…" : "Submit for approval"}
+          </button>
+        )}
       </div>
+
+      {submission?.status === "rejected" && submission.review_note && (
+        <p className="mb-2 rounded-md border border-red-500/25 bg-red-500/10 px-3 py-2 text-sm text-red-400">
+          Rejected: {submission.review_note}
+        </p>
+      )}
 
       {error && (
         <p className="mb-2 text-sm text-[var(--danger)]" role="alert">
           {error}
+        </p>
+      )}
+
+      {locked && (
+        <p className="mb-2 text-xs text-[var(--muted)]">
+          This week is approved and locked. Entries cannot be added or edited
+          here until a manager reopens it.
         </p>
       )}
 
@@ -234,8 +284,11 @@ export default function TimesheetGrid({
                           />
                         ) : (
                           <button
-                            className="tabular w-[68px] rounded px-1 py-1.5 transition-colors hover:bg-[var(--border)]"
+                            className="tabular w-[68px] rounded px-1 py-1.5 transition-colors enabled:hover:bg-[var(--border)] disabled:cursor-not-allowed disabled:opacity-70"
+                            disabled={locked}
+                            title={locked ? "This week is approved and locked." : undefined}
                             onClick={() => {
+                              if (locked) return;
                               setPendingCell(cellId);
                               setDraft("");
                             }}
@@ -273,15 +326,17 @@ export default function TimesheetGrid({
         </table>
       </div>
 
-      <div className="mt-3 flex items-center gap-2">
-        <span className="text-sm text-[var(--muted)]">Add row:</span>
-        <ProjectPicker
-          projects={projects}
-          tasks={tasks}
-          value={adding}
-          onChange={setAdding}
-        />
-      </div>
+      {!locked && (
+        <div className="mt-3 flex items-center gap-2">
+          <span className="text-sm text-[var(--muted)]">Add row:</span>
+          <ProjectPicker
+            projects={projects}
+            tasks={tasks}
+            value={adding}
+            onChange={setAdding}
+          />
+        </div>
+      )}
     </>
   );
 }

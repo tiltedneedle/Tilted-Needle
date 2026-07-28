@@ -353,6 +353,122 @@ async function mkUser(email) {
   check("no authenticated user can call the vault wrapper directly",
     !!aVaultRpc, aVaultRpc ? "" : "RPC SUCCEEDED");
 
+  // --- Phase 7: approvals, time off, groups ------------------------------
+  const { data: group, error: groupErr } = await a.client
+    .from("user_groups")
+    .insert({ workspace_id: wsA.id, name: "Editors" })
+    .select()
+    .single();
+  check("manager can create a group", !groupErr && !!group, groupErr?.message);
+
+  const { error: bGroupWrite } = await b.client
+    .from("user_groups")
+    .insert({ workspace_id: wsA.id, name: "Injected" });
+  check("B cannot create a group in A's workspace", !!bGroupWrite, bGroupWrite ? "" : "INSERT SUCCEEDED");
+
+  const { data: cGroupData } = await cc.from("user_groups").select("*");
+  check("client cannot see internal groups", (cGroupData?.length ?? 0) === 0);
+
+  // Timesheet submission + approval locking. A is the workspace owner and
+  // therefore always passes can_manage_workspace, which would make a lock
+  // check against A meaningless -- the manager-override clause would let it
+  // through either way. A genuine plain member is required to prove the
+  // lock actually stops someone who is not a manager.
+  const plainMember = await mkUser(`rls-m-${stamp}@example.com`);
+  const { error: addMemberErr } = await admin.from("memberships").insert({
+    workspace_id: wsA.id, user_id: plainMember.id, role: "member", seat: "full",
+  });
+  check("plain member can be added to the workspace", !addMemberErr, addMemberErr?.message);
+
+  const { data: sub, error: subErr } = await plainMember.client
+    .from("timesheet_submissions")
+    .insert({
+      workspace_id: wsA.id, user_id: plainMember.id,
+      period_start: "2026-01-05", period_end: "2026-01-11", status: "submitted",
+    })
+    .select()
+    .single();
+  check("member can submit a timesheet", !subErr && !!sub, subErr?.message);
+
+  const { data: entryInPeriod } = await plainMember.client
+    .from("time_entries")
+    .insert({
+      workspace_id: wsA.id, user_id: plainMember.id, description: "week to lock",
+      started_at: "2026-01-06T10:00:00Z", ended_at: "2026-01-06T11:00:00Z",
+    })
+    .select()
+    .single();
+
+  // Approval is a manager action -- done as A (the owner), not the member.
+  await a.client.from("timesheet_submissions").update({ status: "approved" }).eq("id", sub.id);
+
+  const { data: editAfterLock } = await plainMember.client
+    .from("time_entries")
+    .update({ description: "edited after approval" })
+    .eq("id", entryInPeriod.id)
+    .select();
+  check("a plain member cannot edit their own entry once the week is approved",
+    (editAfterLock?.length ?? 0) === 0);
+
+  const { data: stillThere } = await plainMember.client
+    .from("time_entries")
+    .select("id")
+    .eq("id", entryInPeriod.id);
+  await plainMember.client.from("time_entries").delete().eq("id", entryInPeriod.id);
+  const { data: afterDeleteAttempt } = await plainMember.client
+    .from("time_entries")
+    .select("id")
+    .eq("id", entryInPeriod.id);
+  check("a plain member cannot delete their own entry once the week is approved",
+    (stillThere?.length ?? 0) === 1 && (afterDeleteAttempt?.length ?? 0) === 1);
+
+  // Managers can still correct a locked entry -- the lock protects members
+  // from themselves, not managers from doing their job.
+  const { data: managerEdit } = await a.client
+    .from("time_entries")
+    .update({ description: "manager correction" })
+    .eq("id", entryInPeriod.id)
+    .select();
+  check("a manager can still edit an approved week's entries",
+    (managerEdit?.length ?? 0) === 1);
+
+  await admin.from("memberships").delete().eq("workspace_id", wsA.id).eq("user_id", plainMember.id);
+  await admin.auth.admin.deleteUser(plainMember.id);
+
+  // Time off.
+  const { data: policy, error: policyErr } = await a.client
+    .from("time_off_policies")
+    .insert({ workspace_id: wsA.id, name: "PTO", days_per_year: 20 })
+    .select()
+    .single();
+  check("manager can create a time-off policy", !policyErr && !!policy, policyErr?.message);
+
+  const { data: pto } = await a.client
+    .from("time_off_requests")
+    .insert({
+      workspace_id: wsA.id, user_id: a.id, policy_id: policy.id,
+      start_date: "2026-03-01", end_date: "2026-03-01", hours: 8,
+    })
+    .select()
+    .single();
+  check("member can request time off", !!pto);
+
+  const { data: cPto } = await cc.from("time_off_requests").select("*");
+  check("client cannot see time-off requests", (cPto?.length ?? 0) === 0);
+
+  const { data: bPtoData } = await b.client
+    .from("time_off_requests")
+    .select("*")
+    .eq("id", pto.id);
+  check("tenant B cannot see tenant A's time-off request", (bPtoData?.length ?? 0) === 0);
+
+  // Cleanup this block's rows so they don't linger in the seeded workspace.
+  await admin.from("time_off_requests").delete().eq("id", pto.id);
+  await admin.from("time_off_policies").delete().eq("id", policy.id);
+  await admin.from("time_entries").delete().eq("id", entryInPeriod.id);
+  await admin.from("timesheet_submissions").delete().eq("id", sub.id);
+  await admin.from("user_groups").delete().eq("id", group.id);
+
   // Staff are unaffected by the tightened policies.
   const { data: staffClients } = await a.client.from("clients").select("*");
   check("staff still see every client in their workspace",
