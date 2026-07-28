@@ -1191,6 +1191,203 @@ export async function setMemberKioskPin(membershipId: string, pin: string): Prom
   return {};
 }
 
+/* ---- Phase 1.5: Clockify historical backfill ----------------------------- */
+
+export async function checkClockifyConnection(
+  apiKey: string,
+): Promise<Result & { workspaces?: { id: string; name: string }[] }> {
+  if (!apiKey.trim()) return { error: "Paste your Clockify API key first." };
+  try {
+    const { verifyKeyAndListWorkspaces } = await import("@/lib/clockify");
+    const { workspaces } = await verifyKeyAndListWorkspaces(apiKey.trim());
+    return { workspaces };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Could not reach Clockify." };
+  }
+}
+
+/**
+ * Fetches members and their entries from Clockify, stages everything as
+ * import_rows (nothing touches time_entries yet), and runs the fuzzy match.
+ * Capped per member so one enormous Clockify history cannot run past a
+ * serverless function's time limit in a single request.
+ */
+export async function startClockifyImport(input: {
+  workspaceId: string;
+  apiKey: string;
+  clockifyWorkspaceId: string;
+}): Promise<Result & { batchId?: string; rowCount?: number }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+
+  const { fetchMembers, fetchMemberEntries, ClockifyError } = await import("@/lib/clockify");
+
+  let members;
+  try {
+    members = await fetchMembers(input.apiKey, input.clockifyWorkspaceId);
+  } catch (e) {
+    return { error: e instanceof ClockifyError ? e.message : "Could not fetch Clockify members." };
+  }
+  if (members.length === 0) return { error: "That Clockify workspace has no members." };
+
+  const { data: batch, error: batchErr } = await supabase
+    .from("import_batches")
+    .insert({ workspace_id: input.workspaceId, source: "clockify", created_by: user.id })
+    .select()
+    .single();
+  if (batchErr) return { error: batchErr.message };
+
+  const { error: mapErr } = await supabase.from("import_member_map").insert(
+    members.map((m) => ({
+      batch_id: batch.id,
+      workspace_id: input.workspaceId,
+      clockify_name: m.name,
+      clockify_email: m.email,
+    })),
+  );
+  if (mapErr) return { error: mapErr.message };
+
+  let rowCount = 0;
+  for (const member of members) {
+    let entries;
+    try {
+      entries = await fetchMemberEntries(input.apiKey, input.clockifyWorkspaceId, member.id, 500);
+    } catch (e) {
+      // One member's history failing to fetch should not lose everyone
+      // else's -- surface it in the batch rather than aborting the import.
+      console.error(`Clockify fetch failed for ${member.name}:`, e);
+      continue;
+    }
+    if (entries.length === 0) continue;
+
+    const { error: rowsErr } = await supabase.from("import_rows").insert(
+      entries.map((e) => ({
+        batch_id: batch.id,
+        workspace_id: input.workspaceId,
+        external_id: e.id,
+        description: e.description,
+        project_name: e.projectName,
+        task_name: e.taskName,
+        member_name: member.name,
+        member_email: member.email,
+        started_at: e.start,
+        ended_at: e.end,
+        duration_seconds: e.durationSeconds,
+        is_billable: e.billable,
+      })),
+    );
+    if (rowsErr) return { error: rowsErr.message };
+    rowCount += entries.length;
+  }
+
+  if (rowCount === 0) {
+    await supabase.from("import_batches").delete().eq("id", batch.id);
+    return { error: "No completed time entries were found for anyone in that workspace." };
+  }
+
+  const { error: matchErr } = await supabase.rpc("stage_import_matches", { p_batch_id: batch.id });
+  if (matchErr) return { error: matchErr.message };
+
+  revalidatePath("/import");
+  return { batchId: batch.id, rowCount };
+}
+
+export async function mapImportMember(
+  batchId: string,
+  clockifyName: string,
+  resolvedUserId: string,
+): Promise<Result> {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("import_member_map")
+    .update({ resolved_user_id: resolvedUserId })
+    .eq("batch_id", batchId)
+    .eq("clockify_name", clockifyName);
+  if (error) return { error: error.message };
+  revalidatePath("/import");
+  return {};
+}
+
+export async function resolveImportRow(
+  rowId: string,
+  input: { status: "approved" | "skipped" | "rejected" | "pending"; contentItemId?: string | null },
+): Promise<Result> {
+  const supabase = await createClient();
+  const patch: Record<string, unknown> = { status: input.status };
+  if (input.contentItemId !== undefined) patch.resolved_content_item_id = input.contentItemId;
+  const { error } = await supabase.from("import_rows").update(patch).eq("id", rowId);
+  if (error) return { error: error.message };
+  revalidatePath("/import");
+  return {};
+}
+
+/**
+ * Convenience for the common case: accept every suggestion at or above a
+ * threshold at once, instead of clicking through each row individually when
+ * a batch has hundreds of entries against a handful of recurring titles.
+ *
+ * resolved_content_item_id must be set to each row's OWN suggestion, and the
+ * Supabase client cannot express "set column = another column" in an
+ * update() call -- only literal values. Grouping the matching rows by their
+ * suggested content id keeps this to one update per distinct video rather
+ * than one per row, which matters because many entries typically share the
+ * same handful of titles.
+ */
+export async function bulkApproveHighConfidence(
+  batchId: string,
+  threshold: number,
+): Promise<Result & { count?: number }> {
+  const supabase = await createClient();
+  const { data: candidates, error: fetchErr } = await supabase
+    .from("import_rows")
+    .select("id, suggested_content_item_id")
+    .eq("batch_id", batchId)
+    .eq("status", "pending")
+    .gte("match_confidence", threshold)
+    .not("suggested_content_item_id", "is", null);
+  if (fetchErr) return { error: fetchErr.message };
+  if (!candidates || candidates.length === 0) return { count: 0 };
+
+  const byContentId = new Map<string, string[]>();
+  for (const row of candidates) {
+    const key = row.suggested_content_item_id as string;
+    if (!byContentId.has(key)) byContentId.set(key, []);
+    byContentId.get(key)!.push(row.id);
+  }
+
+  for (const [contentItemId, rowIds] of byContentId) {
+    const { error } = await supabase
+      .from("import_rows")
+      .update({ status: "approved", resolved_content_item_id: contentItemId })
+      .in("id", rowIds);
+    if (error) return { error: error.message };
+  }
+
+  revalidatePath("/import");
+  return { count: candidates.length };
+}
+
+export async function commitImportBatch(batchId: string): Promise<Result & { inserted?: number }> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("commit_import_batch", { p_batch_id: batchId });
+  if (error) return { error: error.message };
+  revalidatePath("/import");
+  revalidatePath("/content");
+  revalidatePath("/timesheet");
+  return { inserted: data ?? 0 };
+}
+
+export async function discardImportBatch(batchId: string): Promise<Result> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("import_batches").delete().eq("id", batchId);
+  if (error) return { error: error.message };
+  revalidatePath("/import");
+  return {};
+}
+
 /** Archive rather than delete: entries reference these rows as history. */
 export async function setArchived(
   table: "clients" | "projects" | "tasks" | "tags" | "accounts",

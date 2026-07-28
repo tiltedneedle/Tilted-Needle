@@ -69,6 +69,7 @@ const NAV = [
   {
     group: "Admin",
     items: [
+      { href: "/import", label: "Import", icon: ImportIcon },
       { href: "/developers", label: "Developers", icon: CodeIcon },
       { href: "/audit-log", label: "Audit log", icon: ShieldIcon },
     ],
@@ -238,6 +239,9 @@ function ShareIcon() {
 }
 function KioskIcon() {
   return <svg {...s}><rect x="5" y="3" width="14" height="18" rx="2" /><path d="M9 18h6M9 7h6v6H9z" /></svg>;
+}
+function ImportIcon() {
+  return <svg {...s}><path d="M12 3v12M7 10l5 5 5-5" /><path d="M4 19h16" /></svg>;
 }
 function CodeIcon() {
   return <svg {...s}><path d="m9 8-4 4 4 4M15 8l4 4-4 4" /></svg>;

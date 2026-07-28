@@ -553,6 +553,41 @@ async function mkUser(email) {
   await admin.from("api_keys").delete().eq("id", apiKey.id);
   await admin.from("audit_log").delete().eq("id", auditRow.id);
 
+  // --- Phase 1.5: Clockify import staging ---------------------------------
+  const { data: importBatch, error: importBatchErr } = await a.client
+    .from("import_batches")
+    .insert({ workspace_id: wsA.id, source: "clockify" })
+    .select()
+    .single();
+  check("manager can create an import batch", !importBatchErr && !!importBatch, importBatchErr?.message);
+
+  const { error: importRowErr } = await a.client.from("import_rows").insert({
+    batch_id: importBatch.id, workspace_id: wsA.id, description: item.title,
+    member_name: "Probe Member",
+    started_at: new Date(Date.now() - 86400e3).toISOString(),
+    ended_at: new Date(Date.now() - 82800e3).toISOString(),
+    duration_seconds: 3600,
+  });
+  check("manager can stage an import row", !importRowErr, importRowErr?.message);
+
+  await a.client.rpc("stage_import_matches", { p_batch_id: importBatch.id });
+  const { data: matchedRow } = await a.client.from("import_rows").select("*").eq("batch_id", importBatch.id).single();
+  check("staged row picks up a suggested match against real content",
+    matchedRow.suggested_content_item_id === item.id, `score=${matchedRow.match_confidence}`);
+
+  const { error: commitBlockedErr } = await a.client.rpc("commit_import_batch", {
+    p_batch_id: importBatch.id,
+  });
+  check("commit is blocked while the Clockify member is unmapped", !!commitBlockedErr);
+
+  const { data: bImportBatches } = await b.client.from("import_batches").select("*").eq("id", importBatch.id);
+  check("tenant B cannot see tenant A's import batch", (bImportBatches?.length ?? 0) === 0);
+
+  const { data: cImportBatches } = await cc.from("import_batches").select("*");
+  check("client cannot see import batches", (cImportBatches?.length ?? 0) === 0);
+
+  await admin.from("import_batches").delete().eq("id", importBatch.id);
+
   // Staff are unaffected by the tightened policies.
   const { data: staffClients } = await a.client.from("clients").select("*");
   check("staff still see every client in their workspace",
