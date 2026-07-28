@@ -91,18 +91,20 @@ export type ContentFilters = {
 /** Rebuilds the derived rollups so every filtered view stays self-consistent. */
 function deriveContent(
   videos: VideoSummary[],
-  clientNames: Map<string, string>,
+  activeClients: { id: string; name: string }[],
   platformOptions: { slug: string; name: string }[],
 ): ContentOverview {
   const allRows: MetricRow[] = videos.flatMap((v) => v.platforms);
 
-  const clientIds = [...new Set(videos.map((v) => v.clientId).filter((c): c is string => !!c))];
-  const clients: ClientSummary[] = clientIds
-    .map((id) => {
+  // Every active client appears, including ones with nothing matching. A
+  // client the team has delivered nothing for is a fact worth seeing, and
+  // dropping the row hides it behind an absence that reads as "no data".
+  const clients: ClientSummary[] = activeClients
+    .map(({ id, name }) => {
       const mine = videos.filter((v) => v.clientId === id);
       return {
         id,
-        name: clientNames.get(id) ?? "Unknown",
+        name,
         videoCount: mine.length,
         postCount: mine.reduce((s, v) => s + v.postCount, 0),
         totals: totalsByPlatform(mine.flatMap((v) => v.platforms)),
@@ -324,12 +326,15 @@ export async function loadContentOverview(
     name: string;
     is_archived: boolean;
   }[];
-  const clientNames = new Map(clientRows.map((c) => [c.id, c.name]));
   const platformOptions = (
     (platformsRes.data ?? []) as { slug: string; display_name: string }[]
   ).map((p) => ({ slug: p.slug, name: p.display_name }));
 
-  return deriveContent(videos, clientNames, platformOptions);
+  return deriveContent(
+    videos,
+    clientRows.filter((c) => !c.is_archived).map((c) => ({ id: c.id, name: c.name })),
+    platformOptions,
+  );
 }
 
 /** Unfiltered client list, so the dropdown does not shrink as filters narrow. */
