@@ -10,12 +10,15 @@ import {
 } from "@/lib/rollup";
 
 export default function ClientDashboard({
+  clientId,
   totals,
   itemCount,
   trackedSeconds,
   items,
   readOnly = false,
 }: {
+  /** Used to build the video link back into the dashboard's own filters. */
+  clientId?: string;
   totals: PlatformTotals[];
   itemCount: number;
   trackedSeconds: number;
@@ -171,7 +174,7 @@ export default function ClientDashboard({
           ) : (
             <Link
               key={item.id}
-              href={`/content/${item.id}`}
+              href={`/performance?video=${item.id}${clientId ? `&client=${clientId}` : ""}`}
               className="flex items-center gap-3 px-3 py-2 transition-colors hover:bg-[var(--bg-subtle)]"
             >
               {inner}

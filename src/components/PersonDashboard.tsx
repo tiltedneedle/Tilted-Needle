@@ -112,7 +112,7 @@ export default function PersonDashboard({
         {items.map((item) => (
           <Link
             key={item.id}
-            href={`/content/${item.id}`}
+            href={`/performance?video=${item.id}`}
             className="flex items-center gap-3 px-3 py-2 transition-colors hover:bg-[var(--bg-subtle)]"
           >
             <div className="min-w-0 flex-1">

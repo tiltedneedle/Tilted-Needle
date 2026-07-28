@@ -23,7 +23,27 @@ import type {
   PlatformPost,
   Role,
 } from "@/lib/types";
-import type { AnalyticsRow, SnapshotRow } from "@/app/(app)/content/[id]/page";
+
+export type SnapshotRow = {
+  platform_post_id: string;
+  captured_at: string;
+  views: number | null;
+  likes: number | null;
+  comments: number | null;
+  shares: number | null;
+  saves: number | null;
+};
+
+export type AnalyticsRow = {
+  platform_post_id: string;
+  captured_at: string;
+  impressions: number | null;
+  ctr: number | null;
+  avg_watch_seconds: number | null;
+  retention_30s: number | null;
+  retention_60s: number | null;
+  source: string;
+};
 
 export default function ContentDetail({
   workspaceId,

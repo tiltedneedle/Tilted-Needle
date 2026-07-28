@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { asMultiplier, tierFor, TIER_LABELS, type Tier } from "@/lib/scoring";
 import { PLATFORM_COLORS } from "@/lib/types";
-import type { BoostRow, PersonRow } from "@/app/(app)/performance/page";
+import type { BoostRow, PersonRow } from "@/lib/performanceData";
 
 const TIER_CLASS: Record<Tier, string> = {
   top: "text-emerald-500",
@@ -63,7 +63,7 @@ export default function PerformanceView({
             {boosts.slice(0, 10).map((b, i) => (
               <Link
                 key={`${b.contentId}-${b.platform}-${i}`}
-                href={`/content/${b.contentId}`}
+                href={`/performance?video=${b.contentId}`}
                 className="flex items-center gap-3 px-3 py-2 transition-colors hover:bg-[var(--bg-subtle)]"
               >
                 <span
@@ -108,7 +108,7 @@ export default function PerformanceView({
                   <div key={`${p.userId}-${p.roleSlug}`} className="px-3 py-2.5">
                     <div className="flex flex-wrap items-baseline gap-2">
                       <Link
-                        href={`/performance/${p.userId}`}
+                        href={`/performance?person=${p.userId}`}
                         className="text-sm font-medium transition-colors hover:text-[var(--accent)]"
                       >
                         {p.name}
