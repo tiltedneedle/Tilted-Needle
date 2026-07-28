@@ -18,6 +18,15 @@ const SORTS = [
 ] as const;
 type SortKey = (typeof SORTS)[number]["key"];
 
+const CLIENT_SORTS = [
+  { key: "videos", label: "Videos" },
+  { key: "reach", label: "Reach" },
+  { key: "growth", label: "Growing" },
+  { key: "time", label: "Time" },
+  { key: "name", label: "Name" },
+] as const;
+type ClientSortKey = (typeof CLIENT_SORTS)[number]["key"];
+
 /** Highest single-platform view count, used only for ordering within a list. */
 function peakViews(v: VideoSummary): number {
   return v.platforms.reduce((m, p) => Math.max(m, p.views), 0);
@@ -73,6 +82,24 @@ export default function ContentOverview({
   clients: ClientSummary[];
 }) {
   const [sort, setSort] = useState<SortKey>("recent");
+  const [clientSort, setClientSort] = useState<ClientSortKey>("videos");
+
+  // Clients are ranked on peak single-platform reach rather than a sum, for
+  // the same reason nothing else here totals across platforms.
+  const sortedClients = useMemo(() => {
+    const list = [...clients];
+    if (clientSort === "name") list.sort((a, b) => a.name.localeCompare(b.name));
+    else if (clientSort === "reach")
+      list.sort(
+        (a, b) =>
+          Math.max(0, ...b.totals.map((t) => t.views)) -
+          Math.max(0, ...a.totals.map((t) => t.views)),
+      );
+    else if (clientSort === "growth") list.sort((a, b) => b.recentGain - a.recentGain);
+    else if (clientSort === "time") list.sort((a, b) => b.trackedSeconds - a.trackedSeconds);
+    else list.sort((a, b) => b.videoCount - a.videoCount);
+    return list;
+  }, [clients, clientSort]);
 
   const rows = useMemo(() => {
     const list = [...videos];
@@ -92,7 +119,23 @@ export default function ContentOverview({
           <SectionHeading
             title="Clients"
             note="Reach shown per platform — never added together"
-          />
+          >
+            <div className="flex flex-wrap items-center gap-1">
+              {CLIENT_SORTS.map((s) => (
+                <button
+                  key={s.key}
+                  className={`rounded px-2 py-0.5 text-xs transition-colors ${
+                    clientSort === s.key
+                      ? "bg-[var(--accent)] text-[var(--accent-fg)]"
+                      : "text-[var(--muted)] hover:bg-[var(--border)]"
+                  }`}
+                  onClick={() => setClientSort(s.key)}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          </SectionHeading>
           <div className="card overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -102,12 +145,13 @@ export default function ContentOverview({
                     <th className="px-3 py-2 text-right font-medium">Videos</th>
                     <th className="px-3 py-2 text-right font-medium">Posts</th>
                     <th className="px-3 py-2 text-right font-medium">Engagement</th>
+                    <th className="px-3 py-2 text-right font-medium">Growing</th>
                     <th className="px-3 py-2 text-right font-medium">Time</th>
                     <th className="px-3 py-2 text-right font-medium">Reach by platform</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[var(--border)]">
-                  {clients.map((c) => {
+                  {sortedClients.map((c) => {
                     // Engagement is averaged across platforms, not pooled: each
                     // platform's rate is computed on its own denominator first.
                     const rates = c.totals
@@ -135,6 +179,15 @@ export default function ContentOverview({
                         </td>
                         <td className="tabular px-3 py-2.5 text-right text-[var(--muted)]">
                           {avg != null ? `${(avg * 100).toFixed(2)}%` : "—"}
+                        </td>
+                        <td className="tabular px-3 py-2.5 text-right">
+                          {c.recentGain > 0 ? (
+                            <span className="text-emerald-500">
+                              +{c.recentGain.toLocaleString()}
+                            </span>
+                          ) : (
+                            <span className="text-[var(--muted)]">—</span>
+                          )}
                         </td>
                         <td className="tabular px-3 py-2.5 text-right text-[var(--muted)]">
                           {c.trackedSeconds ? formatDurationShort(c.trackedSeconds) : "—"}

@@ -35,11 +35,23 @@ export default function ClientDetail({
           value={String(published.length)}
           hint={inProgress.length ? `${inProgress.length} in progress` : "all published"}
         />
-        <Stat label="Posts published" value={String(client.postCount)} hint="across platforms" />
+        {/* Post count is deliberately not a stat here -- it is already
+            visible per platform in the reach table below, and a client cares
+            about what was delivered, not how many rows that made. */}
         <Stat
           label="Time invested"
           value={client.trackedSeconds ? formatDurationShort(client.trackedSeconds) : "—"}
           hint="tracked internally"
+        />
+        <Stat
+          label="Still growing"
+          value={client.recentGain > 0 ? `+${client.recentGain.toLocaleString()}` : "—"}
+          hint={
+            client.recentGain > 0
+              ? "views since the last snapshots"
+              : "needs two snapshots to compare"
+          }
+          accent={client.recentGain > 0}
         />
         <Stat
           label="Best performer"

@@ -228,6 +228,7 @@ export default async function ContentPage({
       postCount: 0,
       totals: [],
       trackedSeconds: 0,
+      recentGain: 0,
     };
     const mine = overview.videos.filter((v) => v.clientId === clientId);
     return (

@@ -56,6 +56,8 @@ export type ClientSummary = {
   postCount: number;
   totals: PlatformTotals[];
   trackedSeconds: number;
+  /** Views gained across this client's content since the previous snapshots. */
+  recentGain: number;
 };
 
 export type ContentOverview = {
@@ -105,6 +107,7 @@ function deriveContent(
         postCount: mine.reduce((s, v) => s + v.postCount, 0),
         totals: totalsByPlatform(mine.flatMap((v) => v.platforms)),
         trackedSeconds: mine.reduce((s, v) => s + v.trackedSeconds, 0),
+        recentGain: mine.reduce((s, v) => s + (v.recentGain?.views ?? 0), 0),
       };
     })
     .sort((a, b) => b.videoCount - a.videoCount);
