@@ -57,6 +57,39 @@ An earlier draft split this material across six routes (`/content`,
 `/team`). Those routes still resolve, but only as redirects into the two
 dashboards below, so there is exactly one place each figure lives.
 
+### Filters (both dashboards)
+
+Every filter is a query param, so any view is a shareable URL and the back
+button works. Filters **compose** — all of them apply together — and an
+active-filter row names what is applied and removes one at a time.
+
+Two rules the filtering follows, both of which cost real bugs to learn:
+
+1. **Dropdown options come from the unfiltered set.** Narrowing on one axis
+   must never make a client or a person unreachable from another dropdown.
+2. **A platform filter is a lens, not a cosmetic.** It narrows which posts
+   count at all, so reach, post counts, boost indexes and the client table
+   all describe that platform alone — and on the People side it recomputes
+   each role's overall from only that platform's samples. Filtering to one
+   platform correctly drops a two-platform person to n=1 and reports
+   "insufficient data" rather than reusing a figure that included the other.
+
+| Content (`/content`) | People (`/team`) |
+|---|---|
+| Client | Person |
+| Video | Content role |
+| Platform | Client worked for |
+| Credited person | Platform |
+| Period (30 / 90 / 365 days) | Group |
+| Status (published / not posted / boosting) | Seat (full / limited) |
+| Title search | Status (active / deactivated) |
+| | Name search |
+
+Both dashboards export what is on screen, filters included, as CSV. The
+exports flatten one row per platform (content) and per content role (people)
+rather than emitting a combined total — a spreadsheet is precisely where
+someone would sum across platforms, which is the one figure §5 forbids.
+
 ### A. Content dashboard — `/content`
 
 Everything about *what was made and how it landed*. Three states, chosen by
@@ -66,11 +99,19 @@ the filter bar (Client, Video):
 - Header stats: videos, posts, clients, time invested.
 - **Total reach per platform** — bar per platform, never summed across them
   (§5 Step 2 explains why a combined figure would be meaningless).
+- **Still growing** — views gained since the previous snapshots. A lifetime
+  total cannot distinguish a video still gaining from one that peaked months
+  ago. Deliberately *not* a fixed "last 7 days" window: snapshots are recorded
+  by hand at irregular intervals, so a fixed window silently reports nothing
+  whenever the cadence does not match it. It compares the last two readings
+  and states the interval they actually span (+24,680/3d).
 - **Client comparison table** — every client side by side: videos, posts,
-  average engagement, time invested, reach chips per platform.
-- **Video table** — sortable by newest / reach / boost / time spent, with an
-  "unpublished only" filter for work still in progress. Boost badges appear
-  once an account has enough history to have a baseline worth beating.
+  average engagement, growth, time invested, reach chips per platform.
+  Sortable by videos / reach / growth / time / name. Clients with nothing
+  delivered still appear, zeroed — that absence is the point.
+- **Video table** — sortable by newest / reach / boost / growth / time spent.
+  Boost badges appear once an account has enough history to have a baseline
+  worth beating.
 - Inline "new content" form, so adding a video does not need another page.
 
 **A2. Client selected**
@@ -113,9 +154,14 @@ Everything about *the employees*. Two states, chosen by the filter bar
 - **Ranking by role** — a leaderboard per content role, because ranking only
   means something within a role. Each row shows tier, multiplier, sample size.
 - **Roster table** — everyone, with workspace role, groups, content roles,
-  overall multiplier, videos credited, ongoing count, hours, and reach chips
-  per platform. Sortable by score / name / workload / hours; deactivated
-  members hidden by default but toggleable.
+  overall multiplier, videos credited, ongoing count, hours this week against
+  capacity, all-time hours, and reach chips per platform. Sortable by score /
+  name / workload / this week / hours.
+- **Weekly utilisation** — hours logged since Monday against weekly capacity,
+  as a bar. All-time hours beside a *weekly* capacity invites a comparison
+  that means nothing (183h against "40h/wk" reads as wildly over); this is
+  the number that actually divides into it. Over capacity is amber, not red:
+  worth seeing, but not an error.
 - **Seats & groups tab** — the employment admin (seat type, capacity per
   week, group membership) that used to be its own page. It lives here so
   "everything about the employees" is literally one page, but behind a tab,
@@ -133,7 +179,15 @@ Everything about *the employees*. Two states, chosen by the filter bar
 - **In progress** — credited work not yet posted anywhere.
 - Full credited-content list with roles held and time tracked per item.
 
-### C. What stays off both pages
+### C. Moving between them
+
+The split must not make following a thought expensive. A video's credit panel
+links each person into the People dashboard; a person links back to their work
+on Content (where it can be sliced by platform and period); a video's client
+links to that client's view. Each page still answers one question — but
+answering the next one does not mean going back to a dropdown.
+
+### D. What stays off both pages
 
 Time tracking's own working surfaces (the timer, the weekly timesheet grid,
 invoicing, approvals, time off) remain their own pages — they are a different
