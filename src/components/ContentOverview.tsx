@@ -29,17 +29,15 @@ export default function ContentOverview({
   clients: ClientSummary[];
 }) {
   const [sort, setSort] = useState<SortKey>("recent");
-  const [unpublishedOnly, setUnpublishedOnly] = useState(false);
 
   const rows = useMemo(() => {
-    let list = [...videos];
-    if (unpublishedOnly) list = list.filter((v) => v.postCount === 0);
+    const list = [...videos];
     if (sort === "views") list.sort((a, b) => peakViews(b) - peakViews(a));
     else if (sort === "boost") list.sort((a, b) => (b.bestIndex ?? -1) - (a.bestIndex ?? -1));
     else if (sort === "time") list.sort((a, b) => b.trackedSeconds - a.trackedSeconds);
     else list.sort((a, b) => (b.producedAt ?? "").localeCompare(a.producedAt ?? ""));
     return list;
-  }, [videos, sort, unpublishedOnly]);
+  }, [videos, sort]);
 
   return (
     <>
@@ -117,14 +115,6 @@ export default function ContentOverview({
       <section>
         <SectionHeading title={`Videos (${rows.length})`}>
           <div className="flex flex-wrap items-center gap-1">
-            <label className="mr-2 flex cursor-pointer items-center gap-1.5 text-xs text-[var(--muted)]">
-              <input
-                type="checkbox"
-                checked={unpublishedOnly}
-                onChange={(e) => setUnpublishedOnly(e.target.checked)}
-              />
-              Unpublished only
-            </label>
             {SORTS.map((s) => (
               <button
                 key={s.key}
@@ -142,11 +132,7 @@ export default function ContentOverview({
         </SectionHeading>
 
         {rows.length === 0 ? (
-          <Empty>
-            {unpublishedOnly
-              ? "Everything has been posted somewhere."
-              : "No videos yet. Add one from the Content page."}
-          </Empty>
+          <Empty>No videos match these filters.</Empty>
         ) : (
           <div className="card divide-y divide-[var(--border)] overflow-hidden">
             {rows.map((v) => (

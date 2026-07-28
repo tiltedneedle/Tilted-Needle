@@ -9,7 +9,7 @@ import { requireSession } from "@/lib/workspace";
 import { canManage, one } from "@/lib/types";
 import { formatDurationShort } from "@/lib/format";
 import { computeRankings } from "@/lib/performanceData";
-import { loadPeopleOverview } from "@/lib/dashboards";
+import { loadClientOptions, loadPeopleOverview } from "@/lib/dashboards";
 import type { SeatType, WorkspaceRole } from "@/lib/types";
 
 /**
@@ -23,31 +23,66 @@ import type { SeatType, WorkspaceRole } from "@/lib/types";
 export default async function TeamPage({
   searchParams,
 }: {
-  searchParams: Promise<{ person?: string; role?: string; tab?: string }>;
+  searchParams: Promise<{
+    person?: string;
+    role?: string;
+    tab?: string;
+    group?: string;
+    seat?: string;
+    status?: string;
+    client?: string;
+    platform?: string;
+    q?: string;
+  }>;
 }) {
-  const { person: personId, role: roleFilter, tab } = await searchParams;
+  const sp = await searchParams;
+  const { person: personId, role: roleFilter, tab } = sp;
   const session = await requireSession();
   const supabase = await createClient();
   const ws = session.active.id;
   const manages = canManage(session.active.role);
 
   const rankings = await computeRankings(supabase, ws);
-  const overview = await loadPeopleOverview(supabase, ws, rankings);
+  // A person view must not be filtered out from under itself, so the
+  // narrowing filters only apply to the roster.
+  const [overview, unfiltered, clientOptions, platformOptions] = await Promise.all([
+    loadPeopleOverview(supabase, ws, rankings, {
+      role: roleFilter ?? null,
+      group: sp.group ?? null,
+      seat: sp.seat ?? null,
+      status: sp.status ?? null,
+      clientId: sp.client ?? null,
+      platform: sp.platform ?? null,
+      q: sp.q ?? null,
+    }),
+    loadPeopleOverview(supabase, ws, rankings),
+    loadClientOptions(supabase, ws),
+    supabase
+      .from("platforms")
+      .select("slug, display_name")
+      .eq("is_enabled", true)
+      .order("sort_order"),
+  ]);
 
-  const roleOptions = [...new Set(overview.people.flatMap((p) => p.roles))]
+  const roleOptions = [...new Set(unfiltered.people.flatMap((p) => p.roles))]
     .sort()
     .map((r) => ({ value: r, label: r }));
 
   const filters = (
     <FilterBar
       basePath="/team"
+      searchKey="q"
+      searchValue={sp.q ?? null}
+      searchPlaceholder="Search names…"
       filters={[
         {
           key: "person",
           label: "Filter by person",
           allLabel: "Everyone",
+          // Always the full roster, so a narrowing filter can never make
+          // someone unreachable from the dropdown.
+          options: unfiltered.people.map((p) => ({ value: p.userId, label: p.name })),
           value: personId ?? null,
-          options: overview.people.map((p) => ({ value: p.userId, label: p.name })),
         },
         {
           key: "role",
@@ -56,13 +91,56 @@ export default async function TeamPage({
           value: roleFilter ?? null,
           options: roleOptions,
         },
+        {
+          key: "client",
+          label: "Filter by client worked for",
+          allLabel: "Any client",
+          value: sp.client ?? null,
+          options: clientOptions.map((c) => ({ value: c.id, label: c.name })),
+        },
+        {
+          key: "platform",
+          label: "Filter by platform",
+          allLabel: "All platforms",
+          value: sp.platform ?? null,
+          options: (
+            (platformOptions.data ?? []) as { slug: string; display_name: string }[]
+          ).map((p) => ({ value: p.slug, label: p.display_name })),
+        },
+        {
+          key: "group",
+          label: "Filter by group",
+          allLabel: "All groups",
+          value: sp.group ?? null,
+          options: unfiltered.groupOptions.map((g) => ({ value: g, label: g })),
+        },
+        {
+          key: "seat",
+          label: "Filter by seat",
+          allLabel: "Any seat",
+          value: sp.seat ?? null,
+          options: [
+            { value: "full", label: "Full seat" },
+            { value: "limited", label: "Limited seat" },
+          ],
+        },
+        {
+          key: "status",
+          label: "Filter by status",
+          allLabel: "Any status",
+          value: sp.status ?? null,
+          options: [
+            { value: "active", label: "Active" },
+            { value: "inactive", label: "Deactivated" },
+          ],
+        },
       ]}
     />
   );
 
   /* ---- One person ------------------------------------------------------- */
   if (personId) {
-    const person = overview.people.find((p) => p.userId === personId);
+    const person = unfiltered.people.find((p) => p.userId === personId);
     if (!person) {
       return (
         <Shell title="Person" subtitle="Not found.">
@@ -84,11 +162,8 @@ export default async function TeamPage({
 
   /* ---- Everyone --------------------------------------------------------- */
   const t = overview.totals;
-  const filtered = roleFilter
-    ? { ...overview, people: overview.people.filter((p) => p.roles.includes(roleFilter)) }
-    : overview;
-
   const showAdmin = tab === "admin";
+  const narrowed = overview.people.length !== unfiltered.people.length;
 
   return (
     <Shell
@@ -100,18 +175,21 @@ export default async function TeamPage({
       <StatGrid>
         <Stat
           label="People"
-          value={String(t.active)}
-          hint={t.people > t.active ? `${t.people - t.active} deactivated` : "all active"}
+          value={String(t.people)}
+          hint={
+            narrowed
+              ? `of ${unfiltered.people.length} — filtered`
+              : t.people > t.active
+                ? `${t.people - t.active} deactivated`
+                : "all active"
+          }
+          accent={narrowed}
         />
-        <Stat
-          label="Credited"
-          value={String(t.credited)}
-          hint="on at least one video"
-        />
+        <Stat label="Credited" value={String(t.credited)} hint="on at least one video" />
         <Stat
           label="Hours tracked"
           value={t.trackedSeconds ? formatDurationShort(t.trackedSeconds) : "—"}
-          hint="all time, whole team"
+          hint={narrowed ? "these people, all time" : "all time, whole team"}
         />
         <Stat
           label="Weekly capacity"
@@ -150,7 +228,7 @@ export default async function TeamPage({
           />
         </>
       ) : (
-        <PeopleOverview data={filtered} />
+        <PeopleOverview data={overview} />
       )}
     </Shell>
   );

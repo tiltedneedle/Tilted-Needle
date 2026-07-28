@@ -26,17 +26,15 @@ type SortKey = (typeof SORTS)[number]["key"];
 
 export default function PeopleOverview({ data }: { data: Data }) {
   const [sort, setSort] = useState<SortKey>("score");
-  const [showInactive, setShowInactive] = useState(false);
 
   const rows = useMemo(() => {
-    let list = data.people.filter((p) => showInactive || p.isActive);
-    list = [...list];
+    const list = [...data.people];
     if (sort === "name") list.sort((a, b) => a.name.localeCompare(b.name));
     else if (sort === "workload") list.sort((a, b) => b.ongoingCount - a.ongoingCount);
     else if (sort === "time") list.sort((a, b) => b.trackedSeconds - a.trackedSeconds);
     else list.sort((a, b) => (b.overall ?? -99) - (a.overall ?? -99));
     return list;
-  }, [data.people, sort, showInactive]);
+  }, [data.people, sort]);
 
   return (
     <>
@@ -90,14 +88,6 @@ export default function PeopleOverview({ data }: { data: Data }) {
       <section>
         <SectionHeading title={`Everyone (${rows.length})`}>
           <div className="flex flex-wrap items-center gap-1">
-            <label className="mr-2 flex cursor-pointer items-center gap-1.5 text-xs text-[var(--muted)]">
-              <input
-                type="checkbox"
-                checked={showInactive}
-                onChange={(e) => setShowInactive(e.target.checked)}
-              />
-              Show deactivated
-            </label>
             {SORTS.map((s) => (
               <button
                 key={s.key}

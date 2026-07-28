@@ -34,16 +34,31 @@ import type {
 export default async function ContentPage({
   searchParams,
 }: {
-  searchParams: Promise<{ client?: string; video?: string }>;
+  searchParams: Promise<{
+    client?: string;
+    video?: string;
+    platform?: string;
+    period?: string;
+    person?: string;
+    status?: string;
+    q?: string;
+  }>;
 }) {
-  const { client: clientId, video: videoId } = await searchParams;
+  const sp = await searchParams;
+  const { client: clientId, video: videoId } = sp;
   const session = await requireSession();
   const supabase = await createClient();
   const ws = session.active.id;
 
   const rankings = await computeRankings(supabase, ws);
   const [overview, clientsRes, membersRes] = await Promise.all([
-    loadContentOverview(supabase, ws, rankings),
+    loadContentOverview(supabase, ws, rankings, {
+      platform: sp.platform ?? null,
+      period: sp.period ?? null,
+      personId: sp.person ?? null,
+      status: sp.status ?? null,
+      q: sp.q ?? null,
+    }),
     supabase
       .from("clients")
       .select("id, workspace_id, name, email, is_archived")
@@ -76,13 +91,20 @@ export default async function ContentPage({
   const filters = (
     <FilterBar
       basePath="/content"
+      searchKey="q"
+      searchValue={sp.q ?? null}
+      searchPlaceholder="Search titles…"
       filters={[
         {
           key: "client",
           label: "Filter by client",
           allLabel: "All clients",
           value: clientId ?? null,
-          options: overview.clients.map((c) => ({ value: c.id, label: c.name })),
+          // Options come from the unfiltered client list, so narrowing by
+          // platform or period never makes a client unreachable.
+          options: allClients
+            .filter((c) => !c.is_archived)
+            .map((c) => ({ value: c.id, label: c.name })),
           clears: ["video"],
         },
         {
@@ -91,6 +113,42 @@ export default async function ContentPage({
           allLabel: clientId ? "All of this client's videos" : "All videos",
           value: videoId ?? null,
           options: videoOptions,
+        },
+        {
+          key: "platform",
+          label: "Filter by platform",
+          allLabel: "All platforms",
+          value: sp.platform ?? null,
+          options: overview.platformOptions.map((p) => ({ value: p.slug, label: p.name })),
+        },
+        {
+          key: "person",
+          label: "Filter by credited person",
+          allLabel: "Anyone credited",
+          value: sp.person ?? null,
+          options: members.map((m) => ({ value: m.userId, label: m.name })),
+        },
+        {
+          key: "period",
+          label: "Filter by period",
+          allLabel: "All time",
+          value: sp.period ?? null,
+          options: [
+            { value: "30", label: "Last 30 days" },
+            { value: "90", label: "Last 90 days" },
+            { value: "365", label: "Last year" },
+          ],
+        },
+        {
+          key: "status",
+          label: "Filter by status",
+          allLabel: "Any status",
+          value: sp.status ?? null,
+          options: [
+            { value: "published", label: "Published" },
+            { value: "unpublished", label: "Not posted yet" },
+            { value: "boosting", label: "Boosting (2×+)" },
+          ],
         },
       ]}
     />
@@ -149,8 +207,8 @@ export default async function ContentPage({
 
   /* ---- Single client ---------------------------------------------------- */
   if (clientId) {
-    const client = overview.clients.find((c) => c.id === clientId);
-    if (!client) {
+    const named = allClients.find((c) => c.id === clientId);
+    if (!named) {
       return (
         <Shell title="Client" subtitle="Not found.">
           {filters}
@@ -160,6 +218,17 @@ export default async function ContentPage({
         </Shell>
       );
     }
+    // The derived summary only exists when some content survived the other
+    // filters; an empty one still needs a real name and zeroed totals rather
+    // than a "not found", which would misreport an over-narrow filter.
+    const client = overview.clients.find((c) => c.id === clientId) ?? {
+      id: clientId,
+      name: named.name,
+      videoCount: 0,
+      postCount: 0,
+      totals: [],
+      trackedSeconds: 0,
+    };
     const mine = overview.videos.filter((v) => v.clientId === clientId);
     return (
       <Shell
