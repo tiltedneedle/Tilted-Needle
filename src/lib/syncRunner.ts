@@ -425,6 +425,7 @@ async function syncMeteredAccount(
   const platform = account.platform_slug;
   let postsCreated = 0;
   let postsSeen = 0;
+  let discoverySnapshots = 0;
 
   // 1. Retire anything past the last age band before spending anything. This
   //    is free, and it shrinks the due set before budget is claimed.
@@ -498,8 +499,12 @@ async function syncMeteredAccount(
           if (!item) continue;
 
           // Newly discovered posts arrive already measured by the discovery
-          // call, so they are stamped as scraped now. Leaving the stamp null
-          // would make every one of them immediately "due" and double-bill.
+          // call, so they are stamped as scraped now -- leaving the stamp
+          // null would make every one of them immediately "due" again and
+          // pay for the exact same reading twice within one sync. The stamp
+          // is only honest once the reading it claims is actually recorded
+          // below; a post marked "just scraped" with no snapshot to show
+          // for it would sit at a false zero until its next scheduled turn.
           const { data: created } = await db
             .from("platform_posts")
             .insert({
@@ -514,7 +519,20 @@ async function syncMeteredAccount(
             })
             .select("id")
             .single();
-          if (created) postsCreated++;
+          if (!created) continue;
+          postsCreated++;
+
+          if (post.metrics) {
+            const { error: snapErr } = await db.from("post_snapshots").insert({
+              workspace_id: ws,
+              platform_post_id: created.id,
+              views: post.metrics.views,
+              likes: post.metrics.likes,
+              comments: post.metrics.comments,
+              source: "api",
+            });
+            if (!snapErr) discoverySnapshots++;
+          }
         }
       }
     }
@@ -525,7 +543,7 @@ async function syncMeteredAccount(
       .from("accounts")
       .update({ last_synced_at: new Date().toISOString(), last_sync_error: null })
       .eq("id", account.id);
-    return { ...base, status: "ok", postsSeen, postsCreated };
+    return { ...base, status: "ok", postsSeen, postsCreated, snapshotsWritten: discoverySnapshots };
   }
 
   // 3. Claim for the refresh, then take only the most-overdue N the budget
@@ -537,7 +555,14 @@ async function syncMeteredAccount(
       .from("accounts")
       .update({ last_sync_error: msg, last_synced_at: new Date().toISOString() })
       .eq("id", account.id);
-    return { ...base, status: "ok", postsSeen, postsCreated, error: msg };
+    return {
+      ...base,
+      status: "ok",
+      postsSeen,
+      postsCreated,
+      snapshotsWritten: discoverySnapshots,
+      error: msg,
+    };
   }
 
   const batch = due.slice(0, granted);
@@ -549,7 +574,14 @@ async function syncMeteredAccount(
       .from("accounts")
       .update({ last_sync_error: metrics.error, last_synced_at: new Date().toISOString() })
       .eq("id", account.id);
-    return { ...base, status: "error", postsSeen, postsCreated, error: metrics.error };
+    return {
+      ...base,
+      status: "error",
+      postsSeen,
+      postsCreated,
+      snapshotsWritten: discoverySnapshots,
+      error: metrics.error,
+    };
   }
   if (metrics.data.length < granted) {
     await refund(db, ws, platform, pool, granted - metrics.data.length);
@@ -623,6 +655,6 @@ async function syncMeteredAccount(
     status: "ok",
     postsSeen: postsSeen + batch.length,
     postsCreated,
-    snapshotsWritten: toInsert.length,
+    snapshotsWritten: discoverySnapshots + toInsert.length,
   };
 }

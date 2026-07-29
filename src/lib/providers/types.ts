@@ -50,6 +50,15 @@ export type DiscoveredPost = {
   /** ISO date (YYYY-MM-DD) the post went live, when the platform reports it. */
   postedAt: string | null;
   lengthSeconds: number | null;
+  /**
+   * Views/likes/comments, when the same response that found the post also
+   * carried its numbers -- true for Instagram's discovery call, which is
+   * metered and would otherwise have to be paid for twice: once to find a
+   * new post, again moments later through fetchMetrics for a reading it
+   * already had. Left undefined for a provider whose discovery call is
+   * genuinely metadata-only (YouTube's playlist listing carries no stats).
+   */
+  metrics?: { views: number | null; likes: number | null; comments: number | null };
 };
 
 /** A metrics reading for one post at one moment. */

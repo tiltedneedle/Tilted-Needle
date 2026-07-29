@@ -180,6 +180,14 @@ function toDiscovered(p: ApifyPost): DiscoveredPost | null {
     postedAt: p.timestamp ? p.timestamp.slice(0, 10) : null,
     lengthSeconds:
       typeof p.videoDuration === "number" ? Math.round(p.videoDuration) : null,
+    // The discovery row already carries these -- passing them through saves
+    // a newly-found post from needing a second, separately-billed
+    // fetchMetrics call for a reading this response already paid for.
+    metrics: {
+      views: count(p.videoPlayCount) ?? count(p.videoViewCount),
+      likes: count(p.likesCount),
+      comments: count(p.commentsCount),
+    },
   };
 }
 

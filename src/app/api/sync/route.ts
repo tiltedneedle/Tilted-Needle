@@ -36,11 +36,18 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url);
   const workspaceId = url.searchParams.get("workspace") ?? undefined;
+  const accountId = url.searchParams.get("account") ?? undefined;
+  // Vercel Cron never sends this -- it is for a deliberate operator call
+  // (e.g. a fresh account's first import) that wants the fuller manual
+  // catch-up rather than the throttled automatic cadence. Safe to expose:
+  // both paths require the same bearer secret, this only changes which of
+  // an already-authorised caller's own budget pools gets spent.
+  const trigger = url.searchParams.get("trigger") === "manual" ? "manual" : "cron";
 
   try {
     const db = serviceClient();
     const started = Date.now();
-    const results = await runSync(db, { workspaceId, trigger: "cron" });
+    const results = await runSync(db, { workspaceId, accountId, trigger });
 
     // The pages themselves are dynamically rendered (session-based) and
     // always hit the database fresh, so this is not what keeps data

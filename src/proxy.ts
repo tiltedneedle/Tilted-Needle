@@ -3,11 +3,18 @@ import { createServerClient } from "@supabase/ssr";
 
 // Routes with their own authentication scheme, not a Supabase cookie
 // session: the public API is a Bearer key, the kiosk device page and its
-// clock-in route are a shared-device token plus a PIN. Gating them behind
+// clock-in route are a shared-device token plus a PIN, and the sync route is
+// a Bearer CRON_SECRET checked inside the route itself. Gating them behind
 // this session check would make them unreachable by the exact caller they
-// are meant to serve -- a curl request or an unauthenticated kiosk tablet
-// has no session cookie to check.
-const PUBLIC_PATHS = ["/login", "/auth", "/api/v1", "/api/kiosk", "/kiosk"];
+// are meant to serve -- a curl request, an unauthenticated kiosk tablet, or
+// Vercel Cron has no session cookie to check.
+//
+// /api/sync was missing here until this fix: every cron tick, including
+// Vercel's own scheduled calls in production, was silently redirected to
+// /login and never reached the sync logic at all. Caught only because a
+// manual curl against a real account returned a login redirect instead of a
+// result -- the route's own auth check never had the chance to run.
+const PUBLIC_PATHS = ["/login", "/auth", "/api/v1", "/api/kiosk", "/kiosk", "/api/sync"];
 
 export async function proxy(request: NextRequest) {
   // Server Components cannot read the current path. Setting it on the request
