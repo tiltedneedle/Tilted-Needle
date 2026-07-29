@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/server";
 import { ACTIVE_WORKSPACE_COOKIE } from "@/lib/workspace";
 import { logAudit } from "@/lib/audit";
 import { dispatchWebhook } from "@/lib/webhooks";
+import { MANAGER_ROLES, type WorkspaceRole } from "@/lib/types";
 
 type Result = { error?: string };
 
@@ -1402,4 +1403,216 @@ export async function setArchived(
   if (error) return { error: error.message };
   revalidatePath("/", "layout");
   return {};
+}
+
+/**
+ * Refresh public metrics on demand, rather than waiting for the cron.
+ *
+ * The runner executes with the service role and therefore bypasses RLS, so
+ * authorisation is checked here first and explicitly: the caller must be a
+ * manager or above of the workspace they are asking to sync. Skipping this
+ * would turn a convenience button into a way for any signed-in user to read
+ * and write another tenant's content.
+ */
+export async function syncNow(
+  workspaceId: string,
+  accountId?: string,
+): Promise<Result & { summary?: string }> {
+  const supabase = await createClient();
+
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth?.user) return { error: "Not signed in." };
+
+  const { data: membership } = await supabase
+    .from("memberships")
+    .select("role, is_active")
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", auth.user.id)
+    .maybeSingle();
+
+  if (!membership?.is_active || !MANAGER_ROLES.includes(membership.role as WorkspaceRole)) {
+    return { error: "Only managers and above can trigger a sync." };
+  }
+
+  try {
+    const { runSync, serviceClient } = await import("@/lib/syncRunner");
+    const results = await runSync(serviceClient(), {
+      workspaceId,
+      accountId,
+      trigger: "manual",
+    });
+
+    const ok = results.filter((r) => r.status === "ok").length;
+    const failed = results.filter((r) => r.status === "error");
+    const snapshots = results.reduce((s, r) => s + r.snapshotsWritten, 0);
+    const created = results.reduce((s, r) => s + r.postsCreated, 0);
+
+    revalidatePath("/accounts");
+    revalidatePath("/content");
+
+    if (failed.length > 0) {
+      return { error: failed.map((f) => `${f.handle}: ${f.error}`).join("; ") };
+    }
+    if (ok === 0) {
+      return {
+        summary:
+          "Nothing to sync. No account on a platform that exposes public metrics is enabled and configured.",
+      };
+    }
+    return {
+      summary: `Synced ${ok} account${ok === 1 ? "" : "s"} — ${snapshots} new reading${
+        snapshots === 1 ? "" : "s"
+      }${created ? `, ${created} new video${created === 1 ? "" : "s"} found` : ""}.`,
+    };
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+}
+
+/**
+ * Creates an account that has already been confirmed to exist on the platform,
+ * then imports its recent videos straight away.
+ *
+ * The verification matters: the old "type a handle and hope" path failed
+ * silently -- a typo produced an account that synced nothing, which looks
+ * identical to a channel that has not posted. Here the caller has picked a
+ * specific candidate from the search results, so the platform's own id and
+ * title are stored alongside the handle.
+ *
+ * The first import runs inline rather than waiting for the next cron tick,
+ * because an account that shows nothing for fifteen minutes after being added
+ * reads as broken.
+ */
+export async function addVerifiedAccount(input: {
+  workspaceId: string;
+  platformSlug: string;
+  handle: string;
+  externalId: string | null;
+  displayName: string | null;
+  clientId: string | null;
+  /** Null imports everything available, subject to the runner's page budget. */
+  windowDays: number | null;
+}): Promise<Result & { summary?: string; accountId?: string }> {
+  const supabase = await createClient();
+
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth?.user) return { error: "Not signed in." };
+
+  const { data: membership } = await supabase
+    .from("memberships")
+    .select("role, is_active")
+    .eq("workspace_id", input.workspaceId)
+    .eq("user_id", auth.user.id)
+    .maybeSingle();
+
+  if (!membership?.is_active || !MANAGER_ROLES.includes(membership.role as WorkspaceRole)) {
+    return { error: "Only managers and above can add accounts." };
+  }
+
+  const handle = input.handle.trim().replace(/^@/, "");
+  if (!handle) return { error: "A handle is required." };
+  if (input.windowDays != null && (input.windowDays < 1 || input.windowDays > 3650)) {
+    return { error: "The import window must be between 1 and 3650 days." };
+  }
+
+  const { data: account, error } = await supabase
+    .from("accounts")
+    .insert({
+      workspace_id: input.workspaceId,
+      client_id: input.clientId,
+      platform_slug: input.platformSlug,
+      handle,
+      external_id: input.externalId,
+      display_name: input.displayName,
+      sync_window_days: input.windowDays,
+      connection_mode: "manual",
+    })
+    .select("id")
+    .single();
+
+  if (error) {
+    // The unique index is on (workspace_id, platform_slug, handle).
+    if (error.code === "23505") {
+      return { error: `${handle} is already added for ${input.platformSlug}.` };
+    }
+    return { error: error.message };
+  }
+
+  revalidatePath("/accounts");
+
+  try {
+    const { runSync, serviceClient } = await import("@/lib/syncRunner");
+    const [result] = await runSync(serviceClient(), {
+      workspaceId: input.workspaceId,
+      accountId: account.id,
+      trigger: "manual",
+    });
+
+    revalidatePath("/content");
+
+    if (!result || result.status === "skipped") {
+      return {
+        accountId: account.id,
+        summary: `Added ${handle}. ${result?.error ?? "Nothing was imported."}`,
+      };
+    }
+    if (result.status === "error") {
+      // The account is kept: the row is correct, the fetch is what failed, and
+      // deleting it would discard a verified reference over a transient error.
+      return {
+        accountId: account.id,
+        error: `Added ${handle}, but the first import failed: ${result.error}`,
+      };
+    }
+    return {
+      accountId: account.id,
+      summary: `Added ${handle} — imported ${result.postsCreated} video${
+        result.postsCreated === 1 ? "" : "s"
+      } with ${result.snapshotsWritten} metric reading${
+        result.snapshotsWritten === 1 ? "" : "s"
+      }.`,
+    };
+  } catch (e) {
+    return { accountId: account.id, error: `Added ${handle}, but the import failed: ${(e as Error).message}` };
+  }
+}
+
+/** Changes how far back an account imports, and re-runs the import. */
+export async function updateSyncWindow(
+  accountId: string,
+  windowDays: number | null,
+): Promise<Result & { summary?: string }> {
+  if (windowDays != null && (windowDays < 1 || windowDays > 3650)) {
+    return { error: "The import window must be between 1 and 3650 days." };
+  }
+  const supabase = await createClient();
+  const { data: account, error } = await supabase
+    .from("accounts")
+    .update({ sync_window_days: windowDays })
+    .eq("id", accountId)
+    .select("id, workspace_id")
+    .single();
+  if (error) return { error: error.message };
+
+  // RLS already refused the update if the caller cannot manage this
+  // workspace, so reaching here proves authorisation for the sync that
+  // follows -- which runs with the service role and has none of its own.
+  try {
+    const { runSync, serviceClient } = await import("@/lib/syncRunner");
+    const [result] = await runSync(serviceClient(), {
+      workspaceId: account.workspace_id,
+      accountId,
+      trigger: "manual",
+    });
+    revalidatePath("/accounts");
+    revalidatePath("/content");
+    if (result?.status === "error") return { error: result.error };
+    return {
+      summary: `Window updated — ${result?.postsCreated ?? 0} new video${
+        result?.postsCreated === 1 ? "" : "s"
+      } imported.`,
+    };
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
 }

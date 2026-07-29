@@ -1,6 +1,8 @@
 import PageHeader from "@/components/PageHeader";
 import AccountsManager from "@/components/AccountsManager";
 import FilterBar from "@/components/FilterBar";
+import SyncStatus from "@/components/SyncStatus";
+import { PROVIDERS } from "@/lib/providers";
 import { createClient } from "@/lib/supabase/server";
 import { requireSession } from "@/lib/workspace";
 import { canManage } from "@/lib/types";
@@ -28,7 +30,7 @@ export default async function AccountsPage({
     supabase
       .from("accounts")
       .select(
-        "id, workspace_id, client_id, platform_slug, handle, connection_mode, is_archived, client:clients(id, name)",
+        "id, workspace_id, client_id, platform_slug, handle, connection_mode, is_archived, last_synced_at, last_sync_error, sync_enabled, client:clients(id, name)",
       )
       .eq("workspace_id", ws)
       .order("handle"),
@@ -96,6 +98,35 @@ export default async function AccountsPage({
           on content as they sync.
         </p>
       )}
+      <SyncStatus
+        workspaceId={ws}
+        canManage={canManage(session.active.role)}
+        platforms={platforms.map((p) => {
+          const provider = PROVIDERS[p.slug];
+          return {
+            slug: p.slug,
+            displayName: p.display_name,
+            canFetch: provider?.capability.canFetchMetrics ?? false,
+            configured: provider?.isConfigured() ?? false,
+            missingEnv: provider?.missingEnv() ?? [],
+            reason: provider?.capability.reason ?? "No provider for this platform.",
+            remedy: provider?.capability.remedy,
+            accountCount: allAccounts.filter(
+              (a) => a.platform_slug === p.slug && !a.is_archived,
+            ).length,
+          };
+        })}
+        accounts={allAccounts
+          .filter((a) => !a.is_archived)
+          .map((a) => ({
+            id: a.id,
+            handle: a.handle,
+            platform: a.platform_slug,
+            lastSyncedAt: (a as { last_synced_at?: string | null }).last_synced_at ?? null,
+            lastError: (a as { last_sync_error?: string | null }).last_sync_error ?? null,
+          }))}
+      />
+
       <FilterBar
         basePath="/accounts"
         filters={[
