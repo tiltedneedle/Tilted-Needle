@@ -1,0 +1,15 @@
+[Unit]
+Description=TikTok discovery service (yt-dlp)
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/tiktok-discover
+EnvironmentFile=/opt/tiktok-discover/.env
+ExecStart=/opt/tiktok-discover/venv/bin/gunicorn -w 2 -b 127.0.0.1:8787 --timeout 60 server:app
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

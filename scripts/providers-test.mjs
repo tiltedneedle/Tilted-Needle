@@ -172,9 +172,6 @@ const ref = (s) => Y.parseChannelRef(s);
   check("no ids is a success with no rows, not an API call", empty.ok === true && empty.data.length === 0);
 }
 
-console.log(`\n${pass} passed, ${fail} failed`);
-process.exit(fail ? 1 : 0);
-
 /* -- Instagram: video-only filtering, at zero real cost -------------------
    fetch is mocked so this exercises the real discover() code path -- the
    billedCount arithmetic and the photo-drop -- without spending any actual
@@ -244,3 +241,93 @@ process.exit(fail ? 1 : 0);
   globalThis.fetch = realFetch;
   delete process.env.APIFY_TOKEN;
 }
+
+/* -- TikTok: optional discovery service, at zero real cost ----------------
+   fetch is mocked, so this exercises the real capability-switching and
+   discover() code path without ever hitting a real service. */
+{
+  const TT = await import("../src/lib/providers/tiktok.ts");
+
+  const before = { url: process.env.TIKTOK_DISCOVER_URL, secret: process.env.TIKTOK_DISCOVER_SECRET };
+  delete process.env.TIKTOK_DISCOVER_URL;
+  delete process.env.TIKTOK_DISCOVER_SECRET;
+
+  check("with no discovery service configured, canDiscover is honestly false",
+    TT.tiktokProvider.capability.canDiscover === false);
+
+  process.env.TIKTOK_DISCOVER_URL = "https://example.test/discover";
+  // Only the URL set, not the secret -- must still report unavailable, since
+  // an unauthenticated call to a real box would just 401.
+  check("both URL and secret are required, not just one",
+    TT.tiktokProvider.capability.canDiscover === false);
+
+  process.env.TIKTOK_DISCOVER_SECRET = "test-secret";
+  check("with both set, canDiscover flips to true",
+    TT.tiktokProvider.capability.canDiscover === true);
+
+  const realFetch = globalThis.fetch;
+
+  // The success path: the box returns real-shaped videos.
+  globalThis.fetch = async (url, opts) => {
+    const u = new URL(url);
+    if (u.searchParams.get("handle") !== "ameerhnaran") {
+      return new Response(JSON.stringify({ error: "wrong handle" }), { status: 400 });
+    }
+    if (opts.headers.Authorization !== "Bearer test-secret") {
+      return new Response(JSON.stringify({ error: "bad secret" }), { status: 401 });
+    }
+    return new Response(
+      JSON.stringify({
+        handle: "ameerhnaran",
+        videos: [
+          { externalId: "111", title: "Recent one", url: "https://tiktok.com/@x/video/111", postedAt: "2026-07-20", views: 500, likes: 40, comments: 2 },
+          { externalId: "222", title: "Older one", url: "https://tiktok.com/@x/video/222", postedAt: "2026-05-01", views: 900, likes: 80, comments: 5 },
+        ],
+      }),
+      { status: 200 },
+    );
+  };
+
+  const disc = await TT.tiktokProvider.discover("@ameerhnaran", { limit: 12 });
+  check("discover succeeds against the mocked discovery service", disc.ok === true);
+  if (disc.ok) {
+    check("both videos come back", disc.data.length === 2);
+    check("the handle's leading @ is stripped before it reaches the service",
+      disc.data.every((v) => !!v.externalId));
+  }
+
+  const discSince = await TT.tiktokProvider.discover("@ameerhnaran", { limit: 12, since: "2026-07-01" });
+  check("a since-date filter narrows the results client-side",
+    discSince.ok === true && discSince.ok && discSince.data.length === 1 && discSince.data[0].externalId === "111");
+
+  // The service rejects the secret -- must surface as a clear error, not a crash.
+  globalThis.fetch = async () => new Response(JSON.stringify({ error: "no" }), { status: 401 });
+  const discBadAuth = await TT.tiktokProvider.discover("@ameerhnaran");
+  check("a rejected secret surfaces a clear error", discBadAuth.ok === false && discBadAuth.error.includes("secret"));
+
+  // A private/nonexistent account: the service's own convention is a 200
+  // with an error string and no videos. Must read as a true empty result,
+  // not a failure -- otherwise a normal private account would look broken.
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ error: "No such public account", videos: [] }), { status: 200 });
+  const discPrivate = await TT.tiktokProvider.discover("@someprivateacct");
+  check("a private/nonexistent account is a true empty result, not an error",
+    discPrivate.ok === true && discPrivate.ok && discPrivate.data.length === 0);
+
+  // The service is unreachable entirely.
+  globalThis.fetch = async () => {
+    throw new Error("fetch failed");
+  };
+  const discDown = await TT.tiktokProvider.discover("@ameerhnaran");
+  check("an unreachable discovery service surfaces a clear error, not a crash",
+    discDown.ok === false && discDown.error.includes("Could not reach"));
+
+  globalThis.fetch = realFetch;
+  if (before.url === undefined) delete process.env.TIKTOK_DISCOVER_URL;
+  else process.env.TIKTOK_DISCOVER_URL = before.url;
+  if (before.secret === undefined) delete process.env.TIKTOK_DISCOVER_SECRET;
+  else process.env.TIKTOK_DISCOVER_SECRET = before.secret;
+}
+
+console.log(`\n${pass} passed, ${fail} failed`);
+process.exit(fail ? 1 : 0);

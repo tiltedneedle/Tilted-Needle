@@ -128,10 +128,15 @@ export async function syncAccount(
   //    does not get walked in full on every run.
   //
   //    Some platforms can read a known post but cannot list an account's
-  //    posts at all -- TikTok blocks profile pages. For those, discovery is
-  //    skipped rather than attempted and failed: their posts are registered
-  //    by URL, and everything from step 4 down still refreshes normally.
+  //    posts at all -- TikTok blocks profile pages, so discovery there goes
+  //    through a separate, independently-configured helper (see tiktok.ts).
+  //    That means discovery and metrics-refresh can fail for entirely
+  //    unrelated reasons on the same platform, which is exactly why a
+  //    discovery failure is recorded and carried forward rather than
+  //    returned early: the free, always-working metrics refresh in step 4
+  //    must not go dark just because a discovery helper is unreachable.
   let discoveredPosts: { externalId: string; title: string; url: string; postedAt: string | null }[] = [];
+  let discoveryError: string | null = null;
 
   if (provider.capability.canDiscover) {
     const discovered = await provider.discover(account.handle, {
@@ -139,13 +144,10 @@ export async function syncAccount(
       since: cutoffFor(account.sync_window_days),
     });
     if (!discovered.ok) {
-      await db
-        .from("accounts")
-        .update({ last_sync_error: discovered.error, last_synced_at: new Date().toISOString() })
-        .eq("id", account.id);
-      return { ...base, status: "error", error: discovered.error };
+      discoveryError = discovered.error;
+    } else {
+      discoveredPosts = discovered.data;
     }
-    discoveredPosts = discovered.data;
   }
 
   // 2. Which of those are already tracked as platform_posts?
@@ -219,9 +221,15 @@ export async function syncAccount(
   if (trackedIds.length === 0) {
     await db
       .from("accounts")
-      .update({ last_synced_at: new Date().toISOString(), last_sync_error: null })
+      .update({ last_synced_at: new Date().toISOString(), last_sync_error: discoveryError })
       .eq("id", account.id);
-    return { ...base, status: "ok", postsSeen: discoveredPosts.length, postsCreated };
+    return {
+      ...base,
+      status: "ok",
+      postsSeen: discoveredPosts.length,
+      postsCreated,
+      error: discoveryError ?? undefined,
+    };
   }
 
   const metrics = await provider.fetchMetrics(trackedIds);
@@ -300,9 +308,13 @@ export async function syncAccount(
     }
   }
 
+  // A metrics refresh that succeeded clears any PREVIOUS error, but a
+  // discovery failure from this same run is worth keeping visible -- it is
+  // not fatal to this sync, but it is real information for whoever is
+  // looking at why new TikTok uploads have not appeared in a while.
   await db
     .from("accounts")
-    .update({ last_synced_at: new Date().toISOString(), last_sync_error: null })
+    .update({ last_synced_at: new Date().toISOString(), last_sync_error: discoveryError })
     .eq("id", account.id);
 
   return {
@@ -311,6 +323,7 @@ export async function syncAccount(
     postsSeen: discoveredPosts.length,
     postsCreated,
     snapshotsWritten: toInsert.length,
+    error: discoveryError ?? undefined,
   };
 }
 

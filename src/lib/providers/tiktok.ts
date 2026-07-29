@@ -13,20 +13,24 @@
  *            The page TikTok serves for embedding a video. Its state blob
  *            carries playCount, diggCount, commentCount and shareCount.
  *
- * IMPORTANT LIMITATION: creator profile pages are blocked -- a request for
- * one returns a ~1.4KB shell with no video ids in it. So unlike YouTube,
- * this provider CANNOT list a creator's uploads. Videos have to be registered
- * by URL once; after that their metrics refresh automatically forever.
- * `capability.canDiscover` is false to say exactly that, rather than having
- * discovery fail mysteriously at run time.
+ * Both of the above are free and need no setup -- this is why metrics-refresh
+ * for a video whose URL is already known always works.
  *
- * A caveat worth keeping in view: the embed page is a public surface but not
- * a documented *data* API. TikTok can change its markup without notice, and
- * automated fetching of it sits in a grey area of their terms. It is treated
- * here as a convenience that saves real work, never as infrastructure to
- * depend on -- which is why parse failures surface loudly on the Accounts
- * page instead of quietly recording nothing, and why manual entry stays
- * available for every platform.
+ * DISCOVERY (listing a creator's uploads) is a separate story: creator
+ * profile pages are blocked -- a request for one returns a ~1.4KB shell with
+ * no video ids in it. There is no free, in-process way to list them. The
+ * optional fix is deploy/tiktok-discover: a tiny standalone service (yt-dlp,
+ * which TikTok does not block) that this provider calls over HTTPS when
+ * TIKTOK_DISCOVER_URL and TIKTOK_DISCOVER_SECRET are set. Without them,
+ * capability.canDiscover reports false -- honestly, not as an error -- and
+ * videos are registered by URL once, same as always.
+ *
+ * A caveat worth keeping in view for both paths: neither the embed page nor
+ * yt-dlp's extractor is a documented, contractual data API. TikTok can change
+ * either surface without notice. Treated here as a convenience that saves
+ * real work, never as infrastructure to depend on -- which is why failures
+ * surface loudly on the Accounts page instead of quietly recording nothing,
+ * and why manual entry stays available for every platform regardless.
  */
 import type {
   AccountCandidate,
@@ -42,14 +46,28 @@ import type {
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36";
 
-const capability: ProviderCapability = {
-  canDiscover: false,
-  canFetchMetrics: true,
-  reason:
-    "TikTok blocks creator profile pages, so a creator's videos cannot be listed automatically. Individual videos are read fine once their URL is registered.",
-  remedy:
-    "Add each video's URL once — its metrics then refresh automatically with every sync.",
-};
+/** Both must be set for the optional discovery service to be considered available. */
+function discoveryConfigured(): boolean {
+  return Boolean(process.env.TIKTOK_DISCOVER_URL && process.env.TIKTOK_DISCOVER_SECRET);
+}
+
+function capabilityFor(): ProviderCapability {
+  return discoveryConfigured()
+    ? {
+        canDiscover: true,
+        canFetchMetrics: true,
+        reason: "Discovery runs through a separate self-hosted service (yt-dlp) — see deploy/tiktok-discover.",
+        remedy: "",
+      }
+    : {
+        canDiscover: false,
+        canFetchMetrics: true,
+        reason:
+          "TikTok blocks creator profile pages, so a creator's videos cannot be listed automatically without the optional discovery service.",
+        remedy:
+          "Add each video's URL once — its metrics then refresh automatically with every sync. See deploy/tiktok-discover for the optional auto-discovery setup.",
+      };
+}
 
 /**
  * Pulls the numeric video id out of anything someone would paste: a full URL,
@@ -168,9 +186,13 @@ const num = (v: unknown): number | null =>
 
 export const tiktokProvider: PublicProvider = {
   slug: "tiktok",
-  capability,
+  get capability() {
+    return capabilityFor();
+  },
 
-  // No key to configure: both endpoints are open.
+  // Metrics and search need no configuration; only discovery is optional, so
+  // isConfigured() stays true unconditionally -- gating it on the discovery
+  // service would incorrectly disable the always-free metrics refresh too.
   isConfigured: () => true,
   missingEnv: () => [],
 
@@ -202,8 +224,89 @@ export const tiktokProvider: PublicProvider = {
     return { ok: true, data: [candidate] };
   },
 
-  async discover(_handle: string, _options: DiscoverOptions = {}) {
-    return { ok: false, error: capability.reason };
+  /**
+   * Lists a creator's recent uploads via the optional discovery service
+   * (deploy/tiktok-discover), which does this through yt-dlp rather than
+   * fetching the blocked profile page directly. Returns the same honest
+   * "cannot discover" error as before when the service is not configured --
+   * this is the same call whether or not it is set up, so nothing here
+   * needs its own separate "not configured" branch.
+   */
+  async discover(handle: string, options: DiscoverOptions = {}) {
+    if (!discoveryConfigured()) {
+      return { ok: false, error: capabilityFor().reason };
+    }
+
+    const base = process.env.TIKTOK_DISCOVER_URL!;
+    const secret = process.env.TIKTOK_DISCOVER_SECRET!;
+    const limit = Math.max(1, Math.min(options.limit ?? 12, 30));
+    const url = `${base}?handle=${encodeURIComponent(handle.replace(/^@/, ""))}&limit=${limit}`;
+
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        headers: { Authorization: `Bearer ${secret}` },
+        cache: "no-store",
+        // The discovery box runs a real yt-dlp extraction per request, which
+        // is slower than a plain API call -- generous but bounded, so one
+        // slow account cannot hang the whole sync run.
+        signal: AbortSignal.timeout(45_000),
+      });
+    } catch (e) {
+      const err = e as Error;
+      return {
+        ok: false,
+        error:
+          err.name === "TimeoutError"
+            ? "The TikTok discovery service timed out."
+            : `Could not reach the TikTok discovery service: ${err.message}`,
+      };
+    }
+
+    if (res.status === 401) return { ok: false, error: "TikTok discovery service rejected the secret." };
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      return { ok: false, error: `TikTok discovery service returned HTTP ${res.status}. ${body.slice(0, 160)}` };
+    }
+
+    type DiscoverResponse = {
+      error?: string;
+      videos?: {
+        externalId: string | null;
+        title: string;
+        url: string;
+        postedAt: string | null;
+      }[];
+    };
+    let body: DiscoverResponse;
+    try {
+      body = await res.json();
+    } catch {
+      return { ok: false, error: "TikTok discovery service returned a response that could not be read." };
+    }
+
+    if (body.error && !body.videos?.length) {
+      // A private/nonexistent account is a legitimate empty result, not a
+      // hard failure -- the service itself distinguishes these with a 200.
+      return { ok: true, data: [] };
+    }
+
+    const videos = (body.videos ?? [])
+      .filter((v): v is typeof v & { externalId: string } => !!v.externalId)
+      .map(
+        (v): DiscoveredPost => ({
+          externalId: v.externalId,
+          title: v.title || "Untitled",
+          url: v.url,
+          postedAt: v.postedAt,
+          lengthSeconds: null,
+        }),
+      );
+
+    const since = options.since;
+    const filtered = since ? videos.filter((v) => v.postedAt != null && v.postedAt >= since) : videos;
+
+    return { ok: true, data: filtered };
   },
 
   async fetchMetrics(externalIds) {
