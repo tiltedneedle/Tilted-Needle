@@ -13,6 +13,14 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { providerFor } from "@/lib/providers";
 import { fetchVideoDetails } from "@/lib/providers/youtube";
+import {
+  claim,
+  findDuePosts,
+  isMetered,
+  refund,
+  retirePosts,
+  type BudgetPool,
+} from "@/lib/scrapeBudget";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Db = SupabaseClient<any>;
@@ -60,7 +68,7 @@ function cutoffFor(windowDays: number | null): string | null {
 export async function syncAccount(
   db: Db,
   account: AccountRow,
-  opts: { discoverLimit?: number } = {},
+  opts: { discoverLimit?: number; pool?: BudgetPool } = {},
 ): Promise<AccountSyncResult> {
   const base = {
     accountId: account.id,
@@ -84,6 +92,13 @@ export async function syncAccount(
       status: "skipped",
       error: `Not configured: ${provider.missingEnv().join(", ")} missing.`,
     };
+  }
+
+  // A metered platform costs credit per post read, so it takes an entirely
+  // different path: only the posts whose age-tier says they are due get
+  // fetched, and only as many as the budget actually grants.
+  if (await isMetered(db, account.platform_slug)) {
+    return syncMeteredAccount(db, account, base, opts.pool ?? "auto");
   }
 
   // 1. Discover what the platform currently shows on this account, bounded by
@@ -354,4 +369,203 @@ export async function runSync(
   }
 
   return results;
+}
+
+/**
+ * Sync for a platform that bills per post read.
+ *
+ * Differs from the free path in three ways, all of them about money:
+ * discovery is a separate, separately-capped spend; refreshes address only
+ * the posts whose age-tier says they are due; and every fetch is preceded by
+ * a budget claim whose granted amount -- not the requested amount -- is what
+ * gets spent.
+ */
+async function syncMeteredAccount(
+  db: Db,
+  account: AccountRow,
+  base: Omit<AccountSyncResult, "status">,
+  pool: BudgetPool,
+): Promise<AccountSyncResult> {
+  const provider = providerFor(account.platform_slug)!;
+  const ws = account.workspace_id;
+  const platform = account.platform_slug;
+  let postsCreated = 0;
+  let postsSeen = 0;
+
+  // 1. Retire anything past the last age band before spending anything. This
+  //    is free, and it shrinks the due set before budget is claimed.
+  const { due, retire } = await findDuePosts(db, ws, account.id, platform);
+  if (retire.length > 0) await retirePosts(db, retire);
+
+  // 2. Discovery, from its own pool so it can never starve refreshes. Only
+  //    attempted when the platform can list posts at all.
+  if (provider.capability.canDiscover) {
+    const want = 12;
+    const granted = await claim(db, ws, platform, "discovery", want);
+    if (granted > 0) {
+      const found = await provider.discover(account.handle, { limit: granted });
+      if (!found.ok) {
+        // Nothing was returned, so nothing was billed -- hand the claim back
+        // rather than letting a vendor outage consume the month's allowance.
+        await refund(db, ws, platform, "discovery", granted);
+      } else {
+        postsSeen = found.data.length;
+        if (found.data.length < granted) {
+          await refund(db, ws, platform, "discovery", granted - found.data.length);
+        }
+
+        const { data: existingRows } = await db
+          .from("platform_posts")
+          .select("external_id")
+          .eq("workspace_id", ws)
+          .eq("account_id", account.id);
+        const known = new Set(
+          ((existingRows ?? []) as { external_id: string | null }[])
+            .map((r) => r.external_id)
+            .filter(Boolean),
+        );
+
+        for (const post of found.data.filter((p) => !known.has(p.externalId))) {
+          const { data: item } = await db
+            .from("content_items")
+            .insert({
+              workspace_id: ws,
+              client_id: account.client_id,
+              title: post.title,
+              produced_at: post.postedAt,
+              length_seconds: post.lengthSeconds,
+              notes: `Discovered automatically from ${platform} @${account.handle}.`,
+            })
+            .select("id")
+            .single();
+          if (!item) continue;
+
+          // Newly discovered posts arrive already measured by the discovery
+          // call, so they are stamped as scraped now. Leaving the stamp null
+          // would make every one of them immediately "due" and double-bill.
+          const { data: created } = await db
+            .from("platform_posts")
+            .insert({
+              workspace_id: ws,
+              content_item_id: item.id,
+              account_id: account.id,
+              external_id: post.externalId,
+              url: post.url,
+              posted_at: post.postedAt,
+              source: "api",
+              last_scraped_at: new Date().toISOString(),
+            })
+            .select("id")
+            .single();
+          if (created) postsCreated++;
+        }
+      }
+    }
+  }
+
+  if (due.length === 0) {
+    await db
+      .from("accounts")
+      .update({ last_synced_at: new Date().toISOString(), last_sync_error: null })
+      .eq("id", account.id);
+    return { ...base, status: "ok", postsSeen, postsCreated };
+  }
+
+  // 3. Claim for the refresh, then take only the most-overdue N the budget
+  //    allowed. A partial grant is normal near the end of a period.
+  const granted = await claim(db, ws, platform, pool, due.length);
+  if (granted === 0) {
+    const msg = `Scrape budget exhausted for ${platform}; ${due.length} post(s) waiting for the next period.`;
+    await db
+      .from("accounts")
+      .update({ last_sync_error: msg, last_synced_at: new Date().toISOString() })
+      .eq("id", account.id);
+    return { ...base, status: "ok", postsSeen, postsCreated, error: msg };
+  }
+
+  const batch = due.slice(0, granted);
+  const metrics = await provider.fetchMetrics(batch.map((p) => p.externalId));
+
+  if (!metrics.ok) {
+    await refund(db, ws, platform, pool, granted);
+    await db
+      .from("accounts")
+      .update({ last_sync_error: metrics.error, last_synced_at: new Date().toISOString() })
+      .eq("id", account.id);
+    return { ...base, status: "error", postsSeen, postsCreated, error: metrics.error };
+  }
+  if (metrics.data.length < granted) {
+    await refund(db, ws, platform, pool, granted - metrics.data.length);
+  }
+
+  // 4. Append snapshots, skipping readings identical to the last one so the
+  //    series stays a record of change rather than of polling.
+  const idToPost = new Map(batch.map((p) => [p.externalId, p]));
+  const { data: latestRows } = await db
+    .from("post_snapshots")
+    .select("platform_post_id, views, likes, comments, captured_at")
+    .eq("workspace_id", ws)
+    .in("platform_post_id", batch.map((p) => p.id))
+    .order("captured_at", { ascending: false });
+
+  const latest = new Map<string, { views: number | null; likes: number | null; comments: number | null }>();
+  for (const r of (latestRows ?? []) as {
+    platform_post_id: string;
+    views: number | null;
+    likes: number | null;
+    comments: number | null;
+  }[]) {
+    if (!latest.has(r.platform_post_id)) latest.set(r.platform_post_id, r);
+  }
+
+  const toInsert: Record<string, unknown>[] = [];
+  const scrapedIds: string[] = [];
+  for (const m of metrics.data) {
+    const post = idToPost.get(m.externalId);
+    if (!post) continue;
+    scrapedIds.push(post.id);
+
+    const prev = latest.get(post.id);
+    const unchanged =
+      prev && prev.views === m.views && prev.likes === m.likes && prev.comments === m.comments;
+    if (unchanged) continue;
+
+    toInsert.push({
+      workspace_id: ws,
+      platform_post_id: post.id,
+      views: m.views,
+      likes: m.likes,
+      comments: m.comments,
+      source: "api",
+    });
+  }
+
+  if (toInsert.length > 0) {
+    const { error } = await db.from("post_snapshots").insert(toInsert);
+    if (error) {
+      return { ...base, status: "error", postsSeen, postsCreated, error: error.message };
+    }
+  }
+
+  // Stamp every post we paid to read, including ones whose numbers had not
+  // moved -- they were read, and re-reading them tomorrow would bill again.
+  if (scrapedIds.length > 0) {
+    await db
+      .from("platform_posts")
+      .update({ last_scraped_at: new Date().toISOString() })
+      .in("id", scrapedIds);
+  }
+
+  await db
+    .from("accounts")
+    .update({ last_synced_at: new Date().toISOString(), last_sync_error: null })
+    .eq("id", account.id);
+
+  return {
+    ...base,
+    status: "ok",
+    postsSeen: postsSeen + batch.length,
+    postsCreated,
+    snapshotsWritten: toInsert.length,
+  };
 }

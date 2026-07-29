@@ -97,22 +97,55 @@ const ref = (s) => Y.parseChannelRef(s);
     (await TT.tiktokProvider.fetchMetrics([])).ok === true);
 }
 {
-  for (const slug of ["instagram", "facebook"]) {
-    const p = P.PROVIDERS[slug];
-    check(`${slug} declares it cannot fetch publicly`, p.capability.canFetchMetrics === false);
-    check(`${slug} explains why`, typeof p.capability.reason === "string" && p.capability.reason.length > 30);
-    check(`${slug} offers a remedy`, typeof p.capability.remedy === "string");
-  }
+  // Facebook is the one platform left with no route at all. Instagram now has
+  // a paid one; TikTok and YouTube are free.
+  const p = P.PROVIDERS.facebook;
+  check("facebook declares it cannot fetch publicly", p.capability.canFetchMetrics === false);
+  check("facebook explains why", typeof p.capability.reason === "string" && p.capability.reason.length > 30);
+  check("facebook offers a remedy", typeof p.capability.remedy === "string");
 }
 {
   // The critical guarantee: an unavailable provider must never hand back
   // numbers. Zeros would read as "this post got no views" and would drag
   // every score derived from them downward.
-  const ig = P.PROVIDERS.instagram;
-  const metrics = await ig.fetchMetrics(["anything"]);
+  const fb = P.PROVIDERS.facebook;
+  const metrics = await fb.fetchMetrics(["anything"]);
   check("an unavailable provider errors rather than returning data", metrics.ok === false);
-  const disc = await ig.discover("@someone");
+  const disc = await fb.discover("@someone");
   check("an unavailable provider discovers nothing", disc.ok === false);
+}
+{
+  const IG = await import("../src/lib/providers/instagram.ts");
+  const ig = P.PROVIDERS.instagram;
+  check("instagram can fetch and discover via the paid actor",
+    ig.capability.canFetchMetrics === true && ig.capability.canDiscover === true);
+
+  const before = process.env.APIFY_TOKEN;
+  delete process.env.APIFY_TOKEN;
+  check("instagram reports unconfigured with no token", ig.isConfigured() === false);
+  check("instagram names the missing variable", ig.missingEnv().includes("APIFY_TOKEN"));
+  // Must refuse before spending: a call with no token would fail anyway, but
+  // failing early keeps it out of the vendor's logs and our budget.
+  const res = await ig.fetchMetrics(["abc"]);
+  check("instagram errors instead of calling out with no token",
+    res.ok === false && res.error.includes("APIFY_TOKEN"));
+  if (before === undefined) delete process.env.APIFY_TOKEN;
+  else process.env.APIFY_TOKEN = before;
+
+  check("empty ids costs nothing and succeeds",
+    (await ig.fetchMetrics([])).ok === true);
+
+  check("handle parsed from a profile URL",
+    IG.parseHandle("https://www.instagram.com/nasa/") === "nasa");
+  check("handle parsed from @form", IG.parseHandle("@nasa") === "nasa");
+  // /p/ is a post path, not a username -- treating it as one would create an
+  // account pointing at nothing.
+  check("a post URL is not mistaken for a handle",
+    IG.parseHandle("https://www.instagram.com/p/C8Qq0YvOaKq/") === null);
+  check("shortcode parsed from a post URL",
+    IG.parseShortcode("https://www.instagram.com/p/C8Qq0YvOaKq/") === "C8Qq0YvOaKq");
+  check("shortcode parsed from a reel URL",
+    IG.parseShortcode("https://www.instagram.com/reel/C8Qq0YvOaKq/") === "C8Qq0YvOaKq");
 }
 {
   const before = process.env.YOUTUBE_API_KEY;

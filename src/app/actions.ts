@@ -1616,3 +1616,113 @@ export async function updateSyncWindow(
     return { error: (e as Error).message };
   }
 }
+
+/**
+ * Re-reads one post's metrics immediately, drawing on the manual pool.
+ *
+ * The manual pool is separate from the automatic one precisely so this
+ * button keeps working when the scheduled refresh has spent its allowance.
+ * If it shared a pool, the control a person actually presses would be the
+ * first thing to fail, and it would fail silently.
+ */
+export async function scrapePostNow(
+  platformPostId: string,
+): Promise<Result & { summary?: string; remaining?: number }> {
+  const supabase = await createClient();
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth?.user) return { error: "Not signed in." };
+
+  const { data: post } = await supabase
+    .from("platform_posts")
+    .select("id, workspace_id, external_id, account:accounts(platform_slug, handle)")
+    .eq("id", platformPostId)
+    .maybeSingle();
+  if (!post) return { error: "That post was not found." };
+  if (!post.external_id) {
+    return { error: "This post has no platform id recorded, so it cannot be re-read." };
+  }
+
+  const account = Array.isArray(post.account) ? post.account[0] : post.account;
+  const platform = (account as { platform_slug?: string } | null)?.platform_slug;
+  if (!platform) return { error: "This post is not linked to an account." };
+
+  const { data: membership } = await supabase
+    .from("memberships")
+    .select("role, is_active")
+    .eq("workspace_id", post.workspace_id)
+    .eq("user_id", auth.user.id)
+    .maybeSingle();
+  if (!membership?.is_active || !MANAGER_ROLES.includes(membership.role as WorkspaceRole)) {
+    return { error: "Only managers and above can trigger a scrape." };
+  }
+
+  const { providerFor } = await import("@/lib/providers");
+  const provider = providerFor(platform);
+  if (!provider?.capability.canFetchMetrics) {
+    return { error: provider?.capability.reason ?? `No provider for ${platform}.` };
+  }
+  if (!provider.isConfigured()) {
+    return { error: `Not configured: ${provider.missingEnv().join(", ")} missing.` };
+  }
+
+  const { serviceClient } = await import("@/lib/syncRunner");
+  const { claim, refund, isMetered, status } = await import("@/lib/scrapeBudget");
+  const db = serviceClient();
+  const metered = await isMetered(db, platform);
+
+  // Free platforms skip the ledger entirely -- there is nothing to meter.
+  let granted = 1;
+  if (metered) {
+    granted = await claim(db, post.workspace_id, platform, "manual", 1);
+    if (granted === 0) {
+      const s = await status(db, post.workspace_id, platform);
+      return {
+        error: `No manual scrapes left this period. ${s ? `Resets in ${s.daysUntilReset} day(s).` : ""}`,
+        remaining: 0,
+      };
+    }
+  }
+
+  const metrics = await provider.fetchMetrics([post.external_id]);
+  if (!metrics.ok || metrics.data.length === 0) {
+    if (metered) await refund(db, post.workspace_id, platform, "manual", granted);
+    return { error: metrics.ok ? "The platform returned no data for this post." : metrics.error };
+  }
+
+  const m = metrics.data[0];
+  const { error: insErr } = await db.from("post_snapshots").insert({
+    workspace_id: post.workspace_id,
+    platform_post_id: post.id,
+    views: m.views,
+    likes: m.likes,
+    comments: m.comments,
+    source: "api",
+  });
+  if (insErr) return { error: insErr.message };
+
+  await db
+    .from("platform_posts")
+    .update({ last_scraped_at: new Date().toISOString() })
+    .eq("id", post.id);
+
+  const s = metered ? await status(db, post.workspace_id, platform) : null;
+  revalidatePath("/content");
+
+  return {
+    summary: `Updated — ${m.views?.toLocaleString() ?? "—"} views, ${m.likes?.toLocaleString() ?? "—"} likes.`,
+    remaining: s?.remaining.manual,
+  };
+}
+
+/** Current scrape allowance for a platform, for the counter beside the button. */
+export async function getScrapeBudget(workspaceId: string, platformSlug: string) {
+  const supabase = await createClient();
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth?.user) return null;
+
+  const { serviceClient } = await import("@/lib/syncRunner");
+  const { isMetered, status } = await import("@/lib/scrapeBudget");
+  const db = serviceClient();
+  if (!(await isMetered(db, platformSlug))) return null;
+  return status(db, workspaceId, platformSlug);
+}

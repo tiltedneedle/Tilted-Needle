@@ -9,22 +9,17 @@
  */
 import { youtubeProvider } from "./youtube.ts";
 import { tiktokProvider } from "./tiktok.ts";
+import { instagramProvider } from "./instagram.ts";
 import { unavailableProvider, type PublicProvider } from "./types.ts";
 
 export const PROVIDERS: Record<string, PublicProvider> = {
   youtube: youtubeProvider,
   tiktok: tiktokProvider,
-
-  // Tested directly rather than assumed, and every route is closed: the embed
-  // pages return a login-walled shell carrying no metric fields at all, the
-  // profile API rate-limits unauthenticated callers immediately, and the
-  // public mirror sites that used to proxy this are gone or blocking. The
-  // paid scraping vendors exist precisely because none of it works for free.
-  instagram: unavailableProvider(
-    "instagram",
-    "Instagram publishes no public metrics. Its embed pages carry no numbers, its profile API blocks unauthenticated callers, and the Graph API only returns insights for an account that has authorised the app.",
-    "Have the client connect the account (one click on a permission screen — they never hand over credentials), or enter metrics by hand from their Insights screen.",
-  ),
+  // Free routes were tested directly and all are closed: embed pages carry no
+  // metric fields, the profile API rate-limits unauthenticated callers, and
+  // the public mirrors are gone. This one goes through a paid vendor, which
+  // is why it -- alone -- is metered against a budget.
+  instagram: instagramProvider,
 
   facebook: unavailableProvider(
     "facebook",
