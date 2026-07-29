@@ -192,6 +192,19 @@ body {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 8px;
+  /* A hairline border alone reads as flat/unfinished at this density of
+     stat tiles and list rows. One very soft shadow -- dark mode overrides
+     it back to none below, since a shadow reads as murk on a dark surface
+     rather than depth, and the border alone already does the job there. */
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.03), 0 1px 1px rgb(0 0 0 / 0.02);
+}
+/* This app's theme is driven only by the explicit data-theme attribute
+   (see :root[data-theme="dark"] above) -- there is no OS-media-query
+   handling of the colour variables to match, so the shadow override
+   follows the same single signal rather than adding a second one that
+   could disagree with it. */
+:root[data-theme="dark"] .card {
+  box-shadow: none;
 }
 
 .panel-shadow {

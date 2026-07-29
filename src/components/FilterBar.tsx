@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 export type FilterDef = {
@@ -19,6 +20,14 @@ export type FilterDef = {
  * The navigation for both dashboards. Filters live in the query string rather
  * than component state so a filtered view is a URL: shareable, bookmarkable,
  * and survivable across a refresh.
+ *
+ * Only the first `primaryCount` filters show by default -- with seven
+ * filters on Content and People alike, showing all of them permanently was
+ * the single biggest source of visual clutter on either page, ahead of
+ * anything actually on it. The rest sit behind a "More filters" toggle,
+ * which opens automatically if one of the hidden ones already has a value
+ * (from a shared link, or the back button) -- a filter that is doing
+ * something must never be sitting invisibly collapsed.
  */
 export default function FilterBar({
   basePath,
@@ -26,6 +35,7 @@ export default function FilterBar({
   searchKey,
   searchValue,
   searchPlaceholder = "Search…",
+  primaryCount = 2,
 }: {
   basePath: string;
   filters: FilterDef[];
@@ -33,9 +43,15 @@ export default function FilterBar({
   searchKey?: string;
   searchValue?: string | null;
   searchPlaceholder?: string;
+  /** How many filters stay visible before the rest collapse. */
+  primaryCount?: number;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
+
+  const primary = filters.slice(0, primaryCount);
+  const rest = filters.slice(primaryCount);
+  const [expanded, setExpanded] = useState(() => rest.some((f) => f.value));
 
   function set(key: string, value: string, clears: string[] = []) {
     const params = new URLSearchParams(searchParams.toString());
@@ -48,30 +64,35 @@ export default function FilterBar({
 
   const activeFilters = filters.filter((f) => f.value);
   const active = activeFilters.length > 0 || !!searchValue;
+  const hiddenActiveCount = rest.filter((f) => f.value).length;
+
+  function renderSelect(f: FilterDef) {
+    return (
+      <label key={f.key} className="relative">
+        <span className="sr-only">{f.label}</span>
+        <select
+          className={`input min-w-[150px] max-w-[230px] cursor-pointer py-1.5 pr-7 text-sm transition-colors ${
+            f.value ? "border-[var(--accent)]/50 font-medium" : ""
+          }`}
+          value={f.value ?? ""}
+          onChange={(e) => set(f.key, e.target.value, f.clears)}
+          aria-label={f.label}
+        >
+          <option value="">{f.allLabel}</option>
+          {f.options.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </label>
+    );
+  }
 
   return (
     <div className="card mb-5 p-2.5">
       <div className="flex flex-wrap items-center gap-2">
-      {filters.map((f) => (
-        <label key={f.key} className="relative">
-          <span className="sr-only">{f.label}</span>
-          <select
-            className={`input min-w-[150px] max-w-[230px] cursor-pointer py-1.5 pr-7 text-sm transition-colors ${
-              f.value ? "border-[var(--accent)]/50 font-medium" : ""
-            }`}
-            value={f.value ?? ""}
-            onChange={(e) => set(f.key, e.target.value, f.clears)}
-            aria-label={f.label}
-          >
-            <option value="">{f.allLabel}</option>
-            {f.options.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </label>
-      ))}
+      {primary.map(renderSelect)}
 
       {searchKey && (
         // A real form, so Enter submits natively rather than depending on a
@@ -103,6 +124,26 @@ export default function FilterBar({
         </form>
       )}
 
+      {rest.length > 0 && (
+        <button
+          className={`flex items-center gap-1 rounded px-2 py-1.5 text-xs transition-colors ${
+            hiddenActiveCount > 0
+              ? "bg-[var(--accent)]/10 text-[var(--accent)]"
+              : "text-[var(--muted)] hover:bg-[var(--border)] hover:text-[var(--fg)]"
+          }`}
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+        >
+          {expanded ? "Fewer filters" : "More filters"}
+          {!expanded && hiddenActiveCount > 0 && (
+            <span className="tabular rounded-full bg-[var(--accent)] px-1.5 text-[var(--accent-fg)]">
+              {hiddenActiveCount}
+            </span>
+          )}
+          <ChevronIcon expanded={expanded} />
+        </button>
+      )}
+
       <div className="flex-1" />
 
       {active && (
@@ -114,6 +155,12 @@ export default function FilterBar({
         </button>
       )}
       </div>
+
+      {expanded && rest.length > 0 && (
+        <div className="animate-rise mt-2 flex flex-wrap items-center gap-2 border-t border-[var(--border)] pt-2">
+          {rest.map(renderSelect)}
+        </div>
+      )}
 
       {/* With this many filters, the selects alone stop being scannable --
           the chips say what is actually applied, and remove one at a time. */}
@@ -149,5 +196,23 @@ export default function FilterBar({
         </div>
       )}
     </div>
+  );
+}
+
+function ChevronIcon({ expanded }: { expanded: boolean }) {
+  return (
+    <svg
+      width={11}
+      height={11}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={`shrink-0 transition-transform duration-150 ${expanded ? "rotate-180" : ""}`}
+    >
+      <path d="m6 9 6 6 6-6" />
+    </svg>
   );
 }

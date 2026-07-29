@@ -34,12 +34,19 @@ const NAV = [
     ],
   },
   {
+    // Approvals and Time off live here rather than in their own "Team"
+    // group -- that name collided directly with People, the actual
+    // employee dashboard, which sits one line above at a URL that is
+    // literally /team. Everything here is the same underlying concept
+    // anyway: a person's own tracked hours and leave.
     group: "Track",
     items: [
       { href: "/track", label: "Time Tracker", icon: ClockIcon },
       { href: "/timesheet", label: "Timesheet", icon: GridIcon },
       { href: "/dashboard", label: "Hours", icon: SquaresIcon },
       { href: "/reports", label: "Reports", icon: ChartIcon },
+      { href: "/approvals", label: "Approvals", icon: ApprovalIcon },
+      { href: "/time-off", label: "Time off", icon: CalendarIcon },
     ],
   },
   {
@@ -51,24 +58,15 @@ const NAV = [
     ],
   },
   {
-    group: "Team",
-    items: [
-      { href: "/approvals", label: "Approvals", icon: ApprovalIcon },
-      { href: "/time-off", label: "Time off", icon: CalendarIcon },
-    ],
-  },
-  {
+    // Setup and configuration, folded into one group rather than split
+    // across "Manage" and "Admin" -- neither name told you which of the
+    // two an item like Kiosks or Developers belonged in.
     group: "Manage",
     items: [
       { href: "/accounts", label: "Accounts", icon: ShareIcon },
       { href: "/projects", label: "Projects", icon: FolderIcon },
       { href: "/tags", label: "Tags", icon: TagIcon },
       { href: "/kiosks", label: "Kiosks", icon: KioskIcon },
-    ],
-  },
-  {
-    group: "Admin",
-    items: [
       { href: "/import", label: "Import", icon: ImportIcon },
       { href: "/developers", label: "Developers", icon: CodeIcon },
       { href: "/audit-log", label: "Audit log", icon: ShieldIcon },
