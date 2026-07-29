@@ -53,7 +53,29 @@ type AccountRow = {
   handle: string;
   external_id: string | null;
   sync_window_days: number | null;
+  last_discovered_at: string | null;
 };
+
+/**
+ * How much of the discovery pool an automatic (cron) attempt asks for, and
+ * how long it waits before asking again for the same account.
+ *
+ * A metered vendor bills per row returned, not per new item found -- there is
+ * no cheap "just tell me what's new" call, so every discovery attempt costs
+ * roughly the same regardless of whether it turns up anything. At the cron's
+ * 15-minute cadence, asking every tick is not a pacing choice, it is an
+ * accident: ~10 workspace accounts x 12 rows would exhaust an entire month's
+ * 200-credit discovery pool in under half an hour, and then no new upload
+ * would be auto-discovered for the rest of the month.
+ *
+ * 5 x 10 accounts, once every 10 days, is ~150/month -- comfortably inside
+ * the pool with headroom left for manual syncs and uneven posting. A manual
+ * trigger (the "Sync now" button, or an account's first import) bypasses
+ * this: it is a deliberate action a person is not going to click 96 times a
+ * day, and it deserves the fuller catch-up.
+ */
+export { AUTO_DISCOVERY_WANT, AUTO_DISCOVERY_COOLDOWN_MS, isDueForDiscovery } from "./discoveryThrottle.ts";
+import { AUTO_DISCOVERY_WANT, isDueForDiscovery } from "./discoveryThrottle.ts";
 
 /** The import cutoff as an ISO date, or null when the window is unbounded. */
 function cutoffFor(windowDays: number | null): string | null {
@@ -68,7 +90,7 @@ function cutoffFor(windowDays: number | null): string | null {
 export async function syncAccount(
   db: Db,
   account: AccountRow,
-  opts: { discoverLimit?: number; pool?: BudgetPool } = {},
+  opts: { discoverLimit?: number; pool?: BudgetPool; trigger?: "cron" | "manual" } = {},
 ): Promise<AccountSyncResult> {
   const base = {
     accountId: account.id,
@@ -98,7 +120,7 @@ export async function syncAccount(
   // different path: only the posts whose age-tier says they are due get
   // fetched, and only as many as the budget actually grants.
   if (await isMetered(db, account.platform_slug)) {
-    return syncMeteredAccount(db, account, base, opts.pool ?? "auto");
+    return syncMeteredAccount(db, account, base, opts.pool ?? "auto", opts.trigger ?? "cron");
   }
 
   // 1. Discover what the platform currently shows on this account, bounded by
@@ -308,7 +330,9 @@ export async function runSync(
 ): Promise<AccountSyncResult[]> {
   let q = db
     .from("accounts")
-    .select("id, workspace_id, client_id, platform_slug, handle, external_id, sync_window_days")
+    .select(
+      "id, workspace_id, client_id, platform_slug, handle, external_id, sync_window_days, last_discovered_at",
+    )
     .eq("sync_enabled", true)
     .eq("is_archived", false);
 
@@ -350,7 +374,16 @@ export async function runSync(
       .select("id")
       .single();
 
-    const result = await syncAccount(db, account, { discoverLimit: opts.discoverLimit });
+    const trigger = opts.trigger ?? "cron";
+    const result = await syncAccount(db, account, {
+      discoverLimit: opts.discoverLimit,
+      trigger,
+      // A manually-triggered run spends from the reserved manual pool, not
+      // the automatic one -- so pressing "Sync now" or importing a new
+      // account can never be starved by what the scheduled cron already
+      // spent this period, and vice versa.
+      pool: trigger === "manual" ? "manual" : "auto",
+    });
     results.push(result);
 
     if (run?.id) {
@@ -385,6 +418,7 @@ async function syncMeteredAccount(
   account: AccountRow,
   base: Omit<AccountSyncResult, "status">,
   pool: BudgetPool,
+  trigger: "cron" | "manual",
 ): Promise<AccountSyncResult> {
   const provider = providerFor(account.platform_slug)!;
   const ws = account.workspace_id;
@@ -399,11 +433,30 @@ async function syncMeteredAccount(
 
   // 2. Discovery, from its own pool so it can never starve refreshes. Only
   //    attempted when the platform can list posts at all.
-  if (provider.capability.canDiscover) {
-    const want = 12;
+  //
+  //    A cron tick waits out its cooldown before spending on this at all.
+  //    The cadence, not the pool cap, is what protects the month's budget:
+  //    the vendor bills per row returned regardless of whether it turns out
+  //    to be new, so an unthrottled 15-minute cron would ask the same
+  //    account's mostly-unchanged recent posts 96 times a day and burn the
+  //    whole discovery pool before lunch. A manual trigger -- a person
+  //    pressing "Sync now", or an account's first import -- always goes
+  //    through at the fuller size: nobody clicks that 96 times a day, and it
+  //    deserves the real catch-up.
+  if (provider.capability.canDiscover && isDueForDiscovery(trigger, account.last_discovered_at)) {
+    const want = trigger === "manual" ? 12 : AUTO_DISCOVERY_WANT;
     const granted = await claim(db, ws, platform, "discovery", want);
     if (granted > 0) {
       const found = await provider.discover(account.handle, { limit: granted });
+      // An attempt happened -- billed or not -- so the cooldown clock resets
+      // either way. Stamping only on success would mean a vendor outage
+      // makes every subsequent cron tick retry immediately, which is exactly
+      // the unthrottled-spend scenario this exists to prevent.
+      await db
+        .from("accounts")
+        .update({ last_discovered_at: new Date().toISOString() })
+        .eq("id", account.id);
+
       if (!found.ok) {
         // Nothing was returned, so nothing was billed -- hand the claim back
         // rather than letting a vendor outage consume the month's allowance.
