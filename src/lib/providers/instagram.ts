@@ -154,7 +154,23 @@ export function parseShortcode(input: string): string | null {
   return /^[A-Za-z0-9_-]{5,20}$/.test(input.trim()) ? input.trim() : null;
 }
 
+/**
+ * This is a video editing company: a photo post has no video metrics and no
+ * editing work behind it, so it has nothing to score and nothing to bill for.
+ * The actor bills per row RETURNED, and a Sidecar (carousel) commonly mixes
+ * photos into an otherwise video-led post -- neither belongs in a budget
+ * meant entirely for video.
+ */
+export function isVideoType(type: string | undefined): boolean {
+  return type === "Video";
+}
+
+function isVideo(p: ApifyPost): boolean {
+  return isVideoType(p.type);
+}
+
 function toDiscovered(p: ApifyPost): DiscoveredPost | null {
+  if (!isVideo(p)) return null;
   const code = p.shortCode ?? (p.url ? parseShortcode(p.url) : null);
   if (!code) return null;
   return {
@@ -235,14 +251,19 @@ export const instagramProvider: PublicProvider = {
     });
     if (!res.ok) return res;
 
+    // Apify bills for every row it returns, photos included -- that spend
+    // already happened by the time we filter, so the caller needs the raw
+    // count to refund correctly, not the post-filter count.
+    const billedCount = res.data.length;
+
     let posts = res.data
-      .map(toDiscovered)
+      .map(toDiscovered) // drops photos: see isVideo()
       .filter((p): p is DiscoveredPost => p !== null);
 
     if (options.since) {
       posts = posts.filter((p) => p.postedAt != null && p.postedAt >= options.since!);
     }
-    return { ok: true, data: posts };
+    return { ok: true, data: posts, billedCount };
   },
 
   /**

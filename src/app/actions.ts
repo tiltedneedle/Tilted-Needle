@@ -287,6 +287,7 @@ export async function createContentItem(input: {
   });
   if (error) return { error: error.message };
   revalidatePath("/content");
+  revalidatePath("/team");
   return {};
 }
 
@@ -298,6 +299,7 @@ export async function updateContentItem(
   const { error } = await supabase.from("content_items").update(patch).eq("id", id);
   if (error) return { error: error.message };
   revalidatePath("/content");
+  revalidatePath("/team");
   return {};
 }
 
@@ -306,6 +308,7 @@ export async function deleteContentItem(id: string): Promise<Result> {
   const { error } = await supabase.from("content_items").delete().eq("id", id);
   if (error) return { error: error.message };
   revalidatePath("/content");
+  revalidatePath("/team");
   return {};
 }
 
@@ -332,6 +335,7 @@ export async function addPlatformPost(input: {
     return { error: error.message };
   }
   revalidatePath("/content");
+  revalidatePath("/team");
   return {};
 }
 
@@ -343,6 +347,7 @@ export async function updatePlatformPost(
   const { error } = await supabase.from("platform_posts").update(patch).eq("id", id);
   if (error) return { error: error.message };
   revalidatePath("/content");
+  revalidatePath("/team");
   return {};
 }
 
@@ -351,6 +356,7 @@ export async function deletePlatformPost(id: string): Promise<Result> {
   const { error } = await supabase.from("platform_posts").delete().eq("id", id);
   if (error) return { error: error.message };
   revalidatePath("/content");
+  revalidatePath("/team");
   return {};
 }
 
@@ -380,6 +386,7 @@ export async function recordSnapshot(input: {
   });
   if (error) return { error: error.message };
   revalidatePath("/content");
+  revalidatePath("/team");
   return {};
 }
 
@@ -402,6 +409,7 @@ export async function assignRole(input: {
     return { error: error.message };
   }
   revalidatePath("/content");
+  revalidatePath("/team");
   return {};
 }
 
@@ -410,6 +418,7 @@ export async function unassignRole(id: string): Promise<Result> {
   const { error } = await supabase.from("content_assignments").delete().eq("id", id);
   if (error) return { error: error.message };
   revalidatePath("/content");
+  revalidatePath("/team");
   return {};
 }
 
@@ -1377,6 +1386,7 @@ export async function commitImportBatch(batchId: string): Promise<Result & { ins
   if (error) return { error: error.message };
   revalidatePath("/import");
   revalidatePath("/content");
+  revalidatePath("/team");
   revalidatePath("/timesheet");
   return { inserted: data ?? 0 };
 }
@@ -1449,6 +1459,7 @@ export async function syncNow(
 
     revalidatePath("/accounts");
     revalidatePath("/content");
+    revalidatePath("/team");
 
     if (failed.length > 0) {
       return { error: failed.map((f) => `${f.handle}: ${f.error}`).join("; ") };
@@ -1549,6 +1560,7 @@ export async function addVerifiedAccount(input: {
     });
 
     revalidatePath("/content");
+    revalidatePath("/team");
 
     if (!result || result.status === "skipped") {
       return {
@@ -1606,6 +1618,7 @@ export async function updateSyncWindow(
     });
     revalidatePath("/accounts");
     revalidatePath("/content");
+    revalidatePath("/team");
     if (result?.status === "error") return { error: result.error };
     return {
       summary: `Window updated — ${result?.postsCreated ?? 0} new video${
@@ -1707,6 +1720,7 @@ export async function scrapePostNow(
 
   const s = metered ? await status(db, post.workspace_id, platform) : null;
   revalidatePath("/content");
+  revalidatePath("/team");
 
   return {
     summary: `Updated — ${m.views?.toLocaleString() ?? "—"} views, ${m.likes?.toLocaleString() ?? "—"} likes.`,

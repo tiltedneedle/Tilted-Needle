@@ -87,7 +87,20 @@ export type DiscoverOptions = {
 };
 
 export type ProviderResult<T> =
-  | { ok: true; data: T }
+  | {
+      ok: true;
+      data: T;
+      /**
+       * How many rows the vendor actually billed for, when that can differ
+       * from data.length -- e.g. Instagram discovery is billed per row the
+       * actor returns, but rows that turn out to be photos are then dropped
+       * client-side, so data.length alone would understate spend and the
+       * budget refund would hand back credit that was never really unspent.
+       * Omitted (falls back to data.length) for providers where the two
+       * never diverge.
+       */
+      billedCount?: number;
+    }
   | { ok: false; error: string };
 
 export interface PublicProvider {

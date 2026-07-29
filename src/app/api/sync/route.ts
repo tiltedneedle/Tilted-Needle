@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { runSync, serviceClient } from "@/lib/syncRunner";
 
 /**
@@ -40,6 +41,17 @@ export async function GET(req: Request) {
     const db = serviceClient();
     const started = Date.now();
     const results = await runSync(db, { workspaceId, trigger: "cron" });
+
+    // The pages themselves are dynamically rendered (session-based) and
+    // always hit the database fresh, so this is not what keeps data
+    // correct -- it is what keeps a browser tab already sitting on /content
+    // or /team from serving a client-side Router Cache entry captured
+    // before this run wrote anything.
+    if (results.some((r) => r.status === "ok")) {
+      revalidatePath("/content");
+      revalidatePath("/team");
+      revalidatePath("/accounts");
+    }
 
     return NextResponse.json({
       ok: true,

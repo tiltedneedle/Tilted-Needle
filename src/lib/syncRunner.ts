@@ -410,8 +410,12 @@ async function syncMeteredAccount(
         await refund(db, ws, platform, "discovery", granted);
       } else {
         postsSeen = found.data.length;
-        if (found.data.length < granted) {
-          await refund(db, ws, platform, "discovery", granted - found.data.length);
+        // Refund against what was actually billed, not what survived
+        // filtering -- a vendor that bills per row returned has already
+        // charged for every photo this provider then dropped client-side.
+        const billed = found.billedCount ?? found.data.length;
+        if (billed < granted) {
+          await refund(db, ws, platform, "discovery", granted - billed);
         }
 
         const { data: existingRows } = await db

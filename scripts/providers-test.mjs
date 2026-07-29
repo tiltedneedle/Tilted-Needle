@@ -174,3 +174,73 @@ const ref = (s) => Y.parseChannelRef(s);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
+
+/* -- Instagram: video-only filtering, at zero real cost -------------------
+   fetch is mocked so this exercises the real discover() code path -- the
+   billedCount arithmetic and the photo-drop -- without spending any actual
+   Apify credit. */
+{
+  const IG = await import("../src/lib/providers/instagram.ts");
+
+  check("isVideoType accepts Video", IG.isVideoType("Video") === true);
+  check("isVideoType rejects Image", IG.isVideoType("Image") === false);
+  check("isVideoType rejects Sidecar (mixed carousels)", IG.isVideoType("Sidecar") === false);
+  check("isVideoType rejects undefined", IG.isVideoType(undefined) === false);
+
+  const realFetch = globalThis.fetch;
+  process.env.APIFY_TOKEN = "test-token";
+
+  // Shaped exactly like the real actor response captured against @nasa,
+  // with two more rows added so photos and videos are mixed together --
+  // this is the case that matters, since a real profile is rarely all one
+  // type.
+  const mixedRows = [
+    { type: "Image", shortCode: "photo1", url: "https://www.instagram.com/p/photo1/",
+      caption: "a photo", timestamp: "2026-07-01T00:00:00.000Z", likesCount: 10, commentsCount: 1 },
+    { type: "Video", shortCode: "vid1", url: "https://www.instagram.com/p/vid1/",
+      caption: "a reel", timestamp: "2026-07-02T00:00:00.000Z", likesCount: 20, commentsCount: 2,
+      videoPlayCount: 500, videoDuration: 30 },
+    { type: "Sidecar", shortCode: "carousel1", url: "https://www.instagram.com/p/carousel1/",
+      caption: "a carousel", timestamp: "2026-07-03T00:00:00.000Z", likesCount: 30, commentsCount: 3 },
+    { type: "Video", shortCode: "vid2", url: "https://www.instagram.com/p/vid2/",
+      caption: "another reel", timestamp: "2026-06-01T00:00:00.000Z", likesCount: 40, commentsCount: 4,
+      videoPlayCount: 900, videoDuration: 45 },
+  ];
+
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify(mixedRows), { status: 201 });
+
+  const disc = await IG.instagramProvider.discover("@nasa", { limit: 4 });
+  check("discover succeeds against the mocked response", disc.ok === true);
+  if (disc.ok) {
+    check("photos and carousels are dropped, only videos remain",
+      disc.data.length === 2 && disc.data.every((p) => p.externalId.startsWith("vid")),
+      JSON.stringify(disc.data.map((p) => p.externalId)));
+    check("billedCount reflects every row Apify actually returned, not the filtered count",
+      disc.billedCount === 4, `got ${disc.billedCount}`);
+    check("a video's duration and views survive the mapping",
+      disc.data.find((p) => p.externalId === "vid1")?.lengthSeconds === 30);
+  }
+
+  // The since-cutoff must not affect what was billed, only what is kept.
+  const discSince = await IG.instagramProvider.discover("@nasa", { limit: 4, since: "2026-07-01" });
+  if (discSince.ok) {
+    check("a since-date filter narrows results but not the billed count",
+      discSince.data.length === 1 && discSince.billedCount === 4,
+      `data=${discSince.data.length} billed=${discSince.billedCount}`);
+  }
+
+  // An all-photo profile must not read as an error -- it is a true, empty
+  // result, and the caller (refund logic) needs billedCount === 4 even
+  // though zero videos came back.
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify(mixedRows.map((r) => ({ ...r, type: "Image" }))), { status: 201 });
+  const allPhotos = await IG.instagramProvider.discover("@nasa", { limit: 4 });
+  check("an all-photo account returns zero videos, not an error",
+    allPhotos.ok === true && allPhotos.ok && allPhotos.data.length === 0);
+  check("but still reports the full billed count, so nothing is refunded twice",
+    allPhotos.ok && allPhotos.billedCount === 4);
+
+  globalThis.fetch = realFetch;
+  delete process.env.APIFY_TOKEN;
+}
