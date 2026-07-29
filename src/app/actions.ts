@@ -251,11 +251,16 @@ export async function createAccount(input: {
   handle: string;
 }): Promise<Result> {
   const supabase = await createClient();
+  // Stored bare, never with a leading "@" -- every provider's own parsing
+  // already strips it (see e.g. tiktok.ts parseHandle), and every place a
+  // handle is displayed prefixes its own "@". A handle saved with one
+  // already in it renders as "@@handle" wherever it is shown.
+  const handle = input.handle.trim().replace(/^@/, "");
   const { error } = await supabase.from("accounts").insert({
     workspace_id: input.workspaceId,
     client_id: input.clientId,
     platform_slug: input.platformSlug,
-    handle: input.handle.trim(),
+    handle,
   });
   if (error) {
     if (error.code === "23505")

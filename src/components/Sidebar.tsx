@@ -19,7 +19,9 @@ const CLIENT_NAV = [
 ];
 
 /**
- * The two dashboards lead, because they are what the tool is for. Everything
+ * The three dashboards lead, because they are what the tool is for. Content
+ * and People each answer one question across everything; Clients drills the
+ * other way, from one client down to one channel's own chart. Everything
  * below them is the supporting machinery that feeds them.
  */
 const NAV = [
@@ -28,6 +30,7 @@ const NAV = [
     items: [
       { href: "/content", label: "Content", icon: PlayIcon },
       { href: "/team", label: "People", icon: TrophyIcon },
+      { href: "/clients", label: "Clients", icon: BriefcaseIcon },
     ],
   },
   {
@@ -59,7 +62,6 @@ const NAV = [
     items: [
       { href: "/accounts", label: "Accounts", icon: ShareIcon },
       { href: "/projects", label: "Projects", icon: FolderIcon },
-      { href: "/clients", label: "Clients", icon: BriefcaseIcon },
       { href: "/tags", label: "Tags", icon: TagIcon },
       { href: "/kiosks", label: "Kiosks", icon: KioskIcon },
     ],
