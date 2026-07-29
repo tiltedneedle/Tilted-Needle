@@ -1,6 +1,3 @@
-"use client";
-
-import { useState } from "react";
 import { embedFor } from "@/lib/videoEmbed";
 
 /**
@@ -17,10 +14,6 @@ import { embedFor } from "@/lib/videoEmbed";
  *              to also be a complete, playable embed player.
  *   Instagram  {post-url}/embed/ -- Instagram's own embed convention for
  *              any public post or reel URL.
- *
- * Deliberately not auto-loaded: an iframe is not shown until someone clicks
- * play, so opening a video's page never silently pulls in a platform's own
- * tracking scripts for a video nobody asked to watch.
  */
 export default function VideoEmbed({
   platformSlug,
@@ -31,21 +24,9 @@ export default function VideoEmbed({
   url: string | null;
   externalId: string | null;
 }) {
-  const [playing, setPlaying] = useState(false);
   const embed = embedFor(platformSlug, url, externalId);
 
   if (!embed) return null;
-
-  if (!playing) {
-    return (
-      <button
-        className="btn mt-2 w-full justify-center gap-1.5 py-2 text-xs"
-        onClick={() => setPlaying(true)}
-      >
-        <PlayIcon /> Play
-      </button>
-    );
-  }
 
   return (
     <div
@@ -61,13 +42,5 @@ export default function VideoEmbed({
         referrerPolicy="strict-origin-when-cross-origin"
       />
     </div>
-  );
-}
-
-function PlayIcon() {
-  return (
-    <svg width={12} height={12} viewBox="0 0 24 24" fill="currentColor">
-      <path d="M8 5v14l11-7z" />
-    </svg>
   );
 }
