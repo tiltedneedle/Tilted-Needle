@@ -16,6 +16,7 @@ import {
 } from "@/app/actions";
 import { formatDurationShort, parseDuration } from "@/lib/format";
 import { asMultiplier, tierFor, TIER_LABELS, type Tier } from "@/lib/scoring";
+import VideoEmbed from "@/components/VideoEmbed";
 import { PLATFORM_COLORS, one } from "@/lib/types";
 import type {
   Account,
@@ -542,6 +543,8 @@ export default function ContentDetail({
                   )}
                 </div>
               )}
+
+              <VideoEmbed platformSlug={slug} url={p.url} externalId={p.external_id} />
 
               {showHistory === p.id && <SnapshotHistory rows={forPost} />}
 

@@ -327,7 +327,7 @@ async function loadVideoView(supabase: any, ws: string, id: string) {
     supabase
       .from("platform_posts")
       .select(
-        `id, workspace_id, content_item_id, account_id, url, posted_at, source,
+        `id, workspace_id, content_item_id, account_id, url, external_id, posted_at, source,
          is_best_performing, comment_sentiment,
          account:accounts(id, platform_slug, handle, connection_mode),
          metrics:post_current_metrics(views, likes, comments, shares, saves, reach, captured_at)`,

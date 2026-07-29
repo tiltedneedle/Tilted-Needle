@@ -127,6 +127,11 @@ export type PlatformPost = {
   content_item_id: string;
   account_id: string;
   url: string | null;
+  /** The platform's own id for this post -- a YouTube video id, a TikTok
+      numeric id. Populated for anything discovered automatically; null for
+      a manual post nobody has attached a URL to. Used to build the free
+      official embed player (see VideoEmbed.tsx) without re-parsing url. */
+  external_id: string | null;
   posted_at: string | null;
   source: string;
   is_best_performing: boolean;
