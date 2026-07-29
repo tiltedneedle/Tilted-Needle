@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import PageHeader from "@/components/PageHeader";
+import ClientActiveToggle from "@/components/ClientActiveToggle";
 import { Empty } from "@/components/Stat";
 import { PlatformChips } from "@/components/PlatformReach";
-import { PLATFORM_COLORS } from "@/lib/types";
+import { PLATFORM_COLORS, canManage } from "@/lib/types";
 import { createClient } from "@/lib/supabase/server";
 import { requireSession } from "@/lib/workspace";
 import { loadClientChannels } from "@/lib/channelDashboard";
@@ -39,6 +40,9 @@ export default async function ClientChannelsPage({
         ← Clients
       </Link>
       <PageHeader title={data.client.name} subtitle="Channels for this client. Open one for its own dashboard.">
+        {canManage(session.active.role) && (
+          <ClientActiveToggle clientId={id} isActive={!data.client.isArchived} size="md" />
+        )}
         <Link
           href={`/accounts?client=${id}`}
           className="rounded px-2 py-1 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--fg)]"

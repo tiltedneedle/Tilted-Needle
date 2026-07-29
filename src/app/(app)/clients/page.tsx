@@ -1,6 +1,7 @@
 import Link from "next/link";
 import PageHeader from "@/components/PageHeader";
 import NewClientForm from "@/components/NewClientForm";
+import ClientActiveToggle from "@/components/ClientActiveToggle";
 import { Empty } from "@/components/Stat";
 import { PLATFORM_COLORS } from "@/lib/types";
 import { createClient } from "@/lib/supabase/server";
@@ -61,7 +62,7 @@ export default async function ClientsPage() {
       {canManage(session.active.role) && <NewClientForm workspaceId={ws} />}
 
       {active.length === 0 ? (
-        <Empty>No clients yet. Add one above.</Empty>
+        <Empty>No active clients. Check below if one should be reactivated.</Empty>
       ) : (
         <div className="grid gap-2.5 sm:grid-cols-2">
           {active.map((c) => (
@@ -90,24 +91,30 @@ export default async function ClientsPage() {
                   )}
                 </div>
               </div>
+              {canManage(session.active.role) && (
+                <ClientActiveToggle clientId={c.id} isActive={!c.is_archived} />
+              )}
             </Link>
           ))}
         </div>
       )}
 
       {archived.length > 0 && (
-        <details className="mt-6">
+        <details className="mt-6" open={active.length === 0}>
           <summary className="cursor-pointer text-xs text-[var(--muted)]">
-            {archived.length} archived client{archived.length === 1 ? "" : "s"}
+            {archived.length} inactive client{archived.length === 1 ? "" : "s"}
           </summary>
           <div className="mt-2 grid gap-2 sm:grid-cols-2">
             {archived.map((c) => (
               <Link
                 key={c.id}
                 href={`/clients/${c.id}`}
-                className="card flex items-center p-3 text-sm text-[var(--muted)] line-through opacity-70 transition-colors hover:bg-[var(--bg-subtle)]"
+                className="card flex items-center gap-3 p-3 text-sm text-[var(--muted)] transition-colors hover:bg-[var(--bg-subtle)]"
               >
-                {c.name}
+                <span className="min-w-0 flex-1 truncate">{c.name}</span>
+                {canManage(session.active.role) && (
+                  <ClientActiveToggle clientId={c.id} isActive={!c.is_archived} />
+                )}
               </Link>
             ))}
           </div>
