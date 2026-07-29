@@ -4,6 +4,7 @@ import PersonDetail, { type CreditedItem } from "@/components/PersonDetail";
 import TeamManager from "@/components/TeamManager";
 import FilterBar from "@/components/FilterBar";
 import { Stat, StatGrid, SectionHeading } from "@/components/Stat";
+import { Users, Award, Clock, Gauge } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { requireSession } from "@/lib/workspace";
 import { canManage, one } from "@/lib/types";
@@ -181,6 +182,8 @@ export default async function TeamPage({
 
       <StatGrid>
         <Stat
+          hero
+          icon={Users}
           label="People"
           value={String(t.people)}
           hint={
@@ -192,13 +195,15 @@ export default async function TeamPage({
           }
           accent={narrowed}
         />
-        <Stat label="Credited" value={String(t.credited)} hint="on at least one video" />
+        <Stat icon={Award} label="Credited" value={String(t.credited)} hint="on at least one video" />
         <Stat
+          icon={Clock}
           label="Hours tracked"
           value={t.trackedSeconds ? formatDurationShort(t.trackedSeconds) : "—"}
           hint={narrowed ? "these people, all time" : "all time, whole team"}
         />
         <Stat
+          icon={Gauge}
           label="This week"
           value={weekHours ? `${weekHours.toFixed(1)}h` : "—"}
           hint={

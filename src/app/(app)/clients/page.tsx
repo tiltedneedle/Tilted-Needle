@@ -69,7 +69,7 @@ export default async function ClientsPage() {
             <Link
               key={c.id}
               href={`/clients/${c.id}`}
-              className="card animate-rise flex items-center gap-3 p-3.5 transition-colors hover:bg-[var(--bg-subtle)]"
+              className="card card-interactive animate-rise flex items-center gap-3 p-4 transition-colors hover:bg-[var(--bg-subtle)]"
             >
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-medium">{c.name}</div>

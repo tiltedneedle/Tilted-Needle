@@ -1,4 +1,6 @@
-import type { ReactNode } from "react";
+import type { ComponentType, ReactNode } from "react";
+
+type IconType = ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
 
 /**
  * The headline figures at the top of each dashboard. A stat is allowed a hint
@@ -7,7 +9,7 @@ import type { ReactNode } from "react";
  */
 export function StatGrid({ children }: { children: ReactNode }) {
   return (
-    <div className="mb-5 grid grid-cols-2 gap-2.5 sm:grid-cols-4">{children}</div>
+    <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">{children}</div>
   );
 }
 
@@ -16,23 +18,53 @@ export function Stat({
   value,
   hint,
   accent = false,
+  icon: Icon,
+  hero = false,
 }: {
   label: string;
   value: string;
   hint?: string;
   accent?: boolean;
+  /** An optional glyph in the corner -- purely decorative, no new data. */
+  icon?: IconType;
+  /** The one dark, glowing tile per dashboard -- reserve for the headline number. */
+  hero?: boolean;
 }) {
   return (
     <div
-      className={`card animate-rise p-3 transition-colors ${
-        accent ? "border-[var(--accent)]/40" : ""
-      }`}
+      className={`animate-rise relative p-4 transition-colors ${
+        hero ? "card-hero" : "card"
+      } ${accent && !hero ? "border-[var(--accent)]/40" : ""}`}
     >
-      <div className="text-[11px] font-medium uppercase tracking-wide text-[var(--muted)]">
-        {label}
+      <div className="flex items-start justify-between gap-2">
+        <div
+          className="text-[11px] font-medium uppercase tracking-wide"
+          style={{ color: hero ? "rgb(255 255 255 / 0.6)" : "var(--muted)" }}
+        >
+          {label}
+        </div>
+        {Icon && (
+          <Icon
+            size={16}
+            strokeWidth={1.8}
+            className={hero ? "text-white/50" : "text-[var(--muted)]"}
+          />
+        )}
       </div>
-      <div className="tabular mt-1 text-2xl font-semibold leading-none">{value}</div>
-      {hint && <div className="mt-1.5 text-xs text-[var(--muted)]">{hint}</div>}
+      <div
+        className="tabular relative mt-1.5 text-2xl font-semibold leading-none"
+        style={{ color: hero ? "var(--white)" : "var(--fg)" }}
+      >
+        {value}
+      </div>
+      {hint && (
+        <div
+          className="relative mt-1.5 text-xs"
+          style={{ color: hero ? "rgb(255 255 255 / 0.55)" : "var(--muted)" }}
+        >
+          {hint}
+        </div>
+      )}
     </div>
   );
 }

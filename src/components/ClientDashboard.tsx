@@ -188,9 +188,11 @@ export default function ClientDashboard({
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="card p-3">
-      <div className="text-xs text-[var(--muted)]">{label}</div>
-      <div className="tabular mt-0.5 text-xl font-semibold">{value}</div>
+    <div className="card p-4">
+      <div className="text-[11px] font-medium uppercase tracking-wide text-[var(--muted)]">
+        {label}
+      </div>
+      <div className="tabular mt-1.5 text-2xl font-semibold leading-none">{value}</div>
     </div>
   );
 }

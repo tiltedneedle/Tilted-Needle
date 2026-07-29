@@ -6,6 +6,7 @@ import ClientDetail from "@/components/ClientDetail";
 import FilterBar from "@/components/FilterBar";
 import PlatformReach from "@/components/PlatformReach";
 import { Stat, StatGrid, SectionHeading } from "@/components/Stat";
+import { Clapperboard, Layers, TrendingUp, Timer } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { requireSession } from "@/lib/workspace";
 import { one } from "@/lib/types";
@@ -257,12 +258,15 @@ export default async function ContentPage({
 
       <StatGrid>
         <Stat
+          hero
+          icon={Clapperboard}
           label="Videos"
           value={String(t.videos)}
           hint={t.unpublished ? `${t.unpublished} not posted yet` : "all posted"}
         />
-        <Stat label="Posts" value={String(t.posts)} hint="across all platforms" />
+        <Stat icon={Layers} label="Posts" value={String(t.posts)} hint="across all platforms" />
         <Stat
+          icon={TrendingUp}
           label="Still growing"
           value={gained ? `+${gained.toLocaleString()}` : "—"}
           hint={
@@ -273,6 +277,7 @@ export default async function ContentPage({
           accent={gained > 0}
         />
         <Stat
+          icon={Timer}
           label="Time invested"
           value={t.trackedSeconds ? formatDurationShort(t.trackedSeconds) : "—"}
           hint="tracked against content"
