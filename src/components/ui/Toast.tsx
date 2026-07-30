@@ -47,7 +47,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         {items.map((t) => (
           <div
             key={t.id}
-            className="animate-rise pointer-events-auto flex w-72 items-start gap-3 overflow-hidden bg-[var(--panel)] p-3 pl-4 text-sm"
+            className="animate-rise pointer-events-auto flex w-72 items-start gap-3 overflow-hidden bg-[var(--bg-elevated)] p-3 pl-4 text-sm"
             style={{
               borderRadius: "var(--radius-sm)",
               boxShadow: "var(--shadow-card-hover)",

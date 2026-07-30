@@ -12,11 +12,13 @@
    changes required. New tokens (warning/info, the tint pairs, the charcoal
    scale, the radius/shadow scale) are additions, not renames.
 
-   Single theme, no dark-mode toggle: the old build had a data-theme="dark"
-   override, but this spec defines exactly one theme with exact hex values
-   and explicitly forbids inventing extra colours -- faking a second, dark
-   variant would mean inventing shades nobody specified. Sidebar/hero-card
-   darkness is a fixed design choice below, not a theme mode. --------------- */
+   Dark mode lives entirely in the [data-theme="dark"] block below, as
+   overrides of these same variable names -- no component was restyled for
+   it. Three variables (--sidebar-bg, --input-bg, --bg-elevated) were added
+   because their light-mode value differs from their dark-mode value in a
+   way no existing alias captures (the sidebar is already dark charcoal in
+   light mode, but must go one shade darker still in dark mode); each
+   defaults to whatever already renders today, so light mode is untouched. */
 :root {
   /* Charcoal scale -- primary text, and the sidebar/hero dark surfaces */
   --charcoal-900: #1b2431;
@@ -62,6 +64,18 @@
   --warning: var(--warning-500);
   --info: var(--info-500);
 
+  /* Elevation tier beyond --panel, for surfaces that float above a card
+     (modals, dropdowns) or a table row's hover -- identical to --panel in
+     light mode today, so introducing it changes nothing here. */
+  --bg-elevated: var(--panel);
+  /* The sidebar is already the dark charcoal surface in light mode; only
+     dark mode pushes it one shade darker still, so it can't just inherit
+     --charcoal-900 the way it used to. */
+  --sidebar-bg: var(--charcoal-900);
+  /* Inputs sit flush with --panel today; dark mode gives them a recessed
+     "well" look one shade darker than the card they sit in. */
+  --input-bg: var(--panel);
+
   /* Radius scale: nothing sharp-cornered anywhere */
   --radius-sm: 12px; /* buttons, inputs */
   --radius-md: 20px; /* cards */
@@ -85,6 +99,14 @@
   --color-accent: var(--accent);
 }
 
+/* Native controls (scrollbars, date pickers, autofill) render dark too. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
 html,
 body {
   height: 100%;
@@ -96,13 +118,17 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   font-size: 14px;
+  transition: background-color var(--dur-base) var(--ease), color var(--dur-base) var(--ease);
 }
 
 h1,
 h2,
 h3 {
   font-weight: 700;
-  color: var(--charcoal-900);
+  /* Was a hardcoded var(--charcoal-900) -- fine while there was only one
+     theme, but that stays dark-on-dark once dark mode exists. Routed
+     through --fg instead: identical value in light mode, correct in dark. */
+  color: var(--fg);
   letter-spacing: -0.01em;
 }
 
@@ -189,7 +215,7 @@ h3 {
 .input {
   width: 100%;
   min-height: 44px;
-  background: var(--panel);
+  background: var(--input-bg);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 0.5rem 0.85rem;
@@ -329,7 +355,10 @@ h3 {
   box-shadow: var(--shadow-card-hover);
 }
 
-/* The one dark surface pattern besides the sidebar: a "hero" KPI card. */
+/* The one dark surface pattern besides the sidebar: a "hero" KPI card. In
+   dark mode the trick inverts -- the page is already dark charcoal, so this
+   card becomes the one that pops coral instead (see the dark override
+   below). */
 .card-hero {
   background: var(--charcoal-900);
   border: 1px solid var(--charcoal-800);
@@ -425,4 +454,77 @@ h3 {
   border-radius: 6px;
   border: 3px solid transparent;
   background-clip: content-box;
+}
+
+/* ---------------------------------------------------------------------------
+   Dark mode. Charcoal becomes the canvas rather than the accent surface;
+   coral brightens slightly and glows harder against it. Every line below is
+   an override of a variable name already declared above -- no component was
+   restyled to get here. --charcoal-900/-800/-400 and --white are
+   deliberately absent: they're used only by the sidebar and the hero card's
+   text, both of which are "always a dark surface" chrome in either theme
+   (the sidebar just goes one shade darker, via --sidebar-bg, and the hero
+   card's white text works equally well on the coral it becomes below).
+
+   Applied via [data-theme="dark"] on <html>, set before first paint by the
+   inline script in layout.tsx -- see ThemeScript -- so there is no flash of
+   the wrong theme. CSS transitions do not fire on an element's first
+   computed style, only on a later change, so no extra work was needed to
+   suppress a transition on initial load; the crossfade on body (added
+   above) only ever plays when a real toggle happens afterward, and already
+   inherits the site-wide prefers-reduced-motion rule. --------------------- */
+:root[data-theme="dark"] {
+  --coral-500: #f57c57;
+  --coral-400: #f79375;
+  --coral-100: #3a2a26;
+
+  --success-500: #3fb57f;
+  --success-100: #16302a;
+  --warning-500: #edb25a;
+  --warning-100: #33291a;
+  --danger-500: #e96a6a;
+  --danger-100: #331d20;
+  --info-500: #6b93f2;
+  --info-100: #1c2740;
+
+  --bg: #131a24;
+  /* Same value as --bg-elevated: on a dark card, a chip or a hovered row
+     needs to read as "one step lighter," not "identical to the card." */
+  --bg-subtle: #232e3f;
+  --panel: #1b2431;
+  --bg-elevated: #232e3f;
+  --sidebar-bg: #0e141c;
+  --input-bg: #0e141c;
+  --border: #2c3949;
+  --border-strong: #3e4c61;
+  --fg: #f2f4f7;
+  --muted: #a9b4c4;
+  --accent-fg: #f2f4f7;
+
+  --shadow-card: 0 1px 3px rgb(0 0 0 / 0.4);
+  --shadow-card-hover: 0 8px 24px rgb(0 0 0 / 0.4);
+  --shadow-coral: 0 4px 16px rgb(245 124 87 / 0.35);
+}
+
+:root[data-theme="dark"] .card-hero {
+  /* Inverted from light mode: the page is already dark charcoal there, so
+     in dark mode this becomes the one card that pops coral instead. */
+  background: linear-gradient(135deg, var(--coral-500), #e05a38);
+  border-color: transparent;
+}
+:root[data-theme="dark"] .card-hero::after {
+  /* The card is already coral -- a coral glow on top of coral reads muddy,
+     so this becomes a soft light sheen instead of the light-mode glow. */
+  background: radial-gradient(120px 120px at 100% 0%, rgb(255 255 255 / 0.14), transparent 70%);
+}
+:root[data-theme="dark"] .btn-primary:focus-visible {
+  /* Was var(--charcoal-900) in the base rule above -- a dark outline is
+     invisible on a dark page. */
+  outline-color: var(--fg);
+}
+:root[data-theme="dark"] .input:focus {
+  box-shadow: 0 0 0 3px rgb(245 124 87 / 0.25);
+}
+:root[data-theme="dark"] ::selection {
+  background: rgb(245 124 87 / 0.35);
 }

@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import type { ComponentType } from "react";
 import { switchWorkspace, signOut } from "@/app/actions";
+import ThemeToggle from "@/components/ui/ThemeToggle";
 import type { WorkspaceSummary } from "@/lib/workspace";
 
 type IconType = ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
@@ -115,7 +116,7 @@ export default function Sidebar({
   return (
     <aside
       className="flex h-dvh w-60 shrink-0 flex-col"
-      style={{ background: "var(--charcoal-900)", color: "var(--white)" }}
+      style={{ background: "var(--sidebar-bg)", color: "var(--white)" }}
     >
       {/* Workspace switcher: the team runs several workspaces, so this is a
           high-frequency control, not a settings-page afterthought (PRD 7.1). */}
@@ -232,6 +233,15 @@ export default function Sidebar({
       </nav>
 
       <div className="p-3" style={{ borderTop: "1px solid rgb(255 255 255 / 0.08)" }}>
+        <div className="mb-2 flex items-center justify-between px-2">
+          <span
+            className="text-[11px] font-medium uppercase tracking-wide"
+            style={{ color: "var(--charcoal-400)" }}
+          >
+            Theme
+          </span>
+          <ThemeToggle />
+        </div>
         <div className="flex items-center gap-2.5 rounded-[var(--radius-sm)] px-2 py-2">
           <span
             className="grid size-8 shrink-0 place-items-center rounded-full text-xs font-semibold"

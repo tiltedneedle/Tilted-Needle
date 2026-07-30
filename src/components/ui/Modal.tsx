@@ -40,7 +40,7 @@ export default function Modal({
       role="presentation"
     >
       <div
-        className="animate-pop w-full max-w-md bg-[var(--panel)] p-6"
+        className="animate-pop w-full max-w-md bg-[var(--bg-elevated)] p-6"
         style={{ borderRadius: "var(--radius-modal)", boxShadow: "var(--shadow-card-hover)" }}
         role="dialog"
         aria-modal="true"

@@ -49,7 +49,7 @@ export default function Table<T>({
               <tr
                 key={rowKey(row)}
                 onClick={onRowClick ? () => onRowClick(row) : undefined}
-                className={`h-14 border-b border-[var(--border)] transition-colors last:border-0 hover:bg-[var(--bg-subtle)] ${
+                className={`h-14 border-b border-[var(--border)] transition-colors last:border-0 hover:bg-[var(--bg-elevated)] ${
                   onRowClick ? "cursor-pointer" : ""
                 }`}
               >

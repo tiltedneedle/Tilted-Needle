@@ -146,7 +146,7 @@ export default function TimerBar({
             onClick={onStop}
             disabled={busy}
             className="btn-primary min-w-[84px]"
-            style={{ background: "var(--danger)", color: "#fff" }}
+            style={{ background: "var(--danger)", color: "var(--accent-fg)" }}
           >
             Stop
           </button>
