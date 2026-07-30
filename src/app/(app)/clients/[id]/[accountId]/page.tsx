@@ -4,6 +4,7 @@ import PageHeader from "@/components/PageHeader";
 import LineChart from "@/components/LineChart";
 import { Stat, StatGrid, SectionHeading, Empty } from "@/components/Stat";
 import VideoTile from "@/components/VideoTile";
+import LoadMoreList from "@/components/LoadMoreList";
 import { canManage, PLATFORM_COLORS } from "@/lib/types";
 import { createClient } from "@/lib/supabase/server";
 import { requireSession } from "@/lib/workspace";
@@ -111,8 +112,9 @@ export default async function ChannelDashboardPage({
         {videos.length === 0 ? (
           <Empty>No videos tracked on this channel yet.</Empty>
         ) : (
-          <div className="card divide-y divide-[var(--border)] overflow-hidden">
-            {videos.map((v) => (
+          <LoadMoreList
+            className="card divide-y divide-[var(--border)] overflow-hidden"
+            items={videos.map((v) => (
               <VideoTile
                 key={v.postId}
                 href={`/content?video=${v.id}`}
@@ -139,7 +141,7 @@ export default async function ChannelDashboardPage({
                 }}
               />
             ))}
-          </div>
+          />
         )}
       </section>
     </div>

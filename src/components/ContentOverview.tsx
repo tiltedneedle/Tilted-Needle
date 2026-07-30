@@ -7,6 +7,7 @@ import { engagementRate } from "@/lib/rollup";
 import { datedName, downloadCsv, toCsv } from "@/lib/exportCsv";
 import { PlatformChips } from "@/components/PlatformReach";
 import VideoTile, { type TileMember, type TileRole } from "@/components/VideoTile";
+import LoadMoreList from "@/components/LoadMoreList";
 import { Empty, SectionHeading } from "@/components/Stat";
 import type { ClientSummary, VideoSummary } from "@/lib/dashboards";
 
@@ -249,8 +250,10 @@ export default function ContentOverview({
         {rows.length === 0 ? (
           <Empty>No videos match these filters.</Empty>
         ) : (
-          <div className="card divide-y divide-[var(--border)] overflow-hidden">
-            {rows.map((v) => (
+          <LoadMoreList
+            resetKey={sort}
+            className="card divide-y divide-[var(--border)] overflow-hidden"
+            items={rows.map((v) => (
               <VideoTile
                 key={v.id}
                 video={v}
@@ -261,7 +264,7 @@ export default function ContentOverview({
                 canManage={canManage}
               />
             ))}
-          </div>
+          />
         )}
       </section>
     </>

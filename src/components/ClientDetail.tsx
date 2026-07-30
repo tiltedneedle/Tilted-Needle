@@ -4,6 +4,7 @@ import { formatDurationShort } from "@/lib/format";
 import { hoursPerThousandViews } from "@/lib/rollup";
 import PlatformReach from "@/components/PlatformReach";
 import VideoTile, { type TileMember, type TileRole } from "@/components/VideoTile";
+import LoadMoreList from "@/components/LoadMoreList";
 import { Stat, StatGrid, SectionHeading, Empty } from "@/components/Stat";
 import type { ClientSummary, VideoSummary } from "@/lib/dashboards";
 
@@ -98,8 +99,9 @@ export default function ClientDetail({
             title={`In progress (${inProgress.length})`}
             note="Not posted anywhere yet"
           />
-          <div className="card divide-y divide-[var(--border)] overflow-hidden">
-            {inProgress.map((v) => (
+          <LoadMoreList
+            className="card divide-y divide-[var(--border)] overflow-hidden"
+            items={inProgress.map((v) => (
               <VideoTile
                 key={v.id}
                 video={v}
@@ -110,7 +112,7 @@ export default function ClientDetail({
                 canManage={canManage}
               />
             ))}
-          </div>
+          />
         </section>
       )}
 
@@ -119,8 +121,9 @@ export default function ClientDetail({
         {published.length === 0 ? (
           <Empty>Nothing has been published for this client yet.</Empty>
         ) : (
-          <div className="card divide-y divide-[var(--border)] overflow-hidden">
-            {published.map((v) => (
+          <LoadMoreList
+            className="card divide-y divide-[var(--border)] overflow-hidden"
+            items={published.map((v) => (
               <VideoTile
                 key={v.id}
                 video={v}
@@ -131,7 +134,7 @@ export default function ClientDetail({
                 canManage={canManage}
               />
             ))}
-          </div>
+          />
         )}
       </section>
     </>

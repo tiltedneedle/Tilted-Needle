@@ -10,6 +10,7 @@ import VideoTile, {
   type TileMember,
   type TileRole,
 } from "@/components/VideoTile";
+import LoadMoreList from "@/components/LoadMoreList";
 import { Stat, StatGrid, SectionHeading, Empty } from "@/components/Stat";
 import type { PersonSummary } from "@/lib/dashboards";
 
@@ -196,8 +197,9 @@ export default function PersonDetail({
       {ongoing.length > 0 && (
         <section className="mb-7">
           <SectionHeading title={`In progress (${ongoing.length})`} note="Credited but not posted anywhere yet" />
-          <div className="card divide-y divide-[var(--border)] overflow-hidden">
-            {ongoing.map((i) => (
+          <LoadMoreList
+            className="card divide-y divide-[var(--border)] overflow-hidden"
+            items={ongoing.map((i) => (
               <VideoTile
                 key={i.id}
                 href={`/content?video=${i.id}`}
@@ -218,7 +220,7 @@ export default function PersonDetail({
                 }}
               />
             ))}
-          </div>
+          />
         </section>
       )}
 
@@ -236,8 +238,9 @@ export default function PersonDetail({
         {items.length === 0 ? (
           <Empty>Not credited on any content yet.</Empty>
         ) : (
-          <div className="card divide-y divide-[var(--border)] overflow-hidden">
-            {items.map((i) => (
+          <LoadMoreList
+            className="card divide-y divide-[var(--border)] overflow-hidden"
+            items={items.map((i) => (
               <VideoTile
                 key={i.id}
                 href={`/content?video=${i.id}`}
@@ -258,7 +261,7 @@ export default function PersonDetail({
                 }}
               />
             ))}
-          </div>
+          />
         )}
       </section>
     </>
