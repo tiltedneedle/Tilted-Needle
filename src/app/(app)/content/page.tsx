@@ -9,10 +9,10 @@ import { Stat, StatGrid, SectionHeading } from "@/components/Stat";
 import { Clapperboard, Layers, TrendingUp, Timer } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { requireSession } from "@/lib/workspace";
-import { one } from "@/lib/types";
+import { canManage, one } from "@/lib/types";
 import { formatDurationShort } from "@/lib/format";
 import { computeRankings } from "@/lib/performanceData";
-import { loadContentOverview } from "@/lib/dashboards";
+import { loadContentOverview, loadRoles } from "@/lib/dashboards";
 import type {
   Account,
   Client,
@@ -51,8 +51,10 @@ export default async function ContentPage({
   const supabase = await createClient();
   const ws = session.active.id;
 
+  const manages = canManage(session.active.role);
+
   const rankings = await computeRankings(supabase, ws);
-  const [overview, clientsRes, membersRes] = await Promise.all([
+  const [overview, clientsRes, membersRes, workspaceRoles] = await Promise.all([
     loadContentOverview(supabase, ws, rankings, {
       platform: sp.platform ?? null,
       period: sp.period ?? null,
@@ -70,6 +72,7 @@ export default async function ContentPage({
       .select("user_id, profile:profiles(full_name)")
       .eq("workspace_id", ws)
       .eq("is_active", true),
+    loadRoles(supabase, ws),
   ]);
 
   type Member = {
@@ -238,7 +241,14 @@ export default async function ContentPage({
         subtitle="What has been delivered for this client, kept separate by platform."
       >
         {filters}
-        <ClientDetail client={client} videos={mine} />
+        <ClientDetail
+          client={client}
+          videos={mine}
+          workspaceId={ws}
+          roles={workspaceRoles}
+          members={members}
+          canManage={manages}
+        />
       </Shell>
     );
   }
@@ -294,7 +304,14 @@ export default async function ContentPage({
 
       <NewContentForm workspaceId={ws} clients={allClients} />
 
-      <ContentOverview videos={overview.videos} clients={overview.clients} />
+      <ContentOverview
+        videos={overview.videos}
+        clients={overview.clients}
+        workspaceId={ws}
+        roles={workspaceRoles}
+        members={members}
+        canManage={manages}
+      />
     </Shell>
   );
 }

@@ -17,6 +17,7 @@ import {
 import { formatDurationShort, parseDuration } from "@/lib/format";
 import { asMultiplier, tierFor, TIER_LABELS, type Tier } from "@/lib/scoring";
 import VideoEmbed from "@/components/VideoEmbed";
+import Avatar from "@/components/Avatar";
 import { PLATFORM_COLORS, one } from "@/lib/types";
 import type {
   Account,
@@ -605,13 +606,21 @@ export default function ContentDetail({
                   return (
                     <span
                       key={h.id}
-                      className="group/chip flex items-center gap-1.5 rounded bg-[var(--bg-subtle)] px-2 py-0.5 text-xs"
+                      className="group/chip flex items-center gap-1.5 rounded-full bg-[var(--bg-subtle)] py-0.5 pl-0.5 pr-2 text-xs"
                       title={
                         score?.rankable
                           ? `${TIER_LABELS[tier]} in this role`
                           : "Not enough posts yet to rank them in this role"
                       }
                     >
+                      {/* Same colour as this person's circle everywhere else
+                          in the app, so credits stay scannable across views. */}
+                      <Avatar
+                        name={h.profile?.full_name ?? "Unknown"}
+                        seed={h.user_id}
+                        size={20}
+                        title=""
+                      />
                       {/* Into the People dashboard -- the credit panel is the
                           natural jumping-off point between the two. */}
                       <Link

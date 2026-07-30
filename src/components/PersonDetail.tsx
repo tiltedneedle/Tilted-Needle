@@ -5,7 +5,11 @@ import { formatDurationShort } from "@/lib/format";
 import { asMultiplier, tierFor, TIER_LABELS, type Tier } from "@/lib/scoring";
 import { PLATFORM_COLORS } from "@/lib/types";
 import PlatformReach from "@/components/PlatformReach";
-import { PlatformChips } from "@/components/PlatformReach";
+import VideoTile, {
+  type TileCredit,
+  type TileMember,
+  type TileRole,
+} from "@/components/VideoTile";
 import { Stat, StatGrid, SectionHeading, Empty } from "@/components/Stat";
 import type { PersonSummary } from "@/lib/dashboards";
 
@@ -22,10 +26,13 @@ export type CreditedItem = {
   title: string;
   clientName: string | null;
   producedAt: string | null;
+  /** The roles *this* person holds on it, shown inline on their own page. */
   roles: string[];
-  platforms: { platform: string; views: number }[];
+  platforms: { platform: string; views: number; likes: number; comments: number }[];
   trackedSeconds: number;
   isPosted: boolean;
+  /** Everyone credited on it, for the five role circles. */
+  credits: TileCredit[];
 };
 
 /**
@@ -35,9 +42,17 @@ export type CreditedItem = {
 export default function PersonDetail({
   person,
   items,
+  workspaceId,
+  roles,
+  members,
+  canManage = true,
 }: {
   person: PersonSummary;
   items: CreditedItem[];
+  workspaceId: string;
+  roles: TileRole[];
+  members: TileMember[];
+  canManage?: boolean;
 }) {
   const ongoing = items.filter((i) => !i.isPosted);
   const weeklyCapacity = person.capacityHours;
@@ -183,22 +198,25 @@ export default function PersonDetail({
           <SectionHeading title={`In progress (${ongoing.length})`} note="Credited but not posted anywhere yet" />
           <div className="card divide-y divide-[var(--border)] overflow-hidden">
             {ongoing.map((i) => (
-              <Link
+              <VideoTile
                 key={i.id}
                 href={`/content?video=${i.id}`}
-                className="flex items-center gap-3 px-3 py-2 transition-colors hover:bg-[var(--bg-subtle)]"
-              >
-                <span className="size-1.5 shrink-0 rounded-full bg-amber-500" />
-                <span className="min-w-0 flex-1 truncate text-sm">{i.title}</span>
-                <span className="shrink-0 text-xs text-[var(--muted)]">
-                  {i.roles.join(", ")}
-                </span>
-                {i.trackedSeconds > 0 && (
-                  <span className="tabular shrink-0 text-xs text-[var(--muted)]">
-                    {formatDurationShort(i.trackedSeconds)}
-                  </span>
-                )}
-              </Link>
+                workspaceId={workspaceId}
+                roles={roles}
+                members={members}
+                canManage={canManage}
+                video={{
+                  id: i.id,
+                  title: i.title,
+                  clientName: i.clientName,
+                  producedAt: i.producedAt,
+                  trackedSeconds: i.trackedSeconds,
+                  platforms: i.platforms,
+                  postCount: 0,
+                  credits: i.credits,
+                  ownRoles: i.roles,
+                }}
+              />
             ))}
           </div>
         </section>
@@ -220,28 +238,25 @@ export default function PersonDetail({
         ) : (
           <div className="card divide-y divide-[var(--border)] overflow-hidden">
             {items.map((i) => (
-              <Link
+              <VideoTile
                 key={i.id}
                 href={`/content?video=${i.id}`}
-                className="flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-[var(--bg-subtle)]"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm">{i.title}</div>
-                  <div className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-[var(--muted)]">
-                    {i.clientName && <span>{i.clientName}</span>}
-                    {i.producedAt && <span>{i.producedAt}</span>}
-                    {i.roles.length > 0 && <span>{i.roles.join(", ")}</span>}
-                    {i.trackedSeconds > 0 && (
-                      <span className="tabular">
-                        {formatDurationShort(i.trackedSeconds)} tracked
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <div className="shrink-0">
-                  <PlatformChips platforms={i.platforms} />
-                </div>
-              </Link>
+                workspaceId={workspaceId}
+                roles={roles}
+                members={members}
+                canManage={canManage}
+                video={{
+                  id: i.id,
+                  title: i.title,
+                  clientName: i.clientName,
+                  producedAt: i.producedAt,
+                  trackedSeconds: i.trackedSeconds,
+                  platforms: i.platforms,
+                  postCount: i.isPosted ? i.platforms.length : 0,
+                  credits: i.credits,
+                  ownRoles: i.roles,
+                }}
+              />
             ))}
           </div>
         )}

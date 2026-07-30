@@ -17,6 +17,7 @@
  * without a combinatorial explosion of query builders.
  */
 import { one } from "@/lib/types";
+import { selectAll } from "@/lib/selectAll";
 import { totalsByPlatform, type MetricRow, type PlatformTotals } from "@/lib/rollup";
 import type { RankingsResult } from "@/lib/performanceData";
 
@@ -35,6 +36,17 @@ export type VideoSummary = {
   /** Highest boost index across this video's posts, when it has been scored. */
   bestIndex: number | null;
   postCount: number;
+  /**
+   * Who is credited on this video, in which role. Carried on every video the
+   * dashboards list, not just the single-video view, so the five role circles
+   * can render (and be assigned) directly from a tile.
+   */
+  credits: {
+    assignmentId: string;
+    roleSlug: string;
+    userId: string;
+    userName: string;
+  }[];
   /**
    * Views gained between the two most recent snapshots, summed within the
    * filtered platforms, with the interval those snapshots actually span.
@@ -143,35 +155,49 @@ export async function loadContentOverview(
   rankings: RankingsResult,
   filters: ContentFilters = {},
 ): Promise<ContentOverview> {
+  // Anything reading a whole unbounded table pages -- a 1000-row cap would
+  // silently drop videos, posts and hours off the dashboard (see selectAll).
   const [itemsRes, postsRes, timeRes, clientsRes, platformsRes, snapsRes] = await Promise.all([
-    supabase
-      .from("content_items")
-      .select("id, title, produced_at, length_seconds, client_id, client:clients(id, name)")
-      .eq("workspace_id", ws)
-      .order("produced_at", { ascending: false, nullsFirst: false }),
-    supabase
-      .from("platform_posts")
-      .select(
-        "id, content_item_id, account:accounts(platform_slug), metrics:post_current_metrics(views, likes, comments)",
-      )
-      .eq("workspace_id", ws),
-    supabase
-      .from("time_entries")
-      .select("duration_seconds, content_item_id")
-      .eq("workspace_id", ws)
-      .not("content_item_id", "is", null)
-      .not("ended_at", "is", null),
+    selectAll(() =>
+      supabase
+        .from("content_items")
+        .select("id, title, produced_at, length_seconds, client_id, client:clients(id, name)")
+        .eq("workspace_id", ws)
+        .order("produced_at", { ascending: false, nullsFirst: false })
+        .order("id"),
+    ),
+    selectAll(() =>
+      supabase
+        .from("platform_posts")
+        .select(
+          "id, content_item_id, account:accounts(platform_slug), metrics:post_current_metrics(views, likes, comments)",
+        )
+        .eq("workspace_id", ws)
+        .order("id"),
+    ),
+    selectAll(() =>
+      supabase
+        .from("time_entries")
+        .select("id, duration_seconds, content_item_id")
+        .eq("workspace_id", ws)
+        .not("content_item_id", "is", null)
+        .not("ended_at", "is", null)
+        .order("id"),
+    ),
     supabase.from("clients").select("id, name, is_archived").eq("workspace_id", ws).order("name"),
     supabase
       .from("platforms")
       .select("slug, display_name")
       .eq("is_enabled", true)
       .order("sort_order"),
-    supabase
-      .from("post_snapshots")
-      .select("platform_post_id, captured_at, views")
-      .eq("workspace_id", ws)
-      .order("captured_at"),
+    selectAll(() =>
+      supabase
+        .from("post_snapshots")
+        .select("id, platform_post_id, captured_at, views")
+        .eq("workspace_id", ws)
+        .order("captured_at")
+        .order("id"),
+    ),
   ]);
 
   type Item = {
@@ -274,6 +300,19 @@ export async function loadContentOverview(
     if (best > 0) bestIndexByItem.set(contentId, best);
   }
 
+  // Credits come off the rankings load, which already reads every assignment
+  // in the workspace -- no second query for the same rows.
+  const creditsByItem = new Map<string, VideoSummary["credits"]>();
+  for (const a of rankings.assignments) {
+    if (!creditsByItem.has(a.content_item_id)) creditsByItem.set(a.content_item_id, []);
+    creditsByItem.get(a.content_item_id)!.push({
+      assignmentId: a.id,
+      roleSlug: a.roleSlug,
+      userId: a.user_id,
+      userName: a.userName,
+    });
+  }
+
   let videos: VideoSummary[] = items.map((i) => ({
     id: i.id,
     title: i.title,
@@ -285,6 +324,7 @@ export async function loadContentOverview(
     trackedSeconds: secondsByItem.get(i.id) ?? 0,
     bestIndex: bestIndexByItem.get(i.id) ?? null,
     postCount: postsByItem.get(i.id) ?? 0,
+    credits: creditsByItem.get(i.id) ?? [],
     recentGain: gainByItem.get(i.id) ?? null,
   }));
 
@@ -346,6 +386,40 @@ export async function loadClientOptions(supabase: Db, ws: string) {
     .eq("is_archived", false)
     .order("name");
   return (data ?? []) as { id: string; name: string }[];
+}
+
+/**
+ * The workspace's content roles, in display order.
+ *
+ * Roles are rows, not an enum (PRD 6.6), so the credit circles render whatever
+ * this returns rather than assuming the five seeded ones.
+ */
+export async function loadRoles(supabase: Db, ws: string) {
+  const { data } = await supabase
+    .from("roles")
+    .select("id, slug, name")
+    .eq("workspace_id", ws)
+    .order("sort_order");
+  return (data ?? []) as { id: string; slug: string; name: string }[];
+}
+
+/** Active members, for the assignee pickers on content tiles. */
+export async function loadMemberOptions(supabase: Db, ws: string) {
+  const { data } = await supabase
+    .from("memberships")
+    .select("user_id, profile:profiles(full_name)")
+    .eq("workspace_id", ws)
+    .eq("is_active", true);
+  type Row = {
+    user_id: string;
+    profile: { full_name: string | null } | { full_name: string | null }[] | null;
+  };
+  return ((data ?? []) as unknown as Row[])
+    .map((m) => ({
+      userId: m.user_id,
+      name: one(m.profile)?.full_name ?? "Unknown",
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /* ---- People ------------------------------------------------------------- */
@@ -441,19 +515,27 @@ export async function loadPeopleOverview(
       )
       .eq("workspace_id", ws)
       .order("created_at"),
-    supabase
-      .from("time_entries")
-      .select("duration_seconds, user_id, started_at")
-      .eq("workspace_id", ws)
-      .not("ended_at", "is", null),
-    supabase
-      .from("platform_posts")
-      .select(
-        "content_item_id, account:accounts(platform_slug), metrics:post_current_metrics(views, likes, comments)",
-      )
-      .eq("workspace_id", ws),
+    selectAll(() =>
+      supabase
+        .from("time_entries")
+        .select("id, duration_seconds, user_id, started_at")
+        .eq("workspace_id", ws)
+        .not("ended_at", "is", null)
+        .order("id"),
+    ),
+    selectAll(() =>
+      supabase
+        .from("platform_posts")
+        .select(
+          "id, content_item_id, account:accounts(platform_slug), metrics:post_current_metrics(views, likes, comments)",
+        )
+        .eq("workspace_id", ws)
+        .order("id"),
+    ),
     supabase.from("user_groups").select("id, name").eq("workspace_id", ws).order("name"),
-    supabase.from("content_items").select("id, client_id").eq("workspace_id", ws),
+    selectAll(() =>
+      supabase.from("content_items").select("id, client_id").eq("workspace_id", ws).order("id"),
+    ),
   ]);
 
   const groupRows = (groupsRes.data ?? []) as { id: string; name: string }[];

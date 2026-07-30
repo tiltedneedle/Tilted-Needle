@@ -9,8 +9,14 @@ import { createClient } from "@/lib/supabase/server";
 import { requireSession } from "@/lib/workspace";
 import { canManage, one } from "@/lib/types";
 import { formatDurationShort } from "@/lib/format";
-import { computeRankings } from "@/lib/performanceData";
-import { loadClientOptions, loadPeopleOverview } from "@/lib/dashboards";
+import { computeRankings, type RankingsResult } from "@/lib/performanceData";
+import { selectAll } from "@/lib/selectAll";
+import {
+  loadClientOptions,
+  loadMemberOptions,
+  loadPeopleOverview,
+  loadRoles,
+} from "@/lib/dashboards";
 import type { SeatType, WorkspaceRole } from "@/lib/types";
 
 /**
@@ -165,11 +171,28 @@ export default async function TeamPage({
         </Shell>
       );
     }
-    const items = await loadCreditedItems(supabase, ws, personId, rankings.postedContentIds);
+    const [items, roles, memberOptions] = await Promise.all([
+      loadCreditedItems(
+        supabase,
+        ws,
+        personId,
+        rankings.postedContentIds,
+        rankings.assignments,
+      ),
+      loadRoles(supabase, ws),
+      loadMemberOptions(supabase, ws),
+    ]);
     return (
       <Shell title={person.name} subtitle="Everything this person has worked on.">
         {filters}
-        <PersonDetail person={person} items={items} />
+        <PersonDetail
+          person={person}
+          items={items}
+          workspaceId={ws}
+          roles={roles}
+          members={memberOptions}
+          canManage={manages}
+        />
       </Shell>
     );
   }
@@ -329,6 +352,9 @@ async function loadCreditedItems(
   ws: string,
   userId: string,
   postedIds: Set<string>,
+  /** Every assignment in the workspace, so each tile can show all five roles
+      and not just the ones this person happens to hold. */
+  allAssignments: RankingsResult["assignments"],
 ): Promise<CreditedItem[]> {
   const [assignRes, postsRes, timeRes] = await Promise.all([
     supabase
@@ -338,10 +364,16 @@ async function loadCreditedItems(
       )
       .eq("workspace_id", ws)
       .eq("user_id", userId),
-    supabase
-      .from("platform_posts")
-      .select("content_item_id, account:accounts(platform_slug), metrics:post_current_metrics(views)")
-      .eq("workspace_id", ws),
+    // Every post in the workspace, so this one pages (see selectAll).
+    selectAll(() =>
+      supabase
+        .from("platform_posts")
+        .select(
+          "id, content_item_id, account:accounts(platform_slug), metrics:post_current_metrics(views, likes, comments)",
+        )
+        .eq("workspace_id", ws)
+        .order("id"),
+    ),
     supabase
       .from("time_entries")
       .select("content_item_id, duration_seconds")
@@ -371,19 +403,35 @@ async function loadCreditedItems(
   };
   const assigns = (assignRes.data ?? []) as unknown as Assign[];
 
+  type Metrics = { views: number | null; likes: number | null; comments: number | null };
   type PostRow = {
     content_item_id: string;
     account: { platform_slug: string } | { platform_slug: string }[] | null;
-    metrics: { views: number | null } | { views: number | null }[] | null;
+    metrics: Metrics | Metrics[] | null;
   };
-  const perItem = new Map<string, { platform: string; views: number }[]>();
+  const perItem = new Map<string, CreditedItem["platforms"]>();
   for (const p of (postsRes.data ?? []) as unknown as PostRow[]) {
     const acct = one(p.account);
     if (!acct) continue;
     if (!perItem.has(p.content_item_id)) perItem.set(p.content_item_id, []);
-    perItem
-      .get(p.content_item_id)!
-      .push({ platform: acct.platform_slug, views: one(p.metrics)?.views ?? 0 });
+    const m = one(p.metrics);
+    perItem.get(p.content_item_id)!.push({
+      platform: acct.platform_slug,
+      views: m?.views ?? 0,
+      likes: m?.likes ?? 0,
+      comments: m?.comments ?? 0,
+    });
+  }
+
+  const creditsByItem = new Map<string, CreditedItem["credits"]>();
+  for (const a of allAssignments) {
+    if (!creditsByItem.has(a.content_item_id)) creditsByItem.set(a.content_item_id, []);
+    creditsByItem.get(a.content_item_id)!.push({
+      assignmentId: a.id,
+      roleSlug: a.roleSlug,
+      userId: a.user_id,
+      userName: a.userName,
+    });
   }
 
   const secondsByItem = new Map<string, number>();
@@ -416,6 +464,7 @@ async function loadCreditedItems(
       platforms: perItem.get(content.id) ?? [],
       trackedSeconds: secondsByItem.get(content.id) ?? 0,
       isPosted: postedIds.has(content.id),
+      credits: creditsByItem.get(content.id) ?? [],
     });
   }
   items.sort((a, b) => (b.producedAt ?? "").localeCompare(a.producedAt ?? ""));

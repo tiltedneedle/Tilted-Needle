@@ -6,6 +6,7 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { one } from "@/lib/types";
+import { selectAll } from "@/lib/selectAll";
 import {
   overallScore,
   platformScore,
@@ -41,33 +42,50 @@ export type RankingsResult = {
   rawPostCount: number;
   postedContentIds: Set<string>;
   assignments: {
+    /** The assignment row's own id, so a credit can be removed from a tile. */
+    id: string;
     content_item_id: string;
     user_id: string;
+    userName: string;
+    roleSlug: string;
     roleName: string;
   }[];
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function computeRankings(supabase: SupabaseClient<any>, ws: string): Promise<RankingsResult> {
+  // These three read whole tables and all outgrow a single 1000-row response,
+  // so they page. Truncation here is invisible and produces scores computed on
+  // a prefix of the credits -- see selectAll.
   const [postsRes, snapsRes, platformsRes, assignRes] = await Promise.all([
-    supabase
-      .from("platform_posts")
-      .select(
-        "id, content_item_id, account_id, posted_at, account:accounts(id, platform_slug), content:content_items(id, title)",
-      )
-      .eq("workspace_id", ws),
-    supabase
-      .from("post_snapshots")
-      .select("platform_post_id, captured_at, views")
-      .eq("workspace_id", ws)
-      .order("captured_at"),
+    selectAll(() =>
+      supabase
+        .from("platform_posts")
+        .select(
+          "id, content_item_id, account_id, posted_at, account:accounts(id, platform_slug), content:content_items(id, title)",
+        )
+        .eq("workspace_id", ws)
+        .order("id"),
+    ),
+    selectAll(() =>
+      supabase
+        .from("post_snapshots")
+        .select("id, platform_post_id, captured_at, views")
+        .eq("workspace_id", ws)
+        // captured_at drives the series; id only breaks ties so paging is stable.
+        .order("captured_at")
+        .order("id"),
+    ),
     supabase.from("platforms").select("*").eq("is_enabled", true).order("sort_order"),
-    supabase
-      .from("content_assignments")
-      .select(
-        "content_item_id, user_id, profile:profiles(full_name), role:roles(slug, name, sort_order)",
-      )
-      .eq("workspace_id", ws),
+    selectAll(() =>
+      supabase
+        .from("content_assignments")
+        .select(
+          "id, content_item_id, user_id, profile:profiles(full_name), role:roles(slug, name, sort_order)",
+        )
+        .eq("workspace_id", ws)
+        .order("id"),
+    ),
   ]);
 
   const platforms = (platformsRes.data ?? []) as unknown as Platform[];
@@ -140,6 +158,7 @@ export async function computeRankings(supabase: SupabaseClient<any>, ws: string)
   }
 
   type Assign = {
+    id: string;
     content_item_id: string;
     user_id: string;
     profile: { full_name: string | null } | { full_name: string | null }[] | null;
@@ -235,8 +254,11 @@ export async function computeRankings(supabase: SupabaseClient<any>, ws: string)
     rawPostCount: rawPosts.length,
     postedContentIds,
     assignments: rawAssigns.map((a) => ({
+      id: a.id,
       content_item_id: a.content_item_id,
       user_id: a.user_id,
+      userName: one(a.profile)?.full_name ?? "Unknown",
+      roleSlug: one(a.role)?.slug ?? "unknown",
       roleName: one(a.role)?.name ?? "Unknown",
     })),
   };

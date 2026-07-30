@@ -165,6 +165,13 @@ export type ChannelVideo = {
   likes: number;
   comments: number;
   bestIndex: number | null;
+  /** Everyone credited on the underlying content item, for the role circles. */
+  credits: {
+    assignmentId: string;
+    roleSlug: string;
+    userId: string;
+    userName: string;
+  }[];
 };
 
 export type ChannelDashboard = {
@@ -264,11 +271,42 @@ export async function loadChannelDashboard(
     }
   }
 
+  // Credits for just this channel's content items, so the role circles render
+  // on these tiles too rather than being a Content-dashboard-only affordance.
+  const contentIds = [
+    ...new Set(posts.map((p) => one(p.content)?.id ?? p.content_item_id).filter(Boolean)),
+  ];
+  const creditsByItem = new Map<string, ChannelVideo["credits"]>();
+  if (contentIds.length) {
+    const { data: assigns } = await db
+      .from("content_assignments")
+      .select("id, content_item_id, user_id, profile:profiles(full_name), role:roles(slug)")
+      .eq("workspace_id", ws)
+      .in("content_item_id", contentIds);
+    type Row = {
+      id: string;
+      content_item_id: string;
+      user_id: string;
+      profile: { full_name: string | null } | { full_name: string | null }[] | null;
+      role: { slug: string } | { slug: string }[] | null;
+    };
+    for (const a of ((assigns ?? []) as unknown as Row[])) {
+      if (!creditsByItem.has(a.content_item_id)) creditsByItem.set(a.content_item_id, []);
+      creditsByItem.get(a.content_item_id)!.push({
+        assignmentId: a.id,
+        roleSlug: one(a.role)?.slug ?? "unknown",
+        userId: a.user_id,
+        userName: one(a.profile)?.full_name ?? "Unknown",
+      });
+    }
+  }
+
   const videos: ChannelVideo[] = posts.map((p) => {
     const content = one(p.content);
     const m = one(p.metrics);
+    const contentId = content?.id ?? p.content_item_id;
     return {
-      id: content?.id ?? p.content_item_id,
+      id: contentId,
       postId: p.id,
       title: content?.title ?? "Untitled",
       producedAt: content?.produced_at ?? null,
@@ -277,6 +315,7 @@ export async function loadChannelDashboard(
       likes: m?.likes ?? 0,
       comments: m?.comments ?? 0,
       bestIndex: null,
+      credits: creditsByItem.get(contentId) ?? [],
     };
   });
   videos.sort((a, b) => (b.producedAt ?? "").localeCompare(a.producedAt ?? ""));

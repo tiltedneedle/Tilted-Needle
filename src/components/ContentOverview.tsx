@@ -6,6 +6,7 @@ import { formatDurationShort } from "@/lib/format";
 import { engagementRate } from "@/lib/rollup";
 import { datedName, downloadCsv, toCsv } from "@/lib/exportCsv";
 import { PlatformChips } from "@/components/PlatformReach";
+import VideoTile, { type TileMember, type TileRole } from "@/components/VideoTile";
 import { Empty, SectionHeading } from "@/components/Stat";
 import type { ClientSummary, VideoSummary } from "@/lib/dashboards";
 
@@ -77,9 +78,17 @@ function exportVideos(rows: VideoSummary[]) {
 export default function ContentOverview({
   videos,
   clients,
+  workspaceId,
+  roles,
+  members,
+  canManage = true,
 }: {
   videos: VideoSummary[];
   clients: ClientSummary[];
+  workspaceId: string;
+  roles: TileRole[];
+  members: TileMember[];
+  canManage?: boolean;
 }) {
   const [sort, setSort] = useState<SortKey>("recent");
   const [clientSort, setClientSort] = useState<ClientSortKey>("videos");
@@ -242,66 +251,15 @@ export default function ContentOverview({
         ) : (
           <div className="card divide-y divide-[var(--border)] overflow-hidden">
             {rows.map((v) => (
-              <Link
+              <VideoTile
                 key={v.id}
+                video={v}
                 href={`/content?video=${v.id}`}
-                className="flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-[var(--bg-subtle)]"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-medium">{v.title}</div>
-                  <div className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-[var(--muted)]">
-                    {v.clientName && <span>{v.clientName}</span>}
-                    {v.producedAt && <span>{v.producedAt}</span>}
-                    {v.lengthSeconds != null && (
-                      <span className="tabular">
-                        {Math.floor(v.lengthSeconds / 60)}:
-                        {String(v.lengthSeconds % 60).padStart(2, "0")}
-                      </span>
-                    )}
-                    {v.trackedSeconds > 0 && (
-                      <span className="tabular">
-                        {formatDurationShort(v.trackedSeconds)} tracked
-                      </span>
-                    )}
-                    {v.postCount === 0 && (
-                      <span className="rounded bg-[var(--bg-subtle)] px-1.5 py-0.5 text-[var(--muted)]">
-                        not posted
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Still gaining views -- the signal that a post has legs,
-                    which a lifetime total cannot show. */}
-                {v.recentGain != null && v.recentGain.views > 0 && (
-                  <span
-                    className="tabular shrink-0 text-xs text-emerald-500"
-                    title={`Views gained over the ${v.recentGain.days.toFixed(0)} day(s) between the last two snapshots`}
-                  >
-                    +{v.recentGain.views.toLocaleString()}
-                    <span className="ml-0.5 opacity-70">
-                      /{v.recentGain.days.toFixed(0)}d
-                    </span>
-                  </span>
-                )}
-
-                {/* A boost badge only appears once the account has enough
-                    history to have a baseline worth beating. */}
-                {v.bestIndex != null && v.bestIndex >= 2 && (
-                  <span className="tabular shrink-0 rounded bg-emerald-500/10 px-1.5 py-0.5 text-xs font-medium text-emerald-500">
-                    {v.bestIndex.toFixed(1)}×
-                  </span>
-                )}
-
-                <div className="shrink-0">
-                  <PlatformChips
-                    platforms={v.platforms.map((p) => ({
-                      platform: p.platform,
-                      views: p.views,
-                    }))}
-                  />
-                </div>
-              </Link>
+                workspaceId={workspaceId}
+                roles={roles}
+                members={members}
+                canManage={canManage}
+              />
             ))}
           </div>
         )}

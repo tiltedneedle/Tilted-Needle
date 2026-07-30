@@ -3,10 +3,12 @@ import { notFound } from "next/navigation";
 import PageHeader from "@/components/PageHeader";
 import LineChart from "@/components/LineChart";
 import { Stat, StatGrid, SectionHeading, Empty } from "@/components/Stat";
-import { PLATFORM_COLORS } from "@/lib/types";
+import VideoTile from "@/components/VideoTile";
+import { canManage, PLATFORM_COLORS } from "@/lib/types";
 import { createClient } from "@/lib/supabase/server";
 import { requireSession } from "@/lib/workspace";
 import { loadChannelDashboard } from "@/lib/channelDashboard";
+import { loadMemberOptions, loadRoles } from "@/lib/dashboards";
 
 const PLATFORM_LABEL: Record<string, string> = {
   youtube: "YouTube",
@@ -32,7 +34,12 @@ export default async function ChannelDashboardPage({
   const supabase = await createClient();
   const ws = session.active.id;
 
-  const data = await loadChannelDashboard(supabase, ws, accountId);
+  const manages = canManage(session.active.role);
+  const [data, workspaceRoles, memberOptions] = await Promise.all([
+    loadChannelDashboard(supabase, ws, accountId),
+    loadRoles(supabase, ws),
+    loadMemberOptions(supabase, ws),
+  ]);
   if (!data || data.account.clientId !== id) notFound();
 
   const { account, totals, series, videos } = data;
@@ -106,22 +113,31 @@ export default async function ChannelDashboardPage({
         ) : (
           <div className="card divide-y divide-[var(--border)] overflow-hidden">
             {videos.map((v) => (
-              <Link
+              <VideoTile
                 key={v.postId}
                 href={`/content?video=${v.id}`}
-                className="flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-[var(--bg-subtle)]"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm">{v.title}</div>
-                  {v.producedAt && (
-                    <div className="text-xs text-[var(--muted)]">{v.producedAt}</div>
-                  )}
-                </div>
-                <div className="tabular shrink-0 text-right text-sm">
-                  {v.views.toLocaleString()}
-                  <div className="text-xs text-[var(--muted)]">views</div>
-                </div>
-              </Link>
+                workspaceId={ws}
+                roles={workspaceRoles}
+                members={memberOptions}
+                canManage={manages}
+                video={{
+                  id: v.id,
+                  title: v.title,
+                  producedAt: v.producedAt,
+                  // One account, so one platform -- the tile still shows it
+                  // per platform rather than as a bare figure.
+                  platforms: [
+                    {
+                      platform: account.platformSlug,
+                      views: v.views,
+                      likes: v.likes,
+                      comments: v.comments,
+                    },
+                  ],
+                  postCount: 1,
+                  credits: v.credits,
+                }}
+              />
             ))}
           </div>
         )}

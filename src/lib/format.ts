@@ -19,6 +19,23 @@ export function formatDurationShort(totalSeconds: number): string {
   return `${m}m`;
 }
 
+/**
+ * Compact counts for dense tiles: 1234 -> "1.2k", 10235865 -> "10.2M".
+ *
+ * Exact figures stay on the detail views and in the CSV exports. A video tile
+ * carries three metrics per platform, and at four significant digits each the
+ * row stops being scannable -- which is the only thing a tile is for.
+ */
+export function formatCount(n: number): string {
+  if (!Number.isFinite(n)) return "—";
+  const abs = Math.abs(n);
+  if (abs < 1000) return String(Math.round(n));
+  const [value, suffix] = abs < 1_000_000 ? [n / 1000, "k"] : [n / 1_000_000, "M"];
+  // Three digits before the decimal is already wide enough; drop the fraction.
+  const text = Math.abs(value) >= 100 ? String(Math.round(value)) : value.toFixed(1);
+  return `${text.replace(/\.0$/, "")}${suffix}`;
+}
+
 export function entrySeconds(
   entry: { started_at: string; ended_at: string | null; duration_seconds: number | null },
   now = Date.now(),

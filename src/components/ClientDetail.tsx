@@ -1,9 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { formatDurationShort } from "@/lib/format";
 import { hoursPerThousandViews } from "@/lib/rollup";
-import PlatformReach, { PlatformChips } from "@/components/PlatformReach";
+import PlatformReach from "@/components/PlatformReach";
+import VideoTile, { type TileMember, type TileRole } from "@/components/VideoTile";
 import { Stat, StatGrid, SectionHeading, Empty } from "@/components/Stat";
 import type { ClientSummary, VideoSummary } from "@/lib/dashboards";
 
@@ -15,9 +15,17 @@ import type { ClientSummary, VideoSummary } from "@/lib/dashboards";
 export default function ClientDetail({
   client,
   videos,
+  workspaceId,
+  roles,
+  members,
+  canManage = true,
 }: {
   client: ClientSummary;
   videos: VideoSummary[];
+  workspaceId: string;
+  roles: TileRole[];
+  members: TileMember[];
+  canManage?: boolean;
 }) {
   const published = videos.filter((v) => v.postCount > 0);
   const inProgress = videos.filter((v) => v.postCount === 0);
@@ -92,19 +100,15 @@ export default function ClientDetail({
           />
           <div className="card divide-y divide-[var(--border)] overflow-hidden">
             {inProgress.map((v) => (
-              <Link
+              <VideoTile
                 key={v.id}
-                href={`/content?video=${v.id}`}
-                className="flex items-center gap-3 px-3 py-2 transition-colors hover:bg-[var(--bg-subtle)]"
-              >
-                <span className="size-1.5 shrink-0 rounded-full bg-amber-500" />
-                <span className="min-w-0 flex-1 truncate text-sm">{v.title}</span>
-                {v.trackedSeconds > 0 && (
-                  <span className="tabular shrink-0 text-xs text-[var(--muted)]">
-                    {formatDurationShort(v.trackedSeconds)}
-                  </span>
-                )}
-              </Link>
+                video={v}
+                href={`/content?video=${v.id}&client=${client.id}`}
+                workspaceId={workspaceId}
+                roles={roles}
+                members={members}
+                canManage={canManage}
+              />
             ))}
           </div>
         </section>
@@ -117,37 +121,15 @@ export default function ClientDetail({
         ) : (
           <div className="card divide-y divide-[var(--border)] overflow-hidden">
             {published.map((v) => (
-              <Link
+              <VideoTile
                 key={v.id}
+                video={v}
                 href={`/content?video=${v.id}&client=${client.id}`}
-                className="flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-[var(--bg-subtle)]"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm">{v.title}</div>
-                  <div className="mt-0.5 flex flex-wrap items-center gap-x-2.5 text-xs text-[var(--muted)]">
-                    {v.producedAt && <span>{v.producedAt}</span>}
-                    {v.lengthSeconds != null && (
-                      <span className="tabular">
-                        {Math.floor(v.lengthSeconds / 60)}:
-                        {String(v.lengthSeconds % 60).padStart(2, "0")}
-                      </span>
-                    )}
-                  </div>
-                </div>
-                {v.bestIndex != null && v.bestIndex >= 2 && (
-                  <span className="tabular shrink-0 rounded bg-emerald-500/10 px-1.5 py-0.5 text-xs font-medium text-emerald-500">
-                    {v.bestIndex.toFixed(1)}×
-                  </span>
-                )}
-                <div className="shrink-0">
-                  <PlatformChips
-                    platforms={v.platforms.map((p) => ({
-                      platform: p.platform,
-                      views: p.views,
-                    }))}
-                  />
-                </div>
-              </Link>
+                workspaceId={workspaceId}
+                roles={roles}
+                members={members}
+                canManage={canManage}
+              />
             ))}
           </div>
         )}
