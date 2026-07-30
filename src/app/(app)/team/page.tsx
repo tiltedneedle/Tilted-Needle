@@ -26,6 +26,7 @@ export default async function TeamPage({
 }: {
   searchParams: Promise<{
     person?: string;
+    personFilter?: string;
     role?: string;
     tab?: string;
     group?: string;
@@ -45,9 +46,16 @@ export default async function TeamPage({
 
   const rankings = await computeRankings(supabase, ws);
   // A person view must not be filtered out from under itself, so the
-  // narrowing filters only apply to the roster.
+  // narrowing filters only apply to the roster. personFilter (the "Filter by
+  // person" dropdown, narrows and composes with everything else) is
+  // deliberately a different query key from person (jumps straight to that
+  // person's own fixed detail view, used by cross-links elsewhere in the
+  // app) -- reusing one key for both was the bug: picking someone from the
+  // dropdown used to land on their fixed page, where no other filter could
+  // do anything.
   const [overview, unfiltered, clientOptions, platformOptions] = await Promise.all([
     loadPeopleOverview(supabase, ws, rankings, {
+      personId: sp.personFilter ?? null,
       role: roleFilter ?? null,
       group: sp.group ?? null,
       seat: sp.seat ?? null,
@@ -77,13 +85,13 @@ export default async function TeamPage({
       searchPlaceholder="Search names…"
       filters={[
         {
-          key: "person",
+          key: "personFilter",
           label: "Filter by person",
           allLabel: "Everyone",
           // Always the full roster, so a narrowing filter can never make
           // someone unreachable from the dropdown.
           options: unfiltered.people.map((p) => ({ value: p.userId, label: p.name })),
-          value: personId ?? null,
+          value: sp.personFilter ?? null,
         },
         {
           key: "role",

@@ -410,6 +410,10 @@ export type PeopleOverview = {
 };
 
 export type PeopleFilters = {
+  /** Narrows the roster to this one person -- composable with every other
+      filter here, unlike the page-level ?person= drill-down into a fixed
+      detail view, which this is deliberately not. */
+  personId?: string | null;
   /** Content role name, e.g. "Editor". */
   role?: string | null;
   group?: string | null;
@@ -597,6 +601,7 @@ export async function loadPeopleOverview(
 
   /* ---- Filters ---------------------------------------------------------- */
 
+  if (filters.personId) people = people.filter((p) => p.userId === filters.personId);
   if (filters.role) people = people.filter((p) => p.roles.includes(filters.role!));
   if (filters.group) people = people.filter((p) => p.groups.includes(filters.group!));
   if (filters.seat) people = people.filter((p) => p.seat === filters.seat);
