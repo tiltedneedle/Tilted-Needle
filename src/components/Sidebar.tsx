@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState, useTransition } from "react";
 import {
   BarChart3,
+  BookOpen,
   Briefcase,
   Calendar,
   Check,
@@ -57,6 +58,10 @@ const NAV = [
       { href: "/content", label: "Content", icon: PlayCircle as IconType },
       { href: "/team", label: "People", icon: Trophy as IconType },
       { href: "/clients", label: "Clients", icon: Briefcase as IconType },
+      // Sits with the dashboards rather than under Manage: it is read during
+      // the work (an editor mid-timeline needs the CTA) not while configuring
+      // the workspace, and it is scoped per client exactly like Clients is.
+      { href: "/guidelines", label: "Guidelines", icon: BookOpen as IconType },
     ],
   },
   {
