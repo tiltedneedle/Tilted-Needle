@@ -67,3 +67,6 @@ export default async function ApprovalsPage() {
     </div>
   );
 }
+
+/** Browser-tab identity; the root layout template appends the app name. */
+export const metadata = { title: "Approvals" };

@@ -123,3 +123,6 @@ export default async function TodosPage({
     </div>
   );
 }
+
+/** Browser-tab identity; the root layout template appends the app name. */
+export const metadata = { title: "To-dos" };

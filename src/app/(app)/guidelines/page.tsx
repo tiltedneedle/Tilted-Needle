@@ -50,7 +50,7 @@ export default async function GuidelinesPage() {
 
 function Grid({ clients, dimmed = false }: { clients: GuidelineClient[]; dimmed?: boolean }) {
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <div className="stagger grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {clients.map((c) => (
         <Card key={c.id} client={c} dimmed={dimmed} />
       ))}
@@ -65,7 +65,7 @@ function Card({ client: c, dimmed }: { client: GuidelineClient; dimmed: boolean 
   return (
     <Link
       href={`/guidelines/${c.id}`}
-      className={`group flex flex-col overflow-hidden rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--panel)] transition-all hover:-translate-y-0.5 hover:border-[var(--border-strong)] hover:shadow-[var(--shadow-card-hover)] ${
+      className={`group animate-rise flex flex-col overflow-hidden rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--panel)] transition-all hover:-translate-y-0.5 hover:border-[var(--border-strong)] hover:shadow-[var(--shadow-card-hover)] ${
         dimmed ? "opacity-70 hover:opacity-100" : ""
       }`}
     >
@@ -117,7 +117,7 @@ function Card({ client: c, dimmed }: { client: GuidelineClient; dimmed: boolean 
               className="h-full rounded-full transition-all"
               style={{
                 width: `${pct}%`,
-                background: complete ? "#2e8f62" : "var(--accent)",
+                background: complete ? "var(--success)" : "var(--accent)",
               }}
             />
           </div>
@@ -126,3 +126,6 @@ function Card({ client: c, dimmed }: { client: GuidelineClient; dimmed: boolean 
     </Link>
   );
 }
+
+/** Browser-tab identity; the root layout template appends the app name. */
+export const metadata = { title: "Guidelines" };

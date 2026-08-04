@@ -64,7 +64,7 @@ export default async function ClientsPage() {
       {active.length === 0 ? (
         <Empty>No active clients. Check below if one should be reactivated.</Empty>
       ) : (
-        <div className="grid gap-2.5 sm:grid-cols-2">
+        <div className="stagger grid gap-2.5 sm:grid-cols-2">
           {active.map((c) => (
             <Link
               key={c.id}
@@ -123,3 +123,6 @@ export default async function ClientsPage() {
     </div>
   );
 }
+
+/** Browser-tab identity; the root layout template appends the app name. */
+export const metadata = { title: "Clients" };

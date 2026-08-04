@@ -30,8 +30,13 @@ export default function AppShell({
   const pathname = usePathname();
 
   // Closing on pathname covers browser back/forward too, which the
-  // per-link onNavigate callback alone would miss.
-  useEffect(() => setOpen(false), [pathname]);
+  // per-link onNavigate callback alone would miss. Adjusted during render
+  // (React's sanctioned prop-change pattern) rather than in an effect.
+  const [lastPath, setLastPath] = useState(pathname);
+  if (pathname !== lastPath) {
+    setLastPath(pathname);
+    setOpen(false);
+  }
 
   useEffect(() => {
     if (!open) return;

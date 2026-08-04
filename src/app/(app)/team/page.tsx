@@ -470,3 +470,6 @@ async function loadCreditedItems(
   items.sort((a, b) => (b.producedAt ?? "").localeCompare(a.producedAt ?? ""));
   return items;
 }
+
+/** Browser-tab identity; the root layout template appends the app name. */
+export const metadata = { title: "People" };

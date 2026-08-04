@@ -412,3 +412,6 @@ async function loadVideoView(supabase: any, ws: string, id: string) {
     analytics: (analyticsRes.data ?? []) as AnalyticsRow[],
   };
 }
+
+/** Browser-tab identity; the root layout template appends the app name. */
+export const metadata = { title: "Content" };

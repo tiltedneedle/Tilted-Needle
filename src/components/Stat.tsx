@@ -9,7 +9,7 @@ type IconType = ComponentType<{ size?: number; strokeWidth?: number; className?:
  */
 export function StatGrid({ children }: { children: ReactNode }) {
   return (
-    <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">{children}</div>
+    <div className="stagger mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">{children}</div>
   );
 }
 

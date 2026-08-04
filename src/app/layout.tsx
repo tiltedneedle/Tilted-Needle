@@ -9,8 +9,14 @@ import ThemeScript from "@/components/ThemeScript";
 // never fails on it.
 
 export const metadata: Metadata = {
-  title: "Tilted Needle",
+  title: {
+    default: "Tilted Needle",
+    template: "%s · Tilted Needle",
+  },
   description: "Time tracking and video performance attribution",
+  // An internal tool: nothing here should ever appear in a search engine,
+  // including the login page.
+  robots: { index: false, follow: false },
 };
 
 export default function RootLayout({

@@ -252,7 +252,7 @@ export default function TimeOffManager({
                 )}
                 <div className="flex-1" />
                 <button
-                  className="rounded bg-emerald-600 px-2 py-1 text-xs text-[var(--accent-fg)] transition-colors hover:bg-emerald-500"
+                  className="rounded bg-[var(--success)] px-2 py-1 text-xs text-[var(--accent-fg)] transition-opacity hover:opacity-90"
                   onClick={async () => {
                     await reviewTimeOffRequest(r.id, "approved");
                     refresh();

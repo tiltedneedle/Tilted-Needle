@@ -115,7 +115,7 @@ export default function ApprovalsManager({ rows }: { rows: Row[] }) {
                     onChange={(e) => setNote(e.target.value)}
                   />
                   <button
-                    className="rounded bg-emerald-600 px-3 py-1.5 text-sm text-[var(--accent-fg)] transition-colors hover:bg-emerald-500"
+                    className="rounded bg-[var(--success)] px-3 py-1.5 text-sm text-[var(--accent-fg)] transition-opacity hover:opacity-90"
                     onClick={() => void review(r.id, "approved")}
                   >
                     Approve

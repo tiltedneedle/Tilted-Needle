@@ -28,7 +28,12 @@ export default function ThemeToggle() {
   const [choice, setChoice] = useState<ThemeChoice>("system");
 
   useEffect(() => {
+    // Deliberately a post-hydration setState: the server cannot know the
+    // stored choice, so first paint renders "system" and this corrects it
+    // once localStorage is readable -- reading it during render would
+    // hydration-mismatch instead. One extra render at mount, by design.
     const stored = (localStorage.getItem("theme") as ThemeChoice | null) ?? "system";
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setChoice(stored);
 
     const mq = matchMedia("(prefers-color-scheme: dark)");

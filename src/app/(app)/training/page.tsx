@@ -83,7 +83,7 @@ export default async function TrainingPage() {
             : "No training assigned to you yet."}
         </Empty>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="stagger grid gap-3 sm:grid-cols-2">
           {active.map((m) => {
             const total = videosByModule.get(m.id)?.length ?? 0;
             const assigned = assignments.filter((a) => a.module_id === m.id);
@@ -164,3 +164,6 @@ export default async function TrainingPage() {
     </div>
   );
 }
+
+/** Browser-tab identity; the root layout template appends the app name. */
+export const metadata = { title: "Training" };

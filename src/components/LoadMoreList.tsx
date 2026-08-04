@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 /**
  * Renders only the first `initialCount` of an already-rendered list, with a
@@ -35,10 +35,13 @@ export default function LoadMoreList({
 }) {
   const [count, setCount] = useState(initialCount);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => {
+  // Snap back to the first page when the sort/filter key changes -- adjusted
+  // during render (React's sanctioned prop-change pattern), not in an effect.
+  const [lastKey, setLastKey] = useState(resetKey);
+  if (resetKey !== lastKey) {
+    setLastKey(resetKey);
     setCount(initialCount);
-  }, [resetKey]);
+  }
 
   const visible = items.slice(0, count);
   const remaining = items.length - visible.length;

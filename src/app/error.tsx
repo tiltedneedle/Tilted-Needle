@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 /**
  * Route-level error boundary: an unhandled crash anywhere below the root
  * layout lands here instead of Next's unstyled default screen. Recovery
@@ -26,9 +28,9 @@ export default function AppError({
           <button className="btn-primary" onClick={reset}>
             Try again
           </button>
-          <a className="btn" href="/">
+          <Link className="btn" href="/">
             Go home
-          </a>
+          </Link>
         </div>
       </div>
     </div>
