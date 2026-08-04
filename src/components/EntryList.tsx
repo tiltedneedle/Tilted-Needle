@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { deleteEntry, updateEntry, startTimer } from "@/app/actions";
+import { useToast } from "@/components/ui/Toast";
 import {
   dayKey,
   entrySeconds,
@@ -23,6 +24,7 @@ export default function EntryList({
   contentItems?: { id: string; title: string }[];
 }) {
   const router = useRouter();
+  const toast = useToast();
   const [, startTransition] = useTransition();
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -53,7 +55,8 @@ export default function EntryList({
     const next = draft.trim();
     setEditing(null);
     if (next === entry.description) return;
-    await updateEntry(entry.id, { description: next });
+    const res = await updateEntry(entry.id, { description: next });
+    if (res.error) toast("danger", res.error);
     startTransition(() => router.refresh());
   }
 
@@ -69,7 +72,8 @@ export default function EntryList({
   }
 
   async function remove(id: string) {
-    await deleteEntry(id);
+    const res = await deleteEntry(id);
+    if (res.error) toast("danger", res.error);
     startTransition(() => router.refresh());
   }
 
@@ -140,9 +144,10 @@ export default function EntryList({
                           className="rounded border border-transparent bg-transparent px-1 py-0.5 text-xs text-[var(--muted)] transition-colors hover:border-[var(--border)] hover:text-[var(--fg)]"
                           value={e.content_item_id ?? ""}
                           onChange={async (ev) => {
-                            await updateEntry(e.id, {
+                            const res = await updateEntry(e.id, {
                               contentItemId: ev.target.value || null,
                             });
+                            if (res.error) toast("danger", res.error);
                             startTransition(() => router.refresh());
                           }}
                           aria-label="Link to content"

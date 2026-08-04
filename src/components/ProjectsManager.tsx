@@ -73,7 +73,8 @@ export default function ProjectsManager({
   }
 
   async function toggleArchive(p: Project) {
-    await setArchived("projects", p.id, !p.is_archived);
+    const res = await setArchived("projects", p.id, !p.is_archived);
+    if (res.error) setError(res.error);
     startTransition(() => router.refresh());
   }
 

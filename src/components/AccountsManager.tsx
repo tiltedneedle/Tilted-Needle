@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createAccount, setArchived } from "@/app/actions";
+import { useToast } from "@/components/ui/Toast";
 import { PLATFORM_COLORS } from "@/lib/types";
 import type { Account, Client, Platform } from "@/lib/types";
 
@@ -27,6 +28,7 @@ export default function AccountsManager({
   connectorStatus: Record<string, ConnectorStatus>;
 }) {
   const router = useRouter();
+  const toast = useToast();
   const [, startTransition] = useTransition();
   const [handle, setHandle] = useState("");
   const [platformSlug, setPlatformSlug] = useState(platforms[0]?.slug ?? "");
@@ -74,7 +76,8 @@ export default function AccountsManager({
   }
 
   async function toggle(a: Account) {
-    await setArchived("accounts", a.id, !a.is_archived);
+    const res = await setArchived("accounts", a.id, !a.is_archived);
+    if (res.error) toast("danger", res.error);
     startTransition(() => router.refresh());
   }
 

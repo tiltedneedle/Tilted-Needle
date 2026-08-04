@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { setArchived } from "@/app/actions";
+import { useToast } from "@/components/ui/Toast";
 
 /**
  * Whether a client is currently active, as a toggle rather than a status
@@ -25,6 +26,7 @@ export default function ClientActiveToggle({
   size?: "sm" | "md";
 }) {
   const router = useRouter();
+  const toast = useToast();
   const [, startTransition] = useTransition();
   const [busy, setBusy] = useState(false);
 
@@ -32,7 +34,8 @@ export default function ClientActiveToggle({
     e.preventDefault(); // these render inside a card that is itself a Link
     e.stopPropagation();
     setBusy(true);
-    await setArchived("clients", clientId, isActive);
+    const res = await setArchived("clients", clientId, isActive);
+    if (res.error) toast("danger", res.error);
     setBusy(false);
     startTransition(() => router.refresh());
   }

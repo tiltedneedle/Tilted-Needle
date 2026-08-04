@@ -57,7 +57,8 @@ export default function SimpleListManager({
   }
 
   async function toggle(row: Row) {
-    await setArchived(table, row.id, !row.is_archived);
+    const res = await setArchived(table, row.id, !row.is_archived);
+    if (res.error) setError(res.error);
     startTransition(() => router.refresh());
   }
 

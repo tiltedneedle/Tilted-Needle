@@ -49,6 +49,13 @@ export default function AppShell({
 
   return (
     <div className="flex h-dvh overflow-hidden">
+      {/* Keyboard users skip the whole nav in one Tab; invisible otherwise. */}
+      <a
+        href="#main"
+        className="btn-primary sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[100]"
+      >
+        Skip to content
+      </a>
       <div className="hidden lg:flex">
         <Sidebar workspaces={workspaces} active={active} fullName={fullName} />
       </div>
@@ -71,7 +78,7 @@ export default function AppShell({
         </div>
       )}
 
-      <main className="min-w-0 flex-1 overflow-y-auto">
+      <main id="main" className="min-w-0 flex-1 overflow-y-auto">
         <div className="sticky top-0 z-30 flex items-center gap-2 border-b border-[var(--border)] bg-[var(--bg)] px-3 py-2 lg:hidden">
           <button
             className="btn-ghost"

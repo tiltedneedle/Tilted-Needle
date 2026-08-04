@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { createTodo, deleteTodo, toggleTodoDone, updateTodo } from "@/app/actions";
 import EmptyState from "@/components/ui/EmptyState";
+import { useToast } from "@/components/ui/Toast";
 import { parseBrief, type ParsedTask } from "@/lib/todoParse";
 import { one, type Todo } from "@/lib/types";
 
@@ -530,11 +531,13 @@ function TodoRow({
 }) {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(todo.description);
+  const toast = useToast();
   const client = one(todo.client);
 
   async function save() {
     if (!text.trim()) return;
-    await updateTodo(todo.id, { description: text });
+    const res = await updateTodo(todo.id, { description: text });
+    if (res.error) toast("danger", res.error);
     setEditing(false);
     onChanged();
   }
@@ -552,7 +555,8 @@ function TodoRow({
         }}
         disabled={!canToggle}
         onClick={async () => {
-          await toggleTodoDone(todo.id, !todo.is_done);
+          const res = await toggleTodoDone(todo.id, !todo.is_done);
+          if (res.error) toast("danger", res.error);
           onChanged();
         }}
         aria-label={todo.is_done ? "Mark as not done" : "Mark as done"}
@@ -597,7 +601,8 @@ function TodoRow({
             className="input max-w-[130px] py-1 text-xs"
             value={client?.id ?? ""}
             onChange={async (e) => {
-              await updateTodo(todo.id, { clientId: e.target.value || null });
+              const res = await updateTodo(todo.id, { clientId: e.target.value || null });
+              if (res.error) toast("danger", res.error);
               onChanged();
             }}
             aria-label="Change client"
@@ -612,7 +617,8 @@ function TodoRow({
           <button
             className="rounded px-2 py-1 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--danger)]"
             onClick={async () => {
-              await deleteTodo(todo.id);
+              const res = await deleteTodo(todo.id);
+              if (res.error) toast("danger", res.error);
               onChanged();
             }}
           >

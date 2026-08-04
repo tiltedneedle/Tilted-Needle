@@ -204,7 +204,8 @@ export default function ExpensesManager({
                 <button
                   className="row-actions rounded px-2 py-1 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--danger)]"
                   onClick={async () => {
-                    await deleteExpense(r.id);
+                    const res = await deleteExpense(r.id);
+                    if (res.error) setError(res.error);
                     refresh();
                   }}
                 >

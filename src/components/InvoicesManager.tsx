@@ -174,7 +174,8 @@ export default function InvoicesManager({
                             : "text-[var(--muted)] hover:bg-[var(--border)]"
                         }`}
                         onClick={async () => {
-                          await updateInvoiceStatus(inv.id, s);
+                          const res = await updateInvoiceStatus(inv.id, s);
+                          if (res.error) setError(res.error);
                           refresh();
                         }}
                       >
@@ -190,7 +191,8 @@ export default function InvoicesManager({
                         <button
                           className="rounded bg-[var(--danger)] px-2 py-1 text-xs text-[var(--accent-fg)]"
                           onClick={async () => {
-                            await deleteInvoice(inv.id);
+                            const res = await deleteInvoice(inv.id);
+                            if (res.error) setError(res.error);
                             setConfirmDelete(null);
                             refresh();
                           }}

@@ -448,9 +448,10 @@ export default function ContentDetail({
                       : "text-[var(--muted)] hover:bg-[var(--border)]"
                   }`}
                   onClick={async () => {
-                    await updatePlatformPost(p.id, {
+                    const res = await updatePlatformPost(p.id, {
                       is_best_performing: !p.is_best_performing,
                     });
+                    if (res.error) setError(res.error);
                     refresh();
                   }}
                 >
@@ -487,7 +488,8 @@ export default function ContentDetail({
                     <button
                       className="row-actions rounded px-2 py-1 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--danger)]"
                       onClick={async () => {
-                        await deletePlatformPost(p.id);
+                        const res = await deletePlatformPost(p.id);
+                        if (res.error) setError(res.error);
                         refresh();
                       }}
                     >
@@ -639,7 +641,8 @@ export default function ContentDetail({
                       <button
                         className="opacity-0 transition-opacity group-hover/chip:opacity-100"
                         onClick={async () => {
-                          await unassignRole(h.id);
+                          const res = await unassignRole(h.id);
+                          if (res.error) setError(res.error);
                           refresh();
                         }}
                         aria-label="Remove"

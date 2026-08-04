@@ -249,7 +249,8 @@ function GroupsPanel({
                       className="rounded px-2 py-1 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--danger)]"
                       onClick={async (e) => {
                         e.stopPropagation();
-                        await deleteGroup(g.id);
+                        const res = await deleteGroup(g.id);
+                        if (res.error) setError(res.error);
                         refresh();
                       }}
                     >

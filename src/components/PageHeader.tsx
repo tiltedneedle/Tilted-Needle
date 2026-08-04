@@ -9,7 +9,7 @@ export default function PageHeader({
 }) {
   return (
     <div
-      className="mb-6 flex flex-wrap items-end justify-between gap-3 pb-5"
+      className="animate-rise mb-6 flex flex-wrap items-end justify-between gap-3 pb-5"
       style={{ borderBottom: "1px solid var(--border)" }}
     >
       <div>

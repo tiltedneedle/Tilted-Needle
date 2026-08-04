@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import AppShell from "@/components/AppShell";
+import { ToastProvider } from "@/components/ui/Toast";
 import { requireSession } from "@/lib/workspace";
 
 /** The only route a client-role user is meant to reach. */
@@ -25,12 +26,14 @@ export default async function AppLayout({
   }
 
   return (
-    <AppShell
-      workspaces={session.workspaces}
-      active={session.active}
-      fullName={session.fullName}
-    >
-      {children}
-    </AppShell>
+    <ToastProvider>
+      <AppShell
+        workspaces={session.workspaces}
+        active={session.active}
+        fullName={session.fullName}
+      >
+        {children}
+      </AppShell>
+    </ToastProvider>
   );
 }

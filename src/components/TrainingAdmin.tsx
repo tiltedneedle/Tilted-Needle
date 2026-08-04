@@ -123,7 +123,8 @@ export default function TrainingAdmin({
                     className="btn px-1.5 py-1"
                     disabled={i === 0}
                     onClick={async () => {
-                      await moveTrainingVideo(v.id, mod.id, "up");
+                      const res = await moveTrainingVideo(v.id, mod.id, "up");
+                      if (res.error) setError(res.error);
                       refresh();
                     }}
                     aria-label="Move up"
@@ -134,7 +135,8 @@ export default function TrainingAdmin({
                     className="btn px-1.5 py-1"
                     disabled={i === videos.length - 1}
                     onClick={async () => {
-                      await moveTrainingVideo(v.id, mod.id, "down");
+                      const res = await moveTrainingVideo(v.id, mod.id, "down");
+                      if (res.error) setError(res.error);
                       refresh();
                     }}
                     aria-label="Move down"
@@ -144,7 +146,8 @@ export default function TrainingAdmin({
                   <button
                     className="rounded px-2 py-1 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--danger)]"
                     onClick={async () => {
-                      await deleteTrainingVideo(v.id, mod.id);
+                      const res = await deleteTrainingVideo(v.id, mod.id);
+                      if (res.error) setError(res.error);
                       refresh();
                     }}
                   >
@@ -232,7 +235,11 @@ export default function TrainingAdmin({
                       <button
                         className="btn px-2 py-1 text-xs"
                         onClick={async () => {
-                          await resetTrainingProgress({ moduleId: mod.id, userId: a.userId });
+                          const res = await resetTrainingProgress({
+                            moduleId: mod.id,
+                            userId: a.userId,
+                          });
+                          if (res.error) setError(res.error);
                           refresh();
                         }}
                         title="Wipe this person's progress in this module"
@@ -243,7 +250,8 @@ export default function TrainingAdmin({
                     <button
                       className="rounded px-2 py-1 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--danger)]"
                       onClick={async () => {
-                        await unassignTraining(a.id, mod.id);
+                        const res = await unassignTraining(a.id, mod.id);
+                        if (res.error) setError(res.error);
                         refresh();
                       }}
                     >
