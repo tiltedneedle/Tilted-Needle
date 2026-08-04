@@ -109,10 +109,13 @@ export default function Sidebar({
   workspaces,
   active,
   fullName,
+  onNavigate,
 }: {
   workspaces: WorkspaceSummary[];
   active: WorkspaceSummary;
   fullName: string;
+  /** Set when rendered inside the mobile drawer, so tapping a link closes it. */
+  onNavigate?: () => void;
 }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
@@ -207,6 +210,7 @@ export default function Sidebar({
                 <Link
                   key={href}
                   href={href}
+                  onClick={onNavigate}
                   className="relative mb-0.5 flex items-center gap-2.5 px-3 text-sm transition-colors"
                   style={{
                     height: 44,

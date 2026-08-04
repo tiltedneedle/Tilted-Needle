@@ -194,6 +194,20 @@ h3 {
   animation: pop-in var(--dur-fast) var(--ease) both;
 }
 
+@keyframes slide-in-left {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: none;
+  }
+}
+
+/* The mobile nav drawer's entrance. */
+.animate-slide-in {
+  animation: slide-in-left var(--dur-base) var(--ease) both;
+}
+
 /* Dashboard cards stagger in on load: each card's own animation-delay is set
    inline via style={{ animationDelay: `${i * 60}ms` }} where used. */
 

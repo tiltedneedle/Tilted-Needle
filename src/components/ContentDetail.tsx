@@ -318,7 +318,7 @@ export default function ContentDetail({
           <span className="flex items-center gap-1 text-xs">
             <span className="text-[var(--muted)]">Delete this and its posts?</span>
             <button
-              className="rounded bg-[var(--danger)] px-2 py-1 text-xs text-white"
+              className="rounded bg-[var(--danger)] px-2 py-1 text-xs text-[var(--accent-fg)]"
               onClick={async () => {
                 const res = await deleteContentItem(item.id);
                 if (res.error) {

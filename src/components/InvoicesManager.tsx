@@ -188,7 +188,7 @@ export default function InvoicesManager({
                           Delete and unlock its time?
                         </span>
                         <button
-                          className="rounded bg-[var(--danger)] px-2 py-1 text-xs text-white"
+                          className="rounded bg-[var(--danger)] px-2 py-1 text-xs text-[var(--accent-fg)]"
                           onClick={async () => {
                             await deleteInvoice(inv.id);
                             setConfirmDelete(null);

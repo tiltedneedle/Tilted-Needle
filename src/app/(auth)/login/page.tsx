@@ -57,6 +57,15 @@ export default function LoginPage() {
     <div className="flex min-h-dvh items-center justify-center px-4">
       <div className="w-full max-w-sm">
         <div className="mb-8">
+          {/* The real brand mark, same asset the Guidelines grid serves. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/clients/tilted-needle.jpg"
+            alt=""
+            width={44}
+            height={44}
+            className="mb-3 rounded-xl"
+          />
           <div className="mb-1 text-lg font-semibold tracking-tight">Tilted Needle</div>
           <p className="text-sm text-[var(--muted)]">
             {mode === "signin" ? "Sign in to your workspace." : "Create your account."}
@@ -94,12 +103,12 @@ export default function LoginPage() {
           />
 
           {error && (
-            <p className="rounded-md border border-red-500/25 bg-red-500/10 px-3 py-2 text-sm text-red-400">
+            <p className="rounded-md border border-[var(--danger)]/25 bg-[var(--danger-100)] px-3 py-2 text-sm text-[var(--danger)]" role="alert">
               {error}
             </p>
           )}
           {notice && (
-            <p className="rounded-md border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-400">
+            <p className="rounded-md border border-[var(--success)]/25 bg-[var(--success-100)] px-3 py-2 text-sm text-[var(--success)]" role="status">
               {notice}
             </p>
           )}

@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
-import Sidebar from "@/components/Sidebar";
+import AppShell from "@/components/AppShell";
 import { requireSession } from "@/lib/workspace";
 
 /** The only route a client-role user is meant to reach. */
@@ -25,13 +25,12 @@ export default async function AppLayout({
   }
 
   return (
-    <div className="flex h-dvh overflow-hidden">
-      <Sidebar
-        workspaces={session.workspaces}
-        active={session.active}
-        fullName={session.fullName}
-      />
-      <main className="flex-1 overflow-y-auto">{children}</main>
-    </div>
+    <AppShell
+      workspaces={session.workspaces}
+      active={session.active}
+      fullName={session.fullName}
+    >
+      {children}
+    </AppShell>
   );
 }
