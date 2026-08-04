@@ -48,6 +48,32 @@ const CLIENT_NAV = [
 ];
 
 /**
+ * A plain member's nav mirrors exactly what the layout guard lets them
+ * open -- their own day-to-day surface. Showing the manager dashboards
+ * here would just bounce them back to Home.
+ */
+const MEMBER_NAV = [
+  {
+    group: "My work",
+    items: [
+      { href: "/home", label: "Home", icon: LayoutGrid as IconType },
+      { href: "/todos", label: "To-dos", icon: ListChecks as IconType },
+      { href: "/training", label: "Training", icon: GraduationCap as IconType },
+      { href: "/guidelines", label: "Guidelines", icon: BookOpen as IconType },
+    ],
+  },
+  {
+    group: "Time",
+    items: [
+      { href: "/track", label: "Time Tracker", icon: Clock as IconType },
+      { href: "/timesheet", label: "Timesheet", icon: Grid2x2 as IconType },
+      { href: "/dashboard", label: "Hours", icon: BarChart3 as IconType },
+      { href: "/time-off", label: "Time off", icon: Calendar as IconType },
+    ],
+  },
+];
+
+/**
  * The three dashboards lead, because they are what the tool is for. Content
  * and People each answer one question across everything; Clients drills the
  * other way, from one client down to one channel's own chart. Everything
@@ -57,6 +83,7 @@ const NAV = [
   {
     group: "Dashboards",
     items: [
+      { href: "/home", label: "Home", icon: LayoutGrid as IconType },
       { href: "/content", label: "Content", icon: PlayCircle as IconType },
       { href: "/team", label: "People", icon: Trophy as IconType },
       { href: "/clients", label: "Clients", icon: Briefcase as IconType },
@@ -200,7 +227,12 @@ export default function Sidebar({
       </div>
 
       <nav className="flex-1 overflow-y-auto px-3 pb-2">
-        {(active.role === "client" ? CLIENT_NAV : NAV).map((section, i) => (
+        {(active.role === "client"
+          ? CLIENT_NAV
+          : active.role === "member"
+            ? MEMBER_NAV
+            : NAV
+        ).map((section, i) => (
           <div key={i} className="mb-5">
             {section.group && (
               <div
