@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { createTodo, deleteTodo, toggleTodoDone, updateTodo } from "@/app/actions";
 import EmptyState from "@/components/ui/EmptyState";
+import { parseBrief, type ParsedTask } from "@/lib/todoParse";
 import { one, type Todo } from "@/lib/types";
 
 type Option = { userId: string; name: string };
@@ -223,6 +224,22 @@ export default function TodoBoard({
         </div>
       )}
 
+      {/* Paste-in import: the reverse direction. The old shorthand sheet can
+          be pasted whole; it is parsed against the real member and client
+          lists and lands as a reviewable proposal, never a silent write. */}
+      {manages && (
+        <BriefImport
+          workspaceId={workspaceId}
+          members={members}
+          clients={clients}
+          boardDate={date}
+          onImported={(target) => {
+            if (target !== date) goTo(target);
+            else refresh();
+          }}
+        />
+      )}
+
       {/* The generated daily message -- the system writes the text now. */}
       {manages && todos.length > 0 && (
         <div className="mb-4 flex items-center gap-2">
@@ -283,6 +300,218 @@ export default function TodoBoard({
         </div>
       )}
     </>
+  );
+}
+
+/**
+ * Aliases the team uses that cannot be derived from the client names
+ * themselves (EEH is the Hamburg brand of the client named "EuroEyes
+ * Deutschland"). Everything derivable -- full names, first words,
+ * initials like TJB, parenthesised codes like LEC -- comes from the client
+ * list automatically in todoParse.
+ */
+const ALIAS_EXTRAS: Record<string, string> = {
+  EEH: "EuroEyes Deutschland",
+};
+
+function BriefImport({
+  workspaceId,
+  members,
+  clients,
+  boardDate,
+  onImported,
+}: {
+  workspaceId: string;
+  members: Option[];
+  clients: ClientOption[];
+  boardDate: string;
+  onImported: (targetDate: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  const [rows, setRows] = useState<ParsedTask[] | null>(null);
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const [targetDate, setTargetDate] = useState(boardDate);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function runParse() {
+    const res = parseBrief(text, { members, clients, aliasExtras: ALIAS_EXTRAS });
+    setRows(res.tasks);
+    setWarnings(res.warnings);
+    setTargetDate(res.date ?? boardDate);
+    setError(null);
+  }
+
+  function patchRow(i: number, patch: Partial<ParsedTask>) {
+    setRows((prev) => prev!.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  }
+
+  async function commit() {
+    if (!rows) return;
+    const ready = rows.filter((r) => r.userId && r.description.trim());
+    if (ready.length === 0) return setError("Nothing to add — every row needs a person.");
+    setBusy(true);
+    for (const r of ready) {
+      const res = await createTodo({
+        workspaceId,
+        userId: r.userId!,
+        clientId: r.clientId,
+        assignedOn: targetDate,
+        description: r.tentative ? `${r.description} (to be confirmed)` : r.description,
+      });
+      if (res.error) {
+        setBusy(false);
+        return setError(res.error);
+      }
+    }
+    setBusy(false);
+    setOpen(false);
+    setText("");
+    setRows(null);
+    onImported(targetDate);
+  }
+
+  if (!open) {
+    return (
+      <div className="mb-4">
+        <button className="btn py-1.5 text-xs" onClick={() => setOpen(true)}>
+          Import from text
+        </button>
+        <span className="ml-2 text-xs text-[var(--muted)]">
+          Paste the old-style daily message — shorthand understood, reviewed before anything is created.
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="card animate-rise mb-4 space-y-3 p-3">
+      <div className="flex items-baseline justify-between">
+        <h2 className="text-sm font-semibold">Import a daily brief</h2>
+        <button
+          className="btn-ghost py-1 text-xs"
+          onClick={() => {
+            setOpen(false);
+            setRows(null);
+          }}
+        >
+          Close
+        </button>
+      </div>
+
+      {!rows ? (
+        <>
+          <textarea
+            className="input min-h-[160px] font-mono text-xs"
+            placeholder={"MONDAY 3rd August\n\nScheyr\nAmeerh revs x2\nEEH: Misconception on Laser Correction\n…"}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+          />
+          <button className="btn-primary py-1.5" onClick={runParse} disabled={!text.trim()}>
+            Parse
+          </button>
+        </>
+      ) : (
+        <>
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="text-[var(--muted)]">Assign everything to</span>
+            <input
+              type="date"
+              className="input max-w-[170px] py-1"
+              value={targetDate}
+              onChange={(e) => e.target.value && setTargetDate(e.target.value)}
+              aria-label="Target date"
+            />
+            <span className="tabular text-xs text-[var(--muted)]">
+              {rows.length} task{rows.length === 1 ? "" : "s"} recognised
+            </span>
+          </div>
+
+          {warnings.length > 0 && (
+            <ul className="space-y-0.5 text-xs text-[var(--warning)]">
+              {warnings.map((w, i) => (
+                <li key={i}>{w}</li>
+              ))}
+            </ul>
+          )}
+
+          <div className="space-y-1.5">
+            {rows.map((r, i) => (
+              <div key={i} className="flex flex-wrap items-center gap-1.5" title={r.raw}>
+                <select
+                  className="input max-w-[150px] py-1 text-xs"
+                  value={r.userId ?? ""}
+                  onChange={(e) => {
+                    const m = members.find((x) => x.userId === e.target.value);
+                    patchRow(i, { userId: m?.userId ?? null, personName: m?.name ?? null });
+                  }}
+                  aria-label="Person"
+                  style={{ borderColor: r.userId ? undefined : "var(--danger)" }}
+                >
+                  <option value="">Person…</option>
+                  {members.map((m) => (
+                    <option key={m.userId} value={m.userId}>
+                      {m.name}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className="input max-w-[170px] py-1 text-xs"
+                  value={r.clientId ?? ""}
+                  onChange={(e) => {
+                    const c = clients.find((x) => x.id === e.target.value);
+                    patchRow(i, { clientId: c?.id ?? null, clientName: c?.name ?? null });
+                  }}
+                  aria-label="Client"
+                  style={{ borderColor: r.clientId ? undefined : "var(--warning)" }}
+                >
+                  <option value="">No client</option>
+                  {clients.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  className="input min-w-[180px] flex-1 py-1 text-xs"
+                  value={r.description}
+                  onChange={(e) => patchRow(i, { description: e.target.value })}
+                  aria-label="Task"
+                />
+                {r.tentative && (
+                  <span className="pill pill-warning" title="Marked with ? in the brief">
+                    tentative
+                  </span>
+                )}
+                <button
+                  className="btn-ghost px-1.5 py-1 text-xs"
+                  onClick={() => setRows((prev) => prev!.filter((_, j) => j !== i))}
+                  aria-label="Remove row"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {error && (
+            <p className="text-sm text-[var(--danger)]" role="alert">
+              {error}
+            </p>
+          )}
+
+          <div className="flex gap-2">
+            <button className="btn-primary py-1.5" onClick={() => void commit()} disabled={busy}>
+              {busy ? "Adding…" : `Add ${rows.filter((r) => r.userId).length} tasks`}
+            </button>
+            <button className="btn py-1.5" onClick={() => setRows(null)}>
+              Back to text
+            </button>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
