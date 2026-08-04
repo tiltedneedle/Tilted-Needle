@@ -432,6 +432,54 @@ async function mkUser(email) {
   check("a manager can still edit an approved week's entries",
     (managerEdit?.length ?? 0) === 1);
 
+  // Daily to-dos. The sheet's security model: managers run the whole day,
+  // a member sees exactly their own rows and can only tick them done.
+  const { data: todoForMember, error: todoInsErr } = await a.client
+    .from("todos")
+    .insert({
+      workspace_id: wsA.id, user_id: plainMember.id,
+      assigned_on: "2026-08-03", description: "Revision on the Mykonos vlog",
+    })
+    .select()
+    .single();
+  check("manager can assign a to-do to a member", !todoInsErr && !!todoForMember, todoInsErr?.message);
+
+  await a.client.from("todos").insert({
+    workspace_id: wsA.id, user_id: a.id,
+    assigned_on: "2026-08-03", description: "Manager's own task",
+  });
+
+  const { data: memberTodos } = await plainMember.client
+    .from("todos").select("id, description").eq("workspace_id", wsA.id);
+  check("member sees exactly their own to-dos, not the manager's",
+    (memberTodos?.length ?? 0) === 1 && memberTodos?.[0]?.id === todoForMember.id,
+    `saw ${memberTodos?.length}`);
+
+  const { error: memberTodoInsErr } = await plainMember.client
+    .from("todos")
+    .insert({
+      workspace_id: wsA.id, user_id: plainMember.id,
+      assigned_on: "2026-08-03", description: "self-assigned",
+    });
+  check("member cannot create to-dos, even for themselves", !!memberTodoInsErr);
+
+  const { data: ticked } = await plainMember.client
+    .from("todos")
+    .update({ is_done: true, done_at: new Date().toISOString() })
+    .eq("id", todoForMember.id)
+    .select();
+  check("member can tick their own to-do done", (ticked?.length ?? 0) === 1 && ticked?.[0]?.is_done === true);
+
+  await plainMember.client.from("todos").delete().eq("id", todoForMember.id);
+  const { data: todoStillThere } = await plainMember.client
+    .from("todos").select("id").eq("id", todoForMember.id);
+  check("member cannot delete a to-do off the sheet", (todoStillThere?.length ?? 0) === 1);
+
+  const { data: bTodos } = await b.client.from("todos").select("id").eq("workspace_id", wsA.id);
+  check("another workspace's user sees none of the sheet", (bTodos?.length ?? 0) === 0);
+
+  await a.client.from("todos").delete().eq("workspace_id", wsA.id);
+
   await admin.from("memberships").delete().eq("workspace_id", wsA.id).eq("user_id", plainMember.id);
   await admin.auth.admin.deleteUser(plainMember.id);
 

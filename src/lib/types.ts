@@ -176,6 +176,20 @@ export const PLATFORM_COLORS: Record<string, string> = {
   facebook: "#1877f2",
 };
 
+/** One line of the daily assignment sheet: one person, one day, one task. */
+export type Todo = {
+  id: string;
+  workspace_id: string;
+  user_id: string;
+  client_id: string | null;
+  assigned_on: string;
+  description: string;
+  is_done: boolean;
+  done_at: string | null;
+  profile?: { full_name: string | null } | { full_name: string | null }[] | null;
+  client?: { id: string; name: string } | { id: string; name: string }[] | null;
+};
+
 /** Managers and above can see the whole workspace and edit others' entries. */
 export const MANAGER_ROLES: WorkspaceRole[] = ["owner", "admin", "manager"];
 

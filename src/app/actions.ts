@@ -427,6 +427,73 @@ export async function unassignRole(id: string): Promise<Result> {
   return {};
 }
 
+/* ---- Daily to-dos --------------------------------------------------------
+   RLS is the boundary: insert/delete are manager-only at the policy level,
+   and a non-manager's update can only ever reach their own rows. */
+
+export async function createTodo(input: {
+  workspaceId: string;
+  userId: string;
+  clientId: string | null;
+  assignedOn: string;
+  description: string;
+}): Promise<Result> {
+  if (!input.description.trim()) return { error: "Description is required." };
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const { error } = await supabase.from("todos").insert({
+    workspace_id: input.workspaceId,
+    user_id: input.userId,
+    client_id: input.clientId,
+    assigned_on: input.assignedOn,
+    description: input.description.trim(),
+    created_by: user?.id ?? null,
+  });
+  if (error) return { error: error.message };
+  revalidatePath("/todos");
+  return {};
+}
+
+export async function updateTodo(
+  id: string,
+  patch: { description?: string; clientId?: string | null; userId?: string; assignedOn?: string },
+): Promise<Result> {
+  const supabase = await createClient();
+  const row: Record<string, unknown> = {};
+  if (patch.description !== undefined) {
+    if (!patch.description.trim()) return { error: "Description is required." };
+    row.description = patch.description.trim();
+  }
+  if (patch.clientId !== undefined) row.client_id = patch.clientId;
+  if (patch.userId !== undefined) row.user_id = patch.userId;
+  if (patch.assignedOn !== undefined) row.assigned_on = patch.assignedOn;
+  const { error } = await supabase.from("todos").update(row).eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/todos");
+  return {};
+}
+
+export async function toggleTodoDone(id: string, done: boolean): Promise<Result> {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("todos")
+    .update({ is_done: done, done_at: done ? new Date().toISOString() : null })
+    .eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/todos");
+  return {};
+}
+
+export async function deleteTodo(id: string): Promise<Result> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("todos").delete().eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/todos");
+  return {};
+}
+
 /* ---- Phase 4: rates, expenses, invoices --------------------------------- */
 
 /** Empty string clears a rate so it falls through to the next level. */
