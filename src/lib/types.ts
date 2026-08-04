@@ -190,6 +190,25 @@ export type Todo = {
   client?: { id: string; name: string } | { id: string; name: string }[] | null;
 };
 
+/** A training course: an ordered set of videos watched strictly in sequence. */
+export type TrainingModule = {
+  id: string;
+  workspace_id: string;
+  title: string;
+  description: string | null;
+  sort_order: number;
+  is_archived: boolean;
+};
+
+export type TrainingVideo = {
+  id: string;
+  module_id: string;
+  title: string;
+  youtube_url: string;
+  sort_order: number;
+  created_at: string;
+};
+
 /** Managers and above can see the whole workspace and edit others' entries. */
 export const MANAGER_ROLES: WorkspaceRole[] = ["owner", "admin", "manager"];
 

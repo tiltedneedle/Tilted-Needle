@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/server";
 import { ACTIVE_WORKSPACE_COOKIE } from "@/lib/workspace";
 import { logAudit } from "@/lib/audit";
 import { dispatchWebhook } from "@/lib/webhooks";
+import { youtubeIdFrom } from "@/lib/videoEmbed";
 import { MANAGER_ROLES, type WorkspaceRole } from "@/lib/types";
 
 type Result = { error?: string };
@@ -491,6 +492,231 @@ export async function deleteTodo(id: string): Promise<Result> {
   const { error } = await supabase.from("todos").delete().eq("id", id);
   if (error) return { error: error.message };
   revalidatePath("/todos");
+  return {};
+}
+
+/* ---- Training ------------------------------------------------------------
+   Module/video writes and assignment writes are manager-only at the RLS
+   level. Completion is the one member write, and the strictly-in-order rule
+   lives here in completeTrainingVideo -- RLS guarantees whose progress can
+   be written, this guarantees the order it can be written in. */
+
+function trainingPaths(moduleId?: string) {
+  revalidatePath("/training");
+  if (moduleId) revalidatePath(`/training/${moduleId}`);
+}
+
+export async function createTrainingModule(input: {
+  workspaceId: string;
+  title: string;
+  description: string | null;
+}): Promise<Result & { id?: string }> {
+  if (!input.title.trim()) return { error: "Title is required." };
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("training_modules")
+    .insert({
+      workspace_id: input.workspaceId,
+      title: input.title.trim(),
+      description: input.description?.trim() || null,
+    })
+    .select("id")
+    .single();
+  if (error) return { error: error.message };
+  trainingPaths();
+  return { id: data.id };
+}
+
+export async function updateTrainingModule(
+  id: string,
+  patch: { title?: string; description?: string | null; isArchived?: boolean },
+): Promise<Result> {
+  const supabase = await createClient();
+  const row: Record<string, unknown> = {};
+  if (patch.title !== undefined) {
+    if (!patch.title.trim()) return { error: "Title is required." };
+    row.title = patch.title.trim();
+  }
+  if (patch.description !== undefined) row.description = patch.description?.trim() || null;
+  if (patch.isArchived !== undefined) row.is_archived = patch.isArchived;
+  const { error } = await supabase.from("training_modules").update(row).eq("id", id);
+  if (error) return { error: error.message };
+  trainingPaths(id);
+  return {};
+}
+
+export async function deleteTrainingModule(id: string): Promise<Result> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("training_modules").delete().eq("id", id);
+  if (error) return { error: error.message };
+  trainingPaths();
+  return {};
+}
+
+export async function addTrainingVideo(input: {
+  workspaceId: string;
+  moduleId: string;
+  title: string;
+  youtubeUrl: string;
+}): Promise<Result> {
+  if (!input.title.trim()) return { error: "Video title is required." };
+  if (!youtubeIdFrom(input.youtubeUrl)) {
+    return { error: "That doesn't look like a YouTube video URL." };
+  }
+  const supabase = await createClient();
+  // Append at the end: explicit, distinct sort orders keep reordering exact.
+  const { data: last } = await supabase
+    .from("training_videos")
+    .select("sort_order")
+    .eq("module_id", input.moduleId)
+    .order("sort_order", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const { error } = await supabase.from("training_videos").insert({
+    workspace_id: input.workspaceId,
+    module_id: input.moduleId,
+    title: input.title.trim(),
+    youtube_url: input.youtubeUrl.trim(),
+    sort_order: (last?.sort_order ?? 0) + 10,
+  });
+  if (error) return { error: error.message };
+  trainingPaths(input.moduleId);
+  return {};
+}
+
+export async function deleteTrainingVideo(id: string, moduleId: string): Promise<Result> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("training_videos").delete().eq("id", id);
+  if (error) return { error: error.message };
+  trainingPaths(moduleId);
+  return {};
+}
+
+export async function moveTrainingVideo(
+  id: string,
+  moduleId: string,
+  direction: "up" | "down",
+): Promise<Result> {
+  const supabase = await createClient();
+  const { data: vids } = await supabase
+    .from("training_videos")
+    .select("id, sort_order")
+    .eq("module_id", moduleId)
+    .order("sort_order")
+    .order("created_at");
+  const list = (vids ?? []) as { id: string; sort_order: number }[];
+  const i = list.findIndex((v) => v.id === id);
+  const j = direction === "up" ? i - 1 : i + 1;
+  if (i === -1 || j < 0 || j >= list.length) return {};
+  [list[i], list[j]] = [list[j], list[i]];
+  // Renumber the whole module: also normalises any historical ties, so the
+  // order on screen is always exactly the order completion is enforced in.
+  for (let k = 0; k < list.length; k++) {
+    const { error } = await supabase
+      .from("training_videos")
+      .update({ sort_order: (k + 1) * 10 })
+      .eq("id", list[k].id);
+    if (error) return { error: error.message };
+  }
+  trainingPaths(moduleId);
+  return {};
+}
+
+export async function assignTraining(input: {
+  workspaceId: string;
+  moduleId: string;
+  userId: string;
+}): Promise<Result> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const { error } = await supabase.from("training_assignments").insert({
+    workspace_id: input.workspaceId,
+    module_id: input.moduleId,
+    user_id: input.userId,
+    assigned_by: user?.id ?? null,
+  });
+  if (error) {
+    if (error.code === "23505") return { error: "Already assigned." };
+    return { error: error.message };
+  }
+  trainingPaths(input.moduleId);
+  return {};
+}
+
+export async function unassignTraining(id: string, moduleId: string): Promise<Result> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("training_assignments").delete().eq("id", id);
+  if (error) return { error: error.message };
+  trainingPaths(moduleId);
+  return {};
+}
+
+/** The course rule: a video can only be completed once every video before it is. */
+export async function completeTrainingVideo(input: {
+  workspaceId: string;
+  moduleId: string;
+  videoId: string;
+}): Promise<Result> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+
+  const [vidsRes, doneRes] = await Promise.all([
+    supabase
+      .from("training_videos")
+      .select("id")
+      .eq("module_id", input.moduleId)
+      .order("sort_order")
+      .order("created_at"),
+    supabase
+      .from("training_completions")
+      .select("video_id")
+      .eq("user_id", user.id),
+  ]);
+  const ordered = ((vidsRes.data ?? []) as { id: string }[]).map((v) => v.id);
+  const done = new Set(((doneRes.data ?? []) as { video_id: string }[]).map((c) => c.video_id));
+
+  const target = ordered.indexOf(input.videoId);
+  if (target === -1) return { error: "That video is not in this module." };
+  if (done.has(input.videoId)) return {};
+  const firstIncomplete = ordered.findIndex((vid) => !done.has(vid));
+  if (firstIncomplete !== target) {
+    return { error: "Complete the previous video first." };
+  }
+
+  const { error } = await supabase.from("training_completions").insert({
+    workspace_id: input.workspaceId,
+    video_id: input.videoId,
+    user_id: user.id,
+  });
+  if (error) return { error: error.message };
+  trainingPaths(input.moduleId);
+  return {};
+}
+
+/** Manager-only (RLS): wipes one person's progress in one module. */
+export async function resetTrainingProgress(input: {
+  moduleId: string;
+  userId: string;
+}): Promise<Result> {
+  const supabase = await createClient();
+  const { data: vids } = await supabase
+    .from("training_videos")
+    .select("id")
+    .eq("module_id", input.moduleId);
+  const ids = ((vids ?? []) as { id: string }[]).map((v) => v.id);
+  if (ids.length === 0) return {};
+  const { error } = await supabase
+    .from("training_completions")
+    .delete()
+    .eq("user_id", input.userId)
+    .in("video_id", ids);
+  if (error) return { error: error.message };
+  trainingPaths(input.moduleId);
   return {};
 }
 

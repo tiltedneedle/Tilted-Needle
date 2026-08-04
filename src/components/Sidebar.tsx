@@ -14,6 +14,7 @@ import {
   Clock,
   Code2,
   Folder,
+  GraduationCap,
   Grid2x2,
   LayoutGrid,
   ListChecks,
@@ -76,6 +77,7 @@ const NAV = [
       // First in the group: it is the first thing an employee opens each
       // morning -- "what am I doing today."
       { href: "/todos", label: "To-dos", icon: ListChecks as IconType },
+      { href: "/training", label: "Training", icon: GraduationCap as IconType },
       { href: "/track", label: "Time Tracker", icon: Clock as IconType },
       { href: "/timesheet", label: "Timesheet", icon: Grid2x2 as IconType },
       { href: "/dashboard", label: "Hours", icon: LayoutGrid as IconType },

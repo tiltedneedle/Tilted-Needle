@@ -480,6 +480,70 @@ async function mkUser(email) {
 
   await a.client.from("todos").delete().eq("workspace_id", wsA.id);
 
+  // Training. Access to a module IS the assignment: an unassigned member
+  // must see nothing at all, and completion can only ever be self-recorded.
+  const { data: trModule, error: trModErr } = await a.client
+    .from("training_modules")
+    .insert({ workspace_id: wsA.id, title: "Editing onboarding" })
+    .select()
+    .single();
+  check("manager can create a training module", !trModErr && !!trModule, trModErr?.message);
+
+  const { data: trVid } = await a.client
+    .from("training_videos")
+    .insert({
+      workspace_id: wsA.id, module_id: trModule.id,
+      title: "Intro", youtube_url: "https://youtu.be/dQw4w9WgXcQ", sort_order: 10,
+    })
+    .select()
+    .single();
+  check("manager can add a video", !!trVid);
+
+  const { data: unassignedModules } = await plainMember.client
+    .from("training_modules").select("id").eq("workspace_id", wsA.id);
+  const { data: unassignedVideos } = await plainMember.client
+    .from("training_videos").select("id").eq("workspace_id", wsA.id);
+  check("unassigned member sees no modules and no videos",
+    (unassignedModules?.length ?? 0) === 0 && (unassignedVideos?.length ?? 0) === 0);
+
+  const { error: memberModErr } = await plainMember.client
+    .from("training_modules")
+    .insert({ workspace_id: wsA.id, title: "member-made course" });
+  check("member cannot create modules", !!memberModErr);
+
+  await a.client.from("training_assignments").insert({
+    workspace_id: wsA.id, module_id: trModule.id, user_id: plainMember.id,
+  });
+  const { data: assignedModules } = await plainMember.client
+    .from("training_modules").select("id").eq("workspace_id", wsA.id);
+  const { data: assignedVideos } = await plainMember.client
+    .from("training_videos").select("id").eq("workspace_id", wsA.id);
+  check("assignment makes the module and its videos visible",
+    assignedModules?.length === 1 && assignedVideos?.length === 1);
+
+  const { error: selfDoneErr } = await plainMember.client
+    .from("training_completions")
+    .insert({ workspace_id: wsA.id, video_id: trVid.id, user_id: plainMember.id });
+  check("assigned member can complete a video for themselves", !selfDoneErr, selfDoneErr?.message);
+
+  const { error: forgeDoneErr } = await plainMember.client
+    .from("training_completions")
+    .insert({ workspace_id: wsA.id, video_id: trVid.id, user_id: a.id });
+  check("member cannot record completion for someone else", !!forgeDoneErr);
+
+  await plainMember.client.from("training_completions")
+    .delete().eq("video_id", trVid.id).eq("user_id", plainMember.id);
+  const { data: doneStillThere } = await plainMember.client
+    .from("training_completions").select("id").eq("video_id", trVid.id);
+  check("member cannot un-complete -- resets are a manager action",
+    (doneStillThere?.length ?? 0) === 1);
+
+  const { data: bModules } = await b.client
+    .from("training_modules").select("id").eq("workspace_id", wsA.id);
+  check("another tenant sees no training modules", (bModules?.length ?? 0) === 0);
+
+  await a.client.from("training_modules").delete().eq("id", trModule.id);
+
   await admin.from("memberships").delete().eq("workspace_id", wsA.id).eq("user_id", plainMember.id);
   await admin.auth.admin.deleteUser(plainMember.id);
 
