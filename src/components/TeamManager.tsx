@@ -2,7 +2,15 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { createGroup, deleteGroup, setGroupMember, updateCapacity } from "@/app/actions";
+import {
+  addMemberByEmail,
+  createGroup,
+  deleteGroup,
+  setGroupMember,
+  setMemberActive,
+  setMemberRole,
+  updateCapacity,
+} from "@/app/actions";
 import type { SeatType, WorkspaceRole } from "@/lib/types";
 
 type Member = {
@@ -25,12 +33,15 @@ export default function TeamManager({
   groups,
   groupMembers,
   canManage,
+  selfUserId,
 }: {
   workspaceId: string;
   members: Member[];
   groups: Group[];
   groupMembers: GroupMember[];
   canManage: boolean;
+  /** Own row renders static -- no demoting or deactivating yourself. */
+  selfUserId?: string;
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -82,7 +93,11 @@ export default function TeamManager({
           refresh={refresh}
         />
       ) : (
-        <div className="card overflow-hidden">
+        <>
+          {canManage && (
+            <AddMemberRow workspaceId={workspaceId} onError={setError} refresh={refresh} />
+          )}
+          <div className="card overflow-hidden">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-[var(--border)] text-left text-xs uppercase tracking-wide text-[var(--muted)]">
@@ -94,7 +109,11 @@ export default function TeamManager({
               </tr>
             </thead>
             <tbody className="divide-y divide-[var(--border)]">
-              {filtered.map((m) => (
+              {filtered.map((m) => {
+                // Own and owner rows stay read-only: the server action
+                // refuses both anyway; the UI just doesn't offer it.
+                const editable = canManage && m.role !== "owner" && m.userId !== selfUserId;
+                return (
                 <tr key={m.id} className="transition-colors hover:bg-[var(--bg-subtle)]">
                   <td
                     className={`px-3 py-2.5 ${m.isActive ? "" : "line-through opacity-60"}`}
@@ -102,15 +121,56 @@ export default function TeamManager({
                     {m.name}
                   </td>
                   <td className="px-3 py-2.5">
-                    <span className="rounded bg-[var(--bg-subtle)] px-1.5 py-0.5 text-xs capitalize">
-                      {m.role}
-                    </span>
+                    {editable ? (
+                      <select
+                        className="input max-w-[130px] py-1 text-xs capitalize"
+                        value={m.role}
+                        aria-label={`Role for ${m.name}`}
+                        onChange={async (e) => {
+                          const res = await setMemberRole(m.id, e.target.value);
+                          if (res.error) setError(res.error);
+                          refresh();
+                        }}
+                      >
+                        <option value="member">member</option>
+                        <option value="manager">manager</option>
+                        <option value="admin">admin</option>
+                      </select>
+                    ) : (
+                      <span className="rounded bg-[var(--bg-subtle)] px-1.5 py-0.5 text-xs capitalize">
+                        {m.role}
+                      </span>
+                    )}
                   </td>
                   <td className="px-3 py-2.5 text-xs text-[var(--muted)]">
                     {groupsOf(m.userId).map((g) => g.name).join(", ") || "—"}
                   </td>
-                  <td className="px-3 py-2.5 text-xs text-[var(--muted)]">
-                    {m.isActive ? "Active" : "Deactivated"}
+                  <td className="px-3 py-2.5 text-xs">
+                    {editable ? (
+                      <button
+                        className={`rounded px-2 py-1 transition-colors ${
+                          m.isActive
+                            ? "text-[var(--muted)] hover:bg-[var(--border)] hover:text-[var(--danger)]"
+                            : "bg-[var(--success-100)] text-[var(--success)] hover:opacity-80"
+                        }`}
+                        onClick={async () => {
+                          const res = await setMemberActive(m.id, !m.isActive);
+                          if (res.error) setError(res.error);
+                          refresh();
+                        }}
+                        title={
+                          m.isActive
+                            ? "Deactivate — removes access, keeps all their history"
+                            : "Restore access"
+                        }
+                      >
+                        {m.isActive ? "Deactivate" : "Reactivate"}
+                      </button>
+                    ) : (
+                      <span className="text-[var(--muted)]">
+                        {m.isActive ? "Active" : "Deactivated"}
+                      </span>
+                    )}
                   </td>
                   <td className="px-3 py-2.5 text-right">
                     {canManage ? (
@@ -127,7 +187,8 @@ export default function TeamManager({
                     )}
                   </td>
                 </tr>
-              ))}
+                );
+              })}
               {filtered.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-3 py-8 text-center text-sm text-[var(--muted)]">
@@ -137,9 +198,76 @@ export default function TeamManager({
               )}
             </tbody>
           </table>
-        </div>
+          </div>
+        </>
       )}
     </>
+  );
+}
+
+/**
+ * Adds an existing account to the workspace by email. No invite emails to
+ * configure or break: signup is open on the login page, so the flow is
+ * "they sign up, you add them" -- the action explains exactly that when
+ * the email isn't found.
+ */
+function AddMemberRow({
+  workspaceId,
+  onError,
+  refresh,
+}: {
+  workspaceId: string;
+  onError: (m: string) => void;
+  refresh: () => void;
+}) {
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState("member");
+  const [busy, setBusy] = useState(false);
+
+  async function add() {
+    if (!email.trim()) return;
+    setBusy(true);
+    const res = await addMemberByEmail({ workspaceId, email, role });
+    setBusy(false);
+    if (res.error) return onError(res.error);
+    onError("");
+    setEmail("");
+    refresh();
+  }
+
+  return (
+    <div className="card mb-3 p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          className="input min-w-[220px] flex-1 py-1.5"
+          type="email"
+          placeholder="Add a member by email (they must have signed up first)"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void add();
+          }}
+          aria-label="Email of the account to add"
+        />
+        <select
+          className="input max-w-[120px] py-1.5 text-xs capitalize"
+          value={role}
+          onChange={(e) => setRole(e.target.value)}
+          aria-label="Role for the new member"
+        >
+          <option value="member">member</option>
+          <option value="manager">manager</option>
+          <option value="admin">admin</option>
+        </select>
+        <button
+          className="btn-primary py-1.5"
+          onClick={() => void add()}
+          disabled={busy || !email.trim()}
+        >
+          {busy ? "Adding…" : "Add member"}
+        </button>
+      </div>
+    </div>
   );
 }
 

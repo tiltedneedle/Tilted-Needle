@@ -1229,6 +1229,127 @@ export async function updateCapacity(membershipId: string, hoursPerWeek: string)
   return {};
 }
 
+/* ---- Membership administration -------------------------------------------
+   RLS already restricts these writes to managers; the guards here are about
+   the mistakes a manager could make, not what a member could forge: nobody
+   edits their own row (no demoting or deactivating yourself out of the
+   workspace mid-session), nobody touches the owner's row, and nobody is
+   promoted TO owner -- ownership transfer is deliberate enough to stay a
+   database operation, not a dropdown. */
+
+const ASSIGNABLE_ROLES = ["member", "manager", "admin"] as const;
+
+async function guardedMembershipTarget(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  membershipId: string,
+): Promise<{ error?: string; target?: { id: string; user_id: string; role: string } }> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+  const { data: target } = await supabase
+    .from("memberships")
+    .select("id, user_id, role")
+    .eq("id", membershipId)
+    .maybeSingle();
+  if (!target) return { error: "Member not found." };
+  if (target.user_id === user.id) return { error: "You can't change your own membership." };
+  if (target.role === "owner") return { error: "The owner's membership can't be changed here." };
+  return { target };
+}
+
+export async function setMemberRole(membershipId: string, role: string): Promise<Result> {
+  if (!ASSIGNABLE_ROLES.includes(role as (typeof ASSIGNABLE_ROLES)[number])) {
+    return { error: "Role must be member, manager, or admin." };
+  }
+  const supabase = await createClient();
+  const guard = await guardedMembershipTarget(supabase, membershipId);
+  if (guard.error) return { error: guard.error };
+  const { error } = await supabase.from("memberships").update({ role }).eq("id", membershipId);
+  if (error) return { error: error.message };
+  revalidatePath("/team");
+  revalidatePath("/home");
+  return {};
+}
+
+export async function setMemberActive(membershipId: string, isActive: boolean): Promise<Result> {
+  const supabase = await createClient();
+  const guard = await guardedMembershipTarget(supabase, membershipId);
+  if (guard.error) return { error: guard.error };
+  const { error } = await supabase
+    .from("memberships")
+    .update({ is_active: isActive })
+    .eq("id", membershipId);
+  if (error) return { error: error.message };
+  revalidatePath("/team");
+  revalidatePath("/home");
+  return {};
+}
+
+/**
+ * Adds an existing account to this workspace by email. Deliberately does
+ * not create accounts or send invite emails: signup is open on the login
+ * page, and "ask them to sign up, then add them" has no email-delivery
+ * configuration to break. The service client is used ONLY to resolve
+ * email -> user id (profiles carry no email); the membership insert itself
+ * runs as the caller, so RLS still decides whether they may add members.
+ */
+export async function addMemberByEmail(input: {
+  workspaceId: string;
+  email: string;
+  role: string;
+}): Promise<Result> {
+  const role = ASSIGNABLE_ROLES.includes(input.role as (typeof ASSIGNABLE_ROLES)[number])
+    ? input.role
+    : "member";
+  const email = input.email.trim().toLowerCase();
+  if (!email || !email.includes("@")) return { error: "Enter a valid email address." };
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+  const { data: caller } = await supabase
+    .from("memberships")
+    .select("role, is_active")
+    .eq("workspace_id", input.workspaceId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+  if (!caller?.is_active || !MANAGER_ROLES.includes(caller.role as WorkspaceRole)) {
+    return { error: "Only managers and above can add members." };
+  }
+
+  const { serviceClient } = await import("@/lib/syncRunner");
+  const admin = serviceClient();
+  const { data: page, error: listErr } = await admin.auth.admin.listUsers({
+    page: 1,
+    perPage: 1000,
+  });
+  if (listErr) return { error: listErr.message };
+  const found = page.users.find((u: { email?: string }) => u.email?.toLowerCase() === email);
+  if (!found) {
+    return {
+      error: "No account with that email. Ask them to sign up on the login page first, then add them here.",
+    };
+  }
+
+  const { error } = await supabase.from("memberships").insert({
+    workspace_id: input.workspaceId,
+    user_id: found.id,
+    role,
+    seat: "full",
+    is_active: true,
+  });
+  if (error) {
+    if (error.code === "23505") return { error: "They're already a member of this workspace." };
+    return { error: error.message };
+  }
+  revalidatePath("/team");
+  revalidatePath("/home");
+  return {};
+}
+
 export async function createTimeOffPolicy(
   workspaceId: string,
   name: string,

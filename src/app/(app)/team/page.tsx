@@ -273,6 +273,7 @@ export default async function TeamPage({
             groups={await loadGroups(supabase, ws)}
             groupMembers={await loadGroupMembers(supabase, ws)}
             canManage={manages}
+            selfUserId={session.userId}
           />
         </>
       ) : (

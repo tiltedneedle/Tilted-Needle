@@ -511,6 +511,26 @@ async function mkUser(email) {
     .insert({ workspace_id: wsA.id, title: "member-made course" });
   check("member cannot create modules", !!memberModErr);
 
+  // Membership administration is manager-only: a plain member can neither
+  // promote themselves nor smuggle a new member into the workspace.
+  await plainMember.client
+    .from("memberships")
+    .update({ role: "admin" })
+    .eq("workspace_id", wsA.id)
+    .eq("user_id", plainMember.id);
+  const { data: selfRow } = await plainMember.client
+    .from("memberships")
+    .select("role")
+    .eq("workspace_id", wsA.id)
+    .eq("user_id", plainMember.id)
+    .maybeSingle();
+  check("member cannot promote themselves", selfRow?.role === "member");
+
+  const { error: smuggleErr } = await plainMember.client
+    .from("memberships")
+    .insert({ workspace_id: wsA.id, user_id: b.id, role: "member", seat: "full" });
+  check("member cannot add members to the workspace", !!smuggleErr);
+
   await a.client.from("training_assignments").insert({
     workspace_id: wsA.id, module_id: trModule.id, user_id: plainMember.id,
   });
