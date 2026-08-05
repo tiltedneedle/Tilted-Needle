@@ -260,6 +260,11 @@ h3 {
 .input::placeholder {
   color: var(--muted);
 }
+/* A resting field firms up slightly under the cursor -- the pre-focus cue
+   that it's interactive; the focus ring stays the real signal. */
+.input:hover:not(:focus):not(:disabled) {
+  border-color: var(--border-strong);
+}
 .input:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--coral-100);
@@ -392,6 +397,12 @@ h3 {
   transform: translateY(-2px);
   box-shadow: var(--shadow-card-hover);
 }
+/* Press feedback: the lifted card settles back under the click, so the tap
+   reads as physical rather than the hover state simply persisting. */
+.card-interactive:active {
+  transform: translateY(0) scale(0.995);
+  box-shadow: var(--shadow-card);
+}
 
 /* The one dark surface pattern besides the sidebar: a "hero" KPI card. In
    dark mode the trick inverts -- the page is already dark charcoal, so this
@@ -407,12 +418,26 @@ h3 {
 }
 .card-hero::after {
   /* A faint coral glow in one corner -- the one subtle depth cue the spec
-     asks for instead of a flat black surface. */
+     asks for instead of a flat black surface. It breathes, barely: a slow
+     6s opacity drift is the "shadow animation" that makes the hero tile
+     read as alive without ever pulling the eye mid-read. Reduced-motion
+     users get the static glow via the global media rule. */
   content: "";
   position: absolute;
   inset: 0;
   background: radial-gradient(120px 120px at 100% 0%, rgb(240 112 74 / 0.16), transparent 70%);
   pointer-events: none;
+  animation: hero-breathe 6s ease-in-out infinite;
+}
+
+@keyframes hero-breathe {
+  0%,
+  100% {
+    opacity: 0.7;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 .panel-shadow {
@@ -492,6 +517,9 @@ h3 {
   border-radius: 6px;
   border: 3px solid transparent;
   background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--muted);
 }
 
 /* ---------------------------------------------------------------------------
