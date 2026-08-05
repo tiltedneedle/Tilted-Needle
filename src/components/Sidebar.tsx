@@ -22,6 +22,7 @@ import {
   Percent,
   PlayCircle,
   Receipt,
+  RefreshCw,
   Share2,
   ShieldCheck,
   Tag,
@@ -128,6 +129,7 @@ const NAV = [
     group: "Manage",
     items: [
       { href: "/accounts", label: "Accounts", icon: Share2 as IconType },
+      { href: "/data", label: "Data sync", icon: RefreshCw as IconType },
       { href: "/projects", label: "Projects", icon: Folder as IconType },
       { href: "/tags", label: "Tags", icon: Tag as IconType },
       { href: "/kiosks", label: "Kiosks", icon: Grid2x2 as IconType },

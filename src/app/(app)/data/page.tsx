@@ -1,0 +1,193 @@
+import PageHeader from "@/components/PageHeader";
+import DataPanel, { type PanelAccount } from "@/components/DataPanel";
+import { Stat, StatGrid, SectionHeading } from "@/components/Stat";
+import { Database, RefreshCw, AlertTriangle, Wallet } from "lucide-react";
+import { createClient } from "@/lib/supabase/server";
+import { requireSession } from "@/lib/workspace";
+import { one } from "@/lib/types";
+
+export const metadata = { title: "Data sync" };
+
+/**
+ * The scraping control room, manager-only (the member allow-list in the app
+ * layout redirects everyone else). Everything the autonomous pipeline does
+ * on its own -- the daily cron, discovery cooldowns, the metered budget --
+ * is visible here, and all of it can be triggered by hand: per-account or
+ * everything at once, through the exact same sync path the cron uses.
+ */
+export default async function DataPage() {
+  const session = await requireSession();
+  const supabase = await createClient();
+  const ws = session.active.id;
+
+  const today = new Date().toISOString().slice(0, 10);
+  const [accountsRes, postsRes, budgetRes] = await Promise.all([
+    supabase
+      .from("accounts")
+      .select(
+        "id, platform_slug, handle, connection_mode, sync_enabled, last_synced_at, last_sync_error, last_discovered_at, client:clients(name)",
+      )
+      .eq("workspace_id", ws)
+      .eq("is_archived", false)
+      .order("platform_slug")
+      .order("handle"),
+    supabase.from("platform_posts").select("account_id").eq("workspace_id", ws),
+    supabase
+      .from("scrape_budgets")
+      .select("platform_slug, period_end, limit_auto, limit_discovery, limit_manual, used_auto, used_discovery, used_manual")
+      .eq("workspace_id", ws)
+      .gte("period_end", today)
+      .order("period_end")
+      .limit(5),
+  ]);
+
+  const postCount = new Map<string, number>();
+  for (const p of (postsRes.data ?? []) as { account_id: string }[]) {
+    postCount.set(p.account_id, (postCount.get(p.account_id) ?? 0) + 1);
+  }
+
+  type Row = {
+    id: string;
+    platform_slug: string;
+    handle: string;
+    connection_mode: string;
+    sync_enabled: boolean;
+    last_synced_at: string | null;
+    last_sync_error: string | null;
+    last_discovered_at: string | null;
+    client: { name: string } | { name: string }[] | null;
+  };
+  const accounts: PanelAccount[] = ((accountsRes.data ?? []) as unknown as Row[]).map((a) => ({
+    id: a.id,
+    platformSlug: a.platform_slug,
+    handle: a.handle,
+    clientName: one(a.client)?.name ?? null,
+    mode: a.connection_mode,
+    syncEnabled: a.sync_enabled,
+    lastSyncedAt: a.last_synced_at,
+    lastDiscoveredAt: a.last_discovered_at,
+    lastError: a.last_sync_error,
+    postsTracked: postCount.get(a.id) ?? 0,
+  }));
+
+  const lastSync = accounts
+    .map((a) => a.lastSyncedAt)
+    .filter((t): t is string => !!t)
+    .sort()
+    .at(-1);
+  const errorCount = accounts.filter((a) => a.lastError).length;
+
+  type Budget = {
+    platform_slug: string;
+    period_end: string;
+    limit_auto: number;
+    limit_discovery: number;
+    limit_manual: number;
+    used_auto: number;
+    used_discovery: number;
+    used_manual: number;
+  };
+  const budget = ((budgetRes.data ?? []) as Budget[]).find(
+    (b) => b.platform_slug === "instagram",
+  );
+  const budgetUsed = budget
+    ? budget.used_auto + budget.used_discovery + budget.used_manual
+    : null;
+  const budgetLimit = budget
+    ? budget.limit_auto + budget.limit_discovery + budget.limit_manual
+    : null;
+
+  // The optional TikTok discovery box: /health is unauthenticated by design,
+  // so the panel can say "up" or "down" without spending a discovery call.
+  let tiktokBox: "ok" | "down" | "unconfigured" = "unconfigured";
+  const discoverUrl = process.env.TIKTOK_DISCOVER_URL;
+  if (discoverUrl) {
+    try {
+      const res = await fetch(discoverUrl.replace(/\/discover\/?$/, "/health"), {
+        signal: AbortSignal.timeout(4000),
+        cache: "no-store",
+      });
+      tiktokBox = res.ok ? "ok" : "down";
+    } catch {
+      tiktokBox = "down";
+    }
+  }
+
+  return (
+    <div className="mx-auto max-w-5xl px-6 py-6">
+      <PageHeader
+        title="Data sync"
+        subtitle="Everything the pipeline fetches on its own, and the levers to refresh it by hand."
+      />
+
+      <StatGrid>
+        <Stat
+          hero
+          icon={Database}
+          label="Accounts syncing"
+          value={String(accounts.filter((a) => a.syncEnabled).length)}
+          hint={`of ${accounts.length} connected`}
+        />
+        <Stat
+          icon={RefreshCw}
+          label="Last sync"
+          value={
+            lastSync
+              ? new Date(lastSync).toLocaleTimeString(undefined, {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })
+              : "—"
+          }
+          hint={
+            lastSync
+              ? new Date(lastSync).toLocaleDateString(undefined, {
+                  month: "short",
+                  day: "numeric",
+                })
+              : "runs daily via cron"
+          }
+        />
+        <Stat
+          icon={AlertTriangle}
+          label="Sync errors"
+          value={String(errorCount)}
+          hint={errorCount ? "see rows below" : "all clear"}
+          accent={errorCount > 0}
+        />
+        <Stat
+          icon={Wallet}
+          label="Instagram budget"
+          value={budgetUsed != null ? `${budgetUsed}/${budgetLimit}` : "—"}
+          hint={
+            budget
+              ? `resets ${new Date(budget.period_end).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
+              : "no window open yet"
+          }
+        />
+      </StatGrid>
+
+      <SectionHeading
+        title="Connected accounts"
+        note="Manual refresh uses the same path as the daily cron — metered platforms still spend from the budget above"
+      />
+      <DataPanel workspaceId={ws} accounts={accounts} />
+
+      <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-[var(--muted)]">
+        <span
+          className={`pill ${
+            tiktokBox === "ok" ? "pill-success" : tiktokBox === "down" ? "pill-danger" : "pill-neutral"
+          }`}
+        >
+          TikTok discovery box:{" "}
+          {tiktokBox === "ok" ? "connected" : tiktokBox === "down" ? "unreachable" : "not configured"}
+        </span>
+        <span>
+          YouTube and Instagram discover and refresh entirely on this stack; TikTok
+          metrics refresh here too — only TikTok <em>discovery</em> of new videos
+          rides the optional self-hosted box.
+        </span>
+      </div>
+    </div>
+  );
+}

@@ -79,6 +79,29 @@ export function parseIsoDuration(iso: string): number | null {
 }
 
 /**
+ * Is this video a YouTube Short? Over 180s cannot be one (YouTube's own
+ * ceiling); at or under, the /shorts/ URL is the authoritative signal -- it
+ * serves a Short directly (200) but redirects a normal video to /watch
+ * (3xx). Errors report "not a Short" on purpose: discovery must fail open
+ * rather than silently drop long-form work (see discover()).
+ */
+export async function isYoutubeShort(
+  externalId: string,
+  lengthSeconds: number | null,
+): Promise<boolean> {
+  if (lengthSeconds != null && lengthSeconds > 180) return false;
+  try {
+    const res = await fetch(`https://www.youtube.com/shorts/${externalId}`, {
+      method: "HEAD",
+      redirect: "manual",
+    });
+    return res.status === 200;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Counts arrive as strings, and are absent entirely when a channel has hidden
  * them. Absent must stay null: a 0 would read as "nobody watched this" and
  * would drag every score computed from it downward (PRD 5).
@@ -276,6 +299,16 @@ export const youtubeProvider: PublicProvider = {
     return { ok: true, data: toCandidates(detail.data.items ?? [], false) };
   },
 
+  /**
+   * Long-form only, by policy: the agency tracks proper YouTube videos, and
+   * a Short slipping in would be scored against long-form baselines it has
+   * nothing in common with. Detection is two-step: anything over 180s cannot
+   * be a Short (YouTube's own ceiling), and for the rest the /shorts/ URL is
+   * authoritative -- it serves a Short directly (200) but redirects a normal
+   * video to /watch. On a network error the video is KEPT: silently dropping
+   * long-form work is the worse failure, and a stray Short can be deleted by
+   * hand from its video page.
+   */
   async discover(handle, options: DiscoverOptions = {}) {
     const limit = options.limit ?? 50;
     const since = options.since ?? null;
@@ -326,7 +359,32 @@ export const youtubeProvider: PublicProvider = {
       if (!pageToken) break;
     }
 
-    return { ok: true, data: found };
+    // Durations for everything found (1 quota unit per 50 videos): the
+    // Shorts filter needs them, and discovered rows gain real lengths as a
+    // side effect instead of the null playlistItems leaves behind.
+    for (let i = 0; i < found.length; i += 50) {
+      const batch = found.slice(i, i + 50);
+      const det = await call<VideosResponse>("videos", {
+        part: "contentDetails",
+        id: batch.map((p) => p.externalId).join(","),
+      });
+      if (det.ok) {
+        const byId = new Map(
+          (det.data.items ?? []).map((v) => [v.id, v.contentDetails?.duration]),
+        );
+        for (const p of batch) {
+          const iso = byId.get(p.externalId);
+          p.lengthSeconds = iso ? parseIsoDuration(iso) : null;
+        }
+      }
+    }
+
+    const longForm: DiscoveredPost[] = [];
+    for (const p of found) {
+      if (await isYoutubeShort(p.externalId, p.lengthSeconds)) continue;
+      longForm.push(p);
+    }
+    return { ok: true, data: longForm };
   },
 
   async fetchMetrics(externalIds) {

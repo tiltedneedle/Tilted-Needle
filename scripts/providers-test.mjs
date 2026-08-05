@@ -329,5 +329,49 @@ const ref = (s) => Y.parseChannelRef(s);
   else process.env.TIKTOK_DISCOVER_SECRET = before.secret;
 }
 
+/* -- YouTube Shorts filter ------------------------------------------------ */
+{
+  // Long-form only, by policy: a Short scored against long-form baselines
+  // would be meaningless. Over 180s never touches the network.
+  const realFetch = globalThis.fetch;
+  let fetched = 0;
+
+  globalThis.fetch = async () => {
+    fetched++;
+    throw new Error("must not be called");
+  };
+  check("over 180s is long-form with no network call",
+    (await Y.isYoutubeShort("abcdefghijk", 181)) === false && fetched === 0);
+
+  // At or under 180s, the /shorts/ URL decides: 200 = a Short.
+  globalThis.fetch = async (url, opts) => {
+    check("short check hits the /shorts/ url with HEAD, no redirect follow",
+      String(url).includes("/shorts/abcdefghijk") &&
+        opts?.method === "HEAD" && opts?.redirect === "manual");
+    return new Response(null, { status: 200 });
+  };
+  check("a 200 on /shorts/ marks it a Short", (await Y.isYoutubeShort("abcdefghijk", 45)) === true);
+
+  // A redirect means a normal watch page.
+  globalThis.fetch = async () => new Response(null, { status: 303 });
+  check("a redirect on /shorts/ marks it long-form",
+    (await Y.isYoutubeShort("abcdefghijk", 45)) === false);
+
+  // Unknown duration still gets the URL check rather than a guess.
+  globalThis.fetch = async () => new Response(null, { status: 200 });
+  check("null duration falls through to the URL check",
+    (await Y.isYoutubeShort("abcdefghijk", null)) === true);
+
+  // Network failure keeps the video: dropping long-form silently is the
+  // worse failure mode, and a stray Short is deletable by hand.
+  globalThis.fetch = async () => {
+    throw new Error("offline");
+  };
+  check("a network error fails open (kept as long-form)",
+    (await Y.isYoutubeShort("abcdefghijk", 45)) === false);
+
+  globalThis.fetch = realFetch;
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
