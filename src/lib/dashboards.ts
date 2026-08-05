@@ -458,12 +458,18 @@ export type PersonSummary = {
   clientIds: string[];
 };
 
-/** Monday 00:00 local, the week boundary the timesheet already uses. */
+/**
+ * Monday 00:00 in Asia/Dubai -- the company's operating timezone, matching
+ * the To-dos sheet's definition of "today". Server-local math here (UTC on
+ * Vercel) started the week 4 hours late: hours tracked between midnight
+ * and 4am Dubai on a Monday counted into the previous week. Dubai is fixed
+ * UTC+4 with no DST, so the instant can be built literally.
+ */
 export function startOfWeek(now = new Date()): Date {
-  const d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const dow = (d.getDay() + 6) % 7; // Monday = 0
-  d.setDate(d.getDate() - dow);
-  return d;
+  const dubaiDate = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai" }).format(now);
+  // That calendar date's weekday; noon UTC sidesteps any rollover edge.
+  const dow = (new Date(`${dubaiDate}T12:00:00Z`).getUTCDay() + 6) % 7; // Monday = 0
+  return new Date(new Date(`${dubaiDate}T00:00:00+04:00`).getTime() - dow * 86400000);
 }
 
 export type PeopleOverview = {
