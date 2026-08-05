@@ -167,23 +167,40 @@ export function RoleCredits({
     });
   }
 
+  // Collapsed by default into an avatar stack (each circle overlapping the
+  // previous by ~70%) so a dense list stays scannable; hovering, tabbing
+  // into, or opening any role's menu fans the stack out with the labels --
+  // then every circle works exactly as before. Reduced-motion users get the
+  // same states without the animation via the global media rule.
+  const expanded = openRole !== null;
   return (
-    <div ref={wrapRef} className="relative flex items-start gap-0.5">
-      {roles.map((role) => {
+    <div
+      ref={wrapRef}
+      className="group/stack relative flex items-start"
+    >
+      {roles.map((role, roleIndex) => {
         const holders = credits.filter((c) => c.roleSlug === role.slug);
         const label = SHORT_ROLE[role.slug] ?? role.name;
         const isOpen = openRole === role.slug;
         const lead = holders[0];
 
         return (
-          <div key={role.id} className="relative">
+          <div
+            key={role.id}
+            className={`relative transition-[margin] duration-200 ${
+              expanded ? "ml-0" : "-ml-[17px] first:ml-0"
+            } group-focus-within/stack:ml-0 group-hover/stack:ml-0`}
+            style={{ zIndex: isOpen ? 30 : roles.length - roleIndex }}
+          >
             <button
               type="button"
               disabled={!canManage || pending}
               onClick={() => setOpenRole(isOpen ? null : role.slug)}
-              className={`flex w-[38px] flex-col items-center gap-0.5 rounded-[8px] px-0.5 py-0.5 transition-colors ${
-                canManage ? "hover:bg-[var(--bg-subtle)]" : "cursor-default"
-              } ${isOpen ? "bg-[var(--bg-subtle)]" : ""}`}
+              className={`flex w-[30px] flex-col items-center gap-0.5 rounded-[8px] px-0.5 py-0.5 transition-[width,background-color] duration-200 group-focus-within/stack:w-[38px] group-hover/stack:w-[38px] ${
+                expanded ? "w-[38px]" : ""
+              } ${canManage ? "hover:bg-[var(--bg-subtle)]" : "cursor-default"} ${
+                isOpen ? "bg-[var(--bg-subtle)]" : ""
+              }`}
               title={
                 holders.length
                   ? `${role.name}: ${holders.map((h) => h.userName).join(", ")}`
@@ -197,10 +214,14 @@ export function RoleCredits({
             >
               <span className="relative">
                 {lead ? (
-                  <Avatar name={lead.userName} seed={lead.userId} size={24} title="" />
+                  // The ring separates overlapped circles in the collapsed
+                  // stack -- without it adjacent avatars blur together.
+                  <span className="block rounded-full shadow-[0_0_0_2px_var(--panel)]">
+                    <Avatar name={lead.userName} seed={lead.userId} size={24} title="" />
+                  </span>
                 ) : (
                   <span
-                    className={`flex size-[24px] items-center justify-center rounded-full border border-dashed border-[var(--border-strong)] text-[var(--muted)] ${
+                    className={`flex size-[24px] items-center justify-center rounded-full border border-dashed border-[var(--border-strong)] bg-[var(--panel)] text-[var(--muted)] shadow-[0_0_0_2px_var(--panel)] ${
                       canManage ? "" : "opacity-60"
                     }`}
                   >
@@ -214,10 +235,12 @@ export function RoleCredits({
                   </span>
                 )}
               </span>
+              {/* Labels exist only in the fanned-out state; collapsed, the
+                  stack is identification-by-avatar with tooltips. */}
               <span
-                className={`w-full truncate text-center text-[9px] leading-tight ${
-                  lead ? "text-[var(--muted)]" : "text-[var(--muted)] opacity-70"
-                }`}
+                className={`w-full truncate text-center text-[9px] leading-tight transition-[max-height,opacity] duration-200 group-focus-within/stack:max-h-4 group-focus-within/stack:opacity-100 group-hover/stack:max-h-4 group-hover/stack:opacity-100 ${
+                  expanded ? "max-h-4 opacity-100" : "max-h-0 overflow-hidden opacity-0"
+                } text-[var(--muted)]`}
               >
                 {label}
               </span>

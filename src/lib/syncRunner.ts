@@ -337,6 +337,8 @@ export async function runSync(
   opts: {
     workspaceId?: string;
     accountId?: string;
+    /** Narrow a run to one platform -- the Data panel's per-platform buttons. */
+    platformSlug?: string;
     trigger?: "cron" | "manual";
     discoverLimit?: number;
   } = {},
@@ -351,6 +353,7 @@ export async function runSync(
 
   if (opts.workspaceId) q = q.eq("workspace_id", opts.workspaceId);
   if (opts.accountId) q = q.eq("id", opts.accountId);
+  if (opts.platformSlug) q = q.eq("platform_slug", opts.platformSlug);
 
   const { data, error } = await q;
   if (error) throw new Error(`Could not list accounts: ${error.message}`);

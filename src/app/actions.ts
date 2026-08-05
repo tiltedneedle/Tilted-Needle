@@ -1863,6 +1863,8 @@ export async function setArchived(
 export async function syncNow(
   workspaceId: string,
   accountId?: string,
+  /** Narrows the run to one platform -- the Data panel's per-platform buttons. */
+  platformSlug?: string,
 ): Promise<Result & { summary?: string }> {
   const supabase = await createClient();
 
@@ -1885,6 +1887,7 @@ export async function syncNow(
     const results = await runSync(serviceClient(), {
       workspaceId,
       accountId,
+      platformSlug,
       trigger: "manual",
     });
 

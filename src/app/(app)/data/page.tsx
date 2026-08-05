@@ -168,26 +168,19 @@ export default async function DataPage() {
       </StatGrid>
 
       <SectionHeading
-        title="Connected accounts"
-        note="Manual refresh uses the same path as the daily cron — metered platforms still spend from the budget above"
+        title="Platforms"
+        note="Manual refresh uses the same path as the daily cron — metered platforms still spend from their budget"
       />
-      <DataPanel workspaceId={ws} accounts={accounts} />
-
-      <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-[var(--muted)]">
-        <span
-          className={`pill ${
-            tiktokBox === "ok" ? "pill-success" : tiktokBox === "down" ? "pill-danger" : "pill-neutral"
-          }`}
-        >
-          TikTok discovery box:{" "}
-          {tiktokBox === "ok" ? "connected" : tiktokBox === "down" ? "unreachable" : "not configured"}
-        </span>
-        <span>
-          YouTube and Instagram discover and refresh entirely on this stack; TikTok
-          metrics refresh here too — only TikTok <em>discovery</em> of new videos
-          rides the optional self-hosted box.
-        </span>
-      </div>
+      <DataPanel
+        workspaceId={ws}
+        accounts={accounts}
+        instagramBudget={
+          budget && budgetUsed != null && budgetLimit != null
+            ? { used: budgetUsed, limit: budgetLimit, resetsOn: budget.period_end }
+            : null
+        }
+        tiktokBox={tiktokBox}
+      />
     </div>
   );
 }

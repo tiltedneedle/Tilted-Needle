@@ -20,6 +20,9 @@ export type PanelAccount = {
   postsTracked: number;
 };
 
+export type InstagramBudget = { used: number; limit: number; resetsOn: string } | null;
+export type TiktokBoxStatus = "ok" | "down" | "unconfigured";
+
 function ago(iso: string | null): string {
   if (!iso) return "never";
   const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
@@ -31,129 +34,197 @@ function ago(iso: string | null): string {
 }
 
 /**
- * The operational half of the data panel: one refresh button per account
- * and one for everything, driving the exact same runSync path the daily
- * cron uses -- a manual trigger additionally bypasses the metered-platform
- * discovery cooldown (see discoveryThrottle), which is what "fully
- * autonomous refresh" means without handing the admin a new code path.
+ * Each platform managed as its own system, because each IS its own system:
+ * YouTube rides a free official API, Instagram spends from a real metered
+ * budget, TikTok splits into free metrics plus an optional self-hosted
+ * discovery box. One click refreshes a whole platform; every button drives
+ * the same runSync path the daily cron uses (a manual trigger additionally
+ * bypasses the metered discovery cooldown by design).
  */
 export default function DataPanel({
   workspaceId,
   accounts,
+  instagramBudget,
+  tiktokBox,
 }: {
   workspaceId: string;
   accounts: PanelAccount[];
+  instagramBudget: InstagramBudget;
+  tiktokBox: TiktokBoxStatus;
 }) {
   const router = useRouter();
   const toast = useToast();
   const [, startTransition] = useTransition();
-  const [busy, setBusy] = useState<string | null>(null); // account id or "all"
+  // Busy key: an account id, "platform:<slug>", or "all".
+  const [busy, setBusy] = useState<string | null>(null);
 
-  async function refresh(accountId?: string) {
-    setBusy(accountId ?? "all");
-    const res = await syncNow(workspaceId, accountId);
+  async function refresh(key: string, accountId?: string, platformSlug?: string) {
+    setBusy(key);
+    const res = await syncNow(workspaceId, accountId, platformSlug);
     setBusy(null);
     if (res.error) toast("danger", res.error);
     else toast("success", res.summary ?? "Synced.");
     startTransition(() => router.refresh());
   }
 
+  const known = ["youtube", "instagram", "tiktok"];
+  const sections = [
+    {
+      slug: "youtube",
+      label: "YouTube",
+      note: "Official Data API — free quota, resets daily. Long-form only: Shorts are filtered out at discovery.",
+      pill: null as React.ReactNode,
+    },
+    {
+      slug: "instagram",
+      label: "Instagram",
+      note: "Metered via Apify — every read spends from the budget, so refresh deliberately.",
+      pill: instagramBudget ? (
+        <span
+          className={`pill ${
+            instagramBudget.used / instagramBudget.limit > 0.85 ? "pill-warning" : "pill-neutral"
+          }`}
+        >
+          {instagramBudget.used}/{instagramBudget.limit} used · resets{" "}
+          {new Date(instagramBudget.resetsOn).toLocaleDateString(undefined, {
+            month: "short",
+            day: "numeric",
+          })}
+        </span>
+      ) : (
+        <span className="pill pill-neutral">no budget window open</span>
+      ),
+    },
+    {
+      slug: "tiktok",
+      label: "TikTok",
+      note: "Metrics refresh is free. Discovering new videos rides the self-hosted box:",
+      pill: (
+        <span
+          className={`pill ${
+            tiktokBox === "ok" ? "pill-success" : tiktokBox === "down" ? "pill-danger" : "pill-neutral"
+          }`}
+        >
+          {tiktokBox === "ok" ? "box connected" : tiktokBox === "down" ? "box unreachable" : "box not configured"}
+        </span>
+      ),
+    },
+    // Anything else that ever gets connected still shows up, unstyled by
+    // platform-specific context, rather than silently vanishing.
+    ...[...new Set(accounts.map((a) => a.platformSlug))]
+      .filter((s) => !known.includes(s))
+      .map((s) => ({ slug: s, label: s, note: "", pill: null as React.ReactNode })),
+  ];
+
   return (
     <>
-      <div className="mb-2 flex items-center justify-end">
+      <div className="mb-4 flex items-center justify-end">
         <button
-          className="btn-primary py-1.5"
-          onClick={() => void refresh()}
+          className="btn py-1.5"
+          onClick={() => void refresh("all")}
           disabled={busy !== null}
         >
           <RefreshCw size={14} className={busy === "all" ? "animate-spin" : ""} />
-          {busy === "all" ? "Syncing everything…" : "Refresh all accounts"}
+          {busy === "all" ? "Syncing everything…" : "Refresh all platforms"}
         </button>
       </div>
 
-      <div className="card overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-[var(--border)] text-left text-xs uppercase tracking-wide text-[var(--muted)]">
-                <th className="px-3 py-2 font-medium">Account</th>
-                <th className="px-3 py-2 font-medium">Client</th>
-                <th className="px-3 py-2 font-medium">Mode</th>
-                <th className="px-3 py-2 text-right font-medium">Posts</th>
-                <th className="px-3 py-2 font-medium">Last synced</th>
-                <th className="px-3 py-2 font-medium">Last discovery</th>
-                <th className="px-3 py-2 text-right font-medium"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[var(--border)]">
-              {accounts.map((a) => (
-                <tr key={a.id} className="transition-colors hover:bg-[var(--bg-subtle)]">
-                  <td className="px-3 py-2.5">
-                    <span className="flex items-center gap-2">
-                      <span
-                        className="size-2 shrink-0 rounded-full"
-                        style={{ background: PLATFORM_COLORS[a.platformSlug] ?? "var(--muted)" }}
-                      />
-                      <span className="font-medium">@{a.handle.replace(/^@/, "")}</span>
-                      {!a.syncEnabled && (
-                        <span className="pill pill-neutral">sync off</span>
-                      )}
-                    </span>
-                    {a.lastError && (
-                      <div
-                        className="mt-1 max-w-[360px] truncate text-xs text-[var(--danger)]"
-                        title={a.lastError}
-                      >
-                        {a.lastError}
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-3 py-2.5 text-xs text-[var(--muted)]">
-                    {a.clientName ?? "—"}
-                  </td>
-                  <td className="px-3 py-2.5">
-                    <span className={`pill ${a.mode === "metered" ? "pill-warning" : "pill-info"}`}>
-                      {a.mode === "metered" ? "metered" : "free"}
-                    </span>
-                  </td>
-                  <td className="tabular px-3 py-2.5 text-right">{a.postsTracked}</td>
-                  <td
-                    className="px-3 py-2.5 text-xs text-[var(--muted)]"
-                    title={a.lastSyncedAt ?? undefined}
-                  >
-                    {ago(a.lastSyncedAt)}
-                  </td>
-                  <td
-                    className="px-3 py-2.5 text-xs text-[var(--muted)]"
-                    title={a.lastDiscoveredAt ?? undefined}
-                  >
-                    {ago(a.lastDiscoveredAt)}
-                  </td>
-                  <td className="px-3 py-2.5 text-right">
-                    <button
-                      className="btn px-2.5 py-1 text-xs"
-                      onClick={() => void refresh(a.id)}
-                      disabled={busy !== null}
-                    >
-                      <RefreshCw
-                        size={12}
-                        className={busy === a.id ? "animate-spin" : ""}
-                      />
-                      {busy === a.id ? "Syncing…" : "Refresh"}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {accounts.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="px-3 py-8 text-center text-sm text-[var(--muted)]">
-                    No accounts connected yet — add them on the Accounts page.
-                  </td>
-                </tr>
+      <div className="space-y-7">
+        {sections.map((s) => {
+          const mine = accounts.filter((a) => a.platformSlug === s.slug);
+          const platformBusy = busy === `platform:${s.slug}`;
+          return (
+            <section key={s.slug}>
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <span
+                  className="size-2.5 shrink-0 rounded-full"
+                  style={{ background: PLATFORM_COLORS[s.slug] ?? "var(--muted)" }}
+                />
+                <h2 className="text-sm font-semibold capitalize">{s.label}</h2>
+                {s.pill}
+                <span className="text-xs text-[var(--muted)]">{s.note}</span>
+                <div className="flex-1" />
+                <button
+                  className="btn-primary py-1.5 text-xs"
+                  onClick={() => void refresh(`platform:${s.slug}`, undefined, s.slug)}
+                  disabled={busy !== null || mine.length === 0}
+                >
+                  <RefreshCw size={13} className={platformBusy ? "animate-spin" : ""} />
+                  {platformBusy ? `Syncing ${s.label}…` : `Refresh ${s.label}`}
+                </button>
+              </div>
+
+              {mine.length === 0 ? (
+                <div className="card p-5 text-center text-xs text-[var(--muted)]">
+                  No {s.label} accounts connected.
+                </div>
+              ) : (
+                <div className="card overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-[var(--border)] text-left text-xs uppercase tracking-wide text-[var(--muted)]">
+                          <th className="px-3 py-2 font-medium">Account</th>
+                          <th className="px-3 py-2 font-medium">Client</th>
+                          <th className="px-3 py-2 font-medium">Mode</th>
+                          <th className="px-3 py-2 text-right font-medium">Posts</th>
+                          <th className="px-3 py-2 font-medium">Last synced</th>
+                          <th className="px-3 py-2 font-medium">Last discovery</th>
+                          <th className="px-3 py-2 text-right font-medium"></th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[var(--border)]">
+                        {mine.map((a) => (
+                          <tr key={a.id} className="transition-colors hover:bg-[var(--bg-subtle)]">
+                            <td className="px-3 py-2.5">
+                              <span className="flex items-center gap-2">
+                                <span className="font-medium">@{a.handle.replace(/^@/, "")}</span>
+                                {!a.syncEnabled && <span className="pill pill-neutral">sync off</span>}
+                              </span>
+                              {a.lastError && (
+                                <div
+                                  className="mt-1 max-w-[360px] truncate text-xs text-[var(--danger)]"
+                                  title={a.lastError}
+                                >
+                                  {a.lastError}
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-3 py-2.5 text-xs text-[var(--muted)]">
+                              {a.clientName ?? "—"}
+                            </td>
+                            <td className="px-3 py-2.5">
+                              <span className={`pill ${a.mode === "metered" ? "pill-warning" : "pill-info"}`}>
+                                {a.mode === "metered" ? "metered" : "free"}
+                              </span>
+                            </td>
+                            <td className="tabular px-3 py-2.5 text-right">{a.postsTracked}</td>
+                            <td className="px-3 py-2.5 text-xs text-[var(--muted)]" title={a.lastSyncedAt ?? undefined}>
+                              {ago(a.lastSyncedAt)}
+                            </td>
+                            <td className="px-3 py-2.5 text-xs text-[var(--muted)]" title={a.lastDiscoveredAt ?? undefined}>
+                              {ago(a.lastDiscoveredAt)}
+                            </td>
+                            <td className="px-3 py-2.5 text-right">
+                              <button
+                                className="btn px-2.5 py-1 text-xs"
+                                onClick={() => void refresh(a.id, a.id)}
+                                disabled={busy !== null}
+                              >
+                                <RefreshCw size={12} className={busy === a.id ? "animate-spin" : ""} />
+                                {busy === a.id ? "Syncing…" : "Refresh"}
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               )}
-            </tbody>
-          </table>
-        </div>
+            </section>
+          );
+        })}
       </div>
     </>
   );
