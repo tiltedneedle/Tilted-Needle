@@ -5,18 +5,11 @@ import LineChart from "@/components/LineChart";
 import { Stat, StatGrid, SectionHeading, Empty } from "@/components/Stat";
 import VideoTile from "@/components/VideoTile";
 import LoadMoreList from "@/components/LoadMoreList";
-import { canManage, PLATFORM_COLORS } from "@/lib/types";
+import { canManage, PLATFORM_COLORS, PLATFORM_LABEL } from "@/lib/types";
 import { createClient } from "@/lib/supabase/server";
 import { requireSession } from "@/lib/workspace";
 import { loadChannelDashboard } from "@/lib/channelDashboard";
 import { loadMemberOptions, loadRoles } from "@/lib/dashboards";
-
-const PLATFORM_LABEL: Record<string, string> = {
-  youtube: "YouTube",
-  instagram: "Instagram",
-  tiktok: "TikTok",
-  facebook: "Facebook",
-};
 
 /**
  * One channel's own dashboard: total reach, a reach-over-time curve

@@ -4,17 +4,10 @@ import PageHeader from "@/components/PageHeader";
 import ClientActiveToggle from "@/components/ClientActiveToggle";
 import { Empty } from "@/components/Stat";
 import { PlatformChips } from "@/components/PlatformReach";
-import { PLATFORM_COLORS, canManage } from "@/lib/types";
+import { PLATFORM_COLORS, PLATFORM_LABEL, canManage } from "@/lib/types";
 import { createClient } from "@/lib/supabase/server";
 import { requireSession } from "@/lib/workspace";
 import { loadClientChannels } from "@/lib/channelDashboard";
-
-const PLATFORM_LABEL: Record<string, string> = {
-  youtube: "YouTube",
-  instagram: "Instagram",
-  tiktok: "TikTok",
-  facebook: "Facebook",
-};
 
 export default async function ClientChannelsPage({
   params,

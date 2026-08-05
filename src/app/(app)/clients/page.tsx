@@ -3,17 +3,9 @@ import PageHeader from "@/components/PageHeader";
 import NewClientForm from "@/components/NewClientForm";
 import ClientActiveToggle from "@/components/ClientActiveToggle";
 import { Empty } from "@/components/Stat";
-import { PLATFORM_COLORS } from "@/lib/types";
+import { canManage, PLATFORM_COLORS, PLATFORM_LABEL } from "@/lib/types";
 import { createClient } from "@/lib/supabase/server";
 import { requireSession } from "@/lib/workspace";
-import { canManage } from "@/lib/types";
-
-const PLATFORM_LABEL: Record<string, string> = {
-  youtube: "YouTube",
-  instagram: "Instagram",
-  tiktok: "TikTok",
-  facebook: "Facebook",
-};
 
 /**
  * Clients section, entry point. One card per client with the platforms they

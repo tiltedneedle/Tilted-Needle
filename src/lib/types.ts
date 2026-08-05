@@ -176,6 +176,14 @@ export const PLATFORM_COLORS: Record<string, string> = {
   facebook: "#1877f2",
 };
 
+/** Display names for platform slugs -- was copy-pasted in three pages. */
+export const PLATFORM_LABEL: Record<string, string> = {
+  youtube: "YouTube",
+  instagram: "Instagram",
+  tiktok: "TikTok",
+  facebook: "Facebook",
+};
+
 /** One line of the daily assignment sheet: one person, one day, one task. */
 export type Todo = {
   id: string;
