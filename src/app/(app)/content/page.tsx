@@ -12,6 +12,7 @@ import { requireSession } from "@/lib/workspace";
 import { canManage, one } from "@/lib/types";
 import { formatDurationShort } from "@/lib/format";
 import { cachedRankings } from "@/lib/cachedRankings";
+import { selectAll } from "@/lib/selectAll";
 import { loadContentOverview, loadRoles } from "@/lib/dashboards";
 import type {
   Account,
@@ -426,12 +427,18 @@ async function loadVideoView(supabase: any, ws: string, id: string) {
   ]);
 
   const postIds = ((postsRes.data ?? []) as { id: string }[]).map((p) => p.id);
+  // Paged: a video's posts sync daily, so its combined snapshot history
+  // crosses PostgREST's silent 1000-row cap within a year -- descending
+  // order would quietly drop the OLDEST readings and miscount the history.
   const historyRes = postIds.length
-    ? await supabase
-        .from("post_snapshots")
-        .select("platform_post_id, captured_at, views, likes, comments, shares, saves")
-        .in("platform_post_id", postIds)
-        .order("captured_at", { ascending: false })
+    ? await selectAll(() =>
+        supabase
+          .from("post_snapshots")
+          .select("id, platform_post_id, captured_at, views, likes, comments, shares, saves")
+          .in("platform_post_id", postIds)
+          .order("captured_at", { ascending: false })
+          .order("id"),
+      )
     : { data: [] };
 
   const analyticsRes = postIds.length

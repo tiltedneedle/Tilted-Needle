@@ -10,6 +10,7 @@
  * figure and a reach-over-time curve both mean something real.
  */
 import { one } from "@/lib/types";
+import { selectAll } from "@/lib/selectAll";
 import type { LineChartPoint } from "@/components/LineChart";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -124,12 +125,21 @@ async function gainsByPost(
   ws: string,
   postIds: string[],
 ): Promise<Map<string, { views: number; days: number }>> {
-  const { data } = await db
-    .from("post_snapshots")
-    .select("platform_post_id, captured_at, views")
-    .eq("workspace_id", ws)
-    .in("platform_post_id", postIds)
-    .order("captured_at");
+  // Paged: a channel's snapshot history crosses PostgREST's silent 1000-row
+  // cap within months of daily syncing, and ascending order means the cap
+  // would keep the OLDEST rows -- gains computed on ancient history while
+  // looking perfectly plausible. Same failure class as the content_
+  // assignments truncation selectAll exists for; id breaks captured_at ties
+  // so pages never overlap.
+  const { data } = await selectAll(() =>
+    db
+      .from("post_snapshots")
+      .select("id, platform_post_id, captured_at, views")
+      .eq("workspace_id", ws)
+      .in("platform_post_id", postIds)
+      .order("captured_at")
+      .order("id"),
+  );
 
   const byPost = new Map<string, { at: number; views: number }[]>();
   for (const s of (data ?? []) as {
@@ -230,13 +240,19 @@ export async function loadChannelDashboard(
   const posts = (postsData ?? []) as unknown as PostRow[];
   const postIds = posts.map((p) => p.id);
 
+  // Paged for the same reason as gainsByPost above: the reach-over-time
+  // curve merges every video's full history, and a truncated-at-1000
+  // ascending read would silently end the chart months in the past.
   const { data: snapsData } = postIds.length
-    ? await db
-        .from("post_snapshots")
-        .select("platform_post_id, captured_at, views")
-        .eq("workspace_id", ws)
-        .in("platform_post_id", postIds)
-        .order("captured_at")
+    ? await selectAll(() =>
+        db
+          .from("post_snapshots")
+          .select("id, platform_post_id, captured_at, views")
+          .eq("workspace_id", ws)
+          .in("platform_post_id", postIds)
+          .order("captured_at")
+          .order("id"),
+      )
     : { data: [] };
 
   type Snap = { platform_post_id: string; captured_at: string; views: number | null };

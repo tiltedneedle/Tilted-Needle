@@ -12,6 +12,7 @@
     "db:push": "node scripts/db.mjs db push",
     "db:new": "supabase migration new",
     "test:rls": "node scripts/rls-test.mjs",
+    "test:selects": "node scripts/select-audit.mjs",
     "test:scoring": "node scripts/scoring-test.mjs",
     "test:billing": "node scripts/billing-test.mjs",
     "test:clockify": "node scripts/clockify-test.mjs",

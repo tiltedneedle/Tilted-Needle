@@ -467,6 +467,7 @@ export async function createTodo(input: {
   });
   if (error) return { error: error.message };
   revalidatePath("/todos");
+  revalidatePath("/home"); // the Home dashboards render the same sheet
   return {};
 }
 
@@ -486,6 +487,7 @@ export async function updateTodo(
   const { error } = await supabase.from("todos").update(row).eq("id", id);
   if (error) return { error: error.message };
   revalidatePath("/todos");
+  revalidatePath("/home"); // the Home dashboards render the same sheet
   return {};
 }
 
@@ -497,6 +499,7 @@ export async function toggleTodoDone(id: string, done: boolean): Promise<Result>
     .eq("id", id);
   if (error) return { error: error.message };
   revalidatePath("/todos");
+  revalidatePath("/home"); // the Home dashboards render the same sheet
   return {};
 }
 
@@ -505,6 +508,7 @@ export async function deleteTodo(id: string): Promise<Result> {
   const { error } = await supabase.from("todos").delete().eq("id", id);
   if (error) return { error: error.message };
   revalidatePath("/todos");
+  revalidatePath("/home"); // the Home dashboards render the same sheet
   return {};
 }
 
