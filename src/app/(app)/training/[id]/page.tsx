@@ -72,7 +72,11 @@ export default async function TrainingModulePage({
     const [assignRes, memberOptions] = await Promise.all([
       supabase
         .from("training_assignments")
-        .select("id, module_id, user_id, profile:profiles(full_name)")
+        // Explicit FK: this table points at profiles twice (user_id and
+        // assigned_by), and a bare profiles(...) embed is rejected by
+        // PostgREST as ambiguous -- which this page was silently swallowing
+        // as "no assignments".
+        .select("id, module_id, user_id, profile:profiles!training_assignments_user_id_fkey(full_name)")
         .eq("module_id", id),
       loadMemberOptions(supabase, ws),
     ]);

@@ -45,7 +45,10 @@ export default async function TodosPage({
   let query = supabase
     .from("todos")
     .select(
-      "id, workspace_id, user_id, client_id, assigned_on, description, is_done, done_at, profile:profiles(full_name), client:clients(id, name)",
+      // profiles!todos_user_id_fkey: todos points at profiles twice
+      // (assignee + created_by), so the embed must name its FK or PostgREST
+      // rejects it as ambiguous and the whole board renders empty.
+      "id, workspace_id, user_id, client_id, assigned_on, description, is_done, done_at, profile:profiles!todos_user_id_fkey(full_name), client:clients(id, name)",
     )
     .eq("workspace_id", ws)
     .eq("assigned_on", date)

@@ -91,7 +91,8 @@ export default async function HomePage() {
       supabase
         .from("todos")
         .select(
-          "id, workspace_id, user_id, client_id, assigned_on, description, is_done, done_at, profile:profiles(full_name)",
+          // FK named explicitly: todos carries two profile references.
+          "id, workspace_id, user_id, client_id, assigned_on, description, is_done, done_at, profile:profiles!todos_user_id_fkey(full_name)",
         )
         .eq("workspace_id", ws)
         .eq("assigned_on", today)
