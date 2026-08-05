@@ -1,6 +1,6 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
@@ -11,6 +11,19 @@ import { youtubeIdFrom } from "@/lib/videoEmbed";
 import { MANAGER_ROLES, type WorkspaceRole } from "@/lib/types";
 
 type Result = { error?: string };
+
+/**
+ * /team's rendered data and the cached rankings model (lib/cachedRankings)
+ * change together -- one helper so no mutation can ever refresh the page
+ * yet leave a stale scoring model behind, which was the exact failure mode
+ * that kept rankings uncached this long. Over-busting from sites that don't
+ * strictly feed scoring costs one ~1s recompute on the next view; a missed
+ * bust would silently show wrong scores.
+ */
+function revalidateTeam() {
+  revalidatePath("/team");
+  revalidateTag("rankings", "max");
+}
 
 /** Shape consumed by useActionState-driven forms. */
 export type ActionState = { error?: string };
@@ -293,7 +306,7 @@ export async function createContentItem(input: {
   });
   if (error) return { error: error.message };
   revalidatePath("/content");
-  revalidatePath("/team");
+  revalidateTeam();
   return {};
 }
 
@@ -305,7 +318,7 @@ export async function updateContentItem(
   const { error } = await supabase.from("content_items").update(patch).eq("id", id);
   if (error) return { error: error.message };
   revalidatePath("/content");
-  revalidatePath("/team");
+  revalidateTeam();
   return {};
 }
 
@@ -314,7 +327,7 @@ export async function deleteContentItem(id: string): Promise<Result> {
   const { error } = await supabase.from("content_items").delete().eq("id", id);
   if (error) return { error: error.message };
   revalidatePath("/content");
-  revalidatePath("/team");
+  revalidateTeam();
   return {};
 }
 
@@ -341,7 +354,7 @@ export async function addPlatformPost(input: {
     return { error: error.message };
   }
   revalidatePath("/content");
-  revalidatePath("/team");
+  revalidateTeam();
   return {};
 }
 
@@ -353,7 +366,7 @@ export async function updatePlatformPost(
   const { error } = await supabase.from("platform_posts").update(patch).eq("id", id);
   if (error) return { error: error.message };
   revalidatePath("/content");
-  revalidatePath("/team");
+  revalidateTeam();
   return {};
 }
 
@@ -362,7 +375,7 @@ export async function deletePlatformPost(id: string): Promise<Result> {
   const { error } = await supabase.from("platform_posts").delete().eq("id", id);
   if (error) return { error: error.message };
   revalidatePath("/content");
-  revalidatePath("/team");
+  revalidateTeam();
   return {};
 }
 
@@ -392,7 +405,7 @@ export async function recordSnapshot(input: {
   });
   if (error) return { error: error.message };
   revalidatePath("/content");
-  revalidatePath("/team");
+  revalidateTeam();
   return {};
 }
 
@@ -415,7 +428,7 @@ export async function assignRole(input: {
     return { error: error.message };
   }
   revalidatePath("/content");
-  revalidatePath("/team");
+  revalidateTeam();
   return {};
 }
 
@@ -424,7 +437,7 @@ export async function unassignRole(id: string): Promise<Result> {
   const { error } = await supabase.from("content_assignments").delete().eq("id", id);
   if (error) return { error: error.message };
   revalidatePath("/content");
-  revalidatePath("/team");
+  revalidateTeam();
   return {};
 }
 
@@ -1185,7 +1198,7 @@ export async function createGroup(workspaceId: string, name: string): Promise<Re
     if (error.code === "23505") return { error: "A group with that name already exists." };
     return { error: error.message };
   }
-  revalidatePath("/team");
+  revalidateTeam();
   return {};
 }
 
@@ -1193,7 +1206,7 @@ export async function deleteGroup(id: string): Promise<Result> {
   const supabase = await createClient();
   const { error } = await supabase.from("user_groups").delete().eq("id", id);
   if (error) return { error: error.message };
-  revalidatePath("/team");
+  revalidateTeam();
   return {};
 }
 
@@ -1211,7 +1224,7 @@ export async function setGroupMember(
         .eq("group_id", groupId)
         .eq("user_id", userId);
   if (error) return { error: error.message };
-  revalidatePath("/team");
+  revalidateTeam();
   return {};
 }
 
@@ -1224,7 +1237,7 @@ export async function updateCapacity(membershipId: string, hoursPerWeek: string)
     .update({ weekly_capacity_hours: n })
     .eq("id", membershipId);
   if (error) return { error: error.message };
-  revalidatePath("/team");
+  revalidateTeam();
   revalidatePath("/capacity");
   return {};
 }
@@ -1267,7 +1280,7 @@ export async function setMemberRole(membershipId: string, role: string): Promise
   if (guard.error) return { error: guard.error };
   const { error } = await supabase.from("memberships").update({ role }).eq("id", membershipId);
   if (error) return { error: error.message };
-  revalidatePath("/team");
+  revalidateTeam();
   revalidatePath("/home");
   return {};
 }
@@ -1281,7 +1294,7 @@ export async function setMemberActive(membershipId: string, isActive: boolean): 
     .update({ is_active: isActive })
     .eq("id", membershipId);
   if (error) return { error: error.message };
-  revalidatePath("/team");
+  revalidateTeam();
   revalidatePath("/home");
   return {};
 }
@@ -1345,7 +1358,7 @@ export async function addMemberByEmail(input: {
     if (error.code === "23505") return { error: "They're already a member of this workspace." };
     return { error: error.message };
   }
-  revalidatePath("/team");
+  revalidateTeam();
   revalidatePath("/home");
   return {};
 }
@@ -1805,7 +1818,7 @@ export async function commitImportBatch(batchId: string): Promise<Result & { ins
   if (error) return { error: error.message };
   revalidatePath("/import");
   revalidatePath("/content");
-  revalidatePath("/team");
+  revalidateTeam();
   revalidatePath("/timesheet");
   return { inserted: data ?? 0 };
 }
@@ -1878,7 +1891,7 @@ export async function syncNow(
 
     revalidatePath("/accounts");
     revalidatePath("/content");
-    revalidatePath("/team");
+    revalidateTeam();
 
     if (failed.length > 0) {
       return { error: failed.map((f) => `${f.handle}: ${f.error}`).join("; ") };
@@ -1979,7 +1992,7 @@ export async function addVerifiedAccount(input: {
     });
 
     revalidatePath("/content");
-    revalidatePath("/team");
+    revalidateTeam();
 
     if (!result || result.status === "skipped") {
       return {
@@ -2037,7 +2050,7 @@ export async function updateSyncWindow(
     });
     revalidatePath("/accounts");
     revalidatePath("/content");
-    revalidatePath("/team");
+    revalidateTeam();
     if (result?.status === "error") return { error: result.error };
     return {
       summary: `Window updated — ${result?.postsCreated ?? 0} new video${
@@ -2139,7 +2152,7 @@ export async function scrapePostNow(
 
   const s = metered ? await status(db, post.workspace_id, platform) : null;
   revalidatePath("/content");
-  revalidatePath("/team");
+  revalidateTeam();
 
   return {
     summary: `Updated — ${m.views?.toLocaleString() ?? "—"} views, ${m.likes?.toLocaleString() ?? "—"} likes.`,

@@ -9,7 +9,8 @@ import { createClient } from "@/lib/supabase/server";
 import { requireSession } from "@/lib/workspace";
 import { canManage, one } from "@/lib/types";
 import { formatDurationShort } from "@/lib/format";
-import { computeRankings, type RankingsResult } from "@/lib/performanceData";
+import { type RankingsResult } from "@/lib/performanceData";
+import { cachedRankings } from "@/lib/cachedRankings";
 import { selectAll } from "@/lib/selectAll";
 import {
   loadClientOptions,
@@ -50,7 +51,7 @@ export default async function TeamPage({
   const ws = session.active.id;
   const manages = canManage(session.active.role);
 
-  const rankings = await computeRankings(supabase, ws);
+  const rankings = await cachedRankings(ws);
   // A person view must not be filtered out from under itself, so the
   // narrowing filters only apply to the roster. personFilter (the "Filter by
   // person" dropdown, narrows and composes with everything else) is

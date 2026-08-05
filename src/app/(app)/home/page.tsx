@@ -18,7 +18,7 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import { requireSession } from "@/lib/workspace";
 import { startOfWeek } from "@/lib/dashboards";
-import { computeRankings } from "@/lib/performanceData";
+import { cachedRankings } from "@/lib/cachedRankings";
 import { asMultiplier } from "@/lib/scoring";
 import { formatDurationShort } from "@/lib/format";
 import { canManage, one, type Todo, type TrainingModule } from "@/lib/types";
@@ -238,7 +238,7 @@ export default async function HomePage() {
         .eq("workspace_id", ws)
         .eq("user_id", session.userId)
         .maybeSingle(),
-      computeRankings(supabase, ws),
+      cachedRankings(ws),
     ]);
 
   // RLS already scopes todos to the member's own rows and modules to

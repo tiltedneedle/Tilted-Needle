@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { runSync, serviceClient } from "@/lib/syncRunner";
 
 /**
@@ -53,11 +53,13 @@ export async function GET(req: Request) {
     // always hit the database fresh, so this is not what keeps data
     // correct -- it is what keeps a browser tab already sitting on /content
     // or /team from serving a client-side Router Cache entry captured
-    // before this run wrote anything.
+    // before this run wrote anything. The tag bust is different: a sync
+    // writes snapshots, which feed the cached rankings model.
     if (results.some((r) => r.status === "ok")) {
       revalidatePath("/content");
       revalidatePath("/team");
       revalidatePath("/accounts");
+      revalidateTag("rankings", "max");
     }
 
     return NextResponse.json({

@@ -11,7 +11,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireSession } from "@/lib/workspace";
 import { canManage, one } from "@/lib/types";
 import { formatDurationShort } from "@/lib/format";
-import { computeRankings } from "@/lib/performanceData";
+import { cachedRankings } from "@/lib/cachedRankings";
 import { loadContentOverview, loadRoles } from "@/lib/dashboards";
 import type {
   Account,
@@ -53,27 +53,50 @@ export default async function ContentPage({
 
   const manages = canManage(session.active.role);
 
-  const rankings = await computeRankings(supabase, ws);
-  const [overview, clientsRes, membersRes, workspaceRoles] = await Promise.all([
-    loadContentOverview(supabase, ws, rankings, {
-      platform: sp.platform ?? null,
-      period: sp.period ?? null,
-      personId: sp.person ?? null,
-      status: sp.status ?? null,
-      q: sp.q ?? null,
-    }),
-    supabase
-      .from("clients")
-      .select("id, workspace_id, name, email, is_archived")
-      .eq("workspace_id", ws)
-      .order("name"),
-    supabase
-      .from("memberships")
-      .select("user_id, profile:profiles(full_name)")
-      .eq("workspace_id", ws)
-      .eq("is_active", true),
-    loadRoles(supabase, ws),
-  ]);
+  const rankings = await cachedRankings(ws);
+  // The video-detail branch never renders the overview's tables or reach
+  // cards, yet used to pay for the full overview load -- every post and
+  // every snapshot -- just to fill the video-filter dropdown. On that
+  // branch a bare title list and the platform registry are enough; the
+  // full overview stays for the list and client views that actually
+  // render it.
+  const [overview, lightVideosRes, platformsRes, clientsRes, membersRes, workspaceRoles] =
+    await Promise.all([
+      videoId
+        ? null
+        : loadContentOverview(supabase, ws, rankings, {
+            platform: sp.platform ?? null,
+            period: sp.period ?? null,
+            personId: sp.person ?? null,
+            status: sp.status ?? null,
+            q: sp.q ?? null,
+          }),
+      videoId
+        ? supabase
+            .from("content_items")
+            .select("id, title, client_id")
+            .eq("workspace_id", ws)
+            .order("produced_at", { ascending: false, nullsFirst: false })
+        : null,
+      videoId
+        ? supabase
+            .from("platforms")
+            .select("slug, display_name")
+            .eq("is_enabled", true)
+            .order("sort_order")
+        : null,
+      supabase
+        .from("clients")
+        .select("id, workspace_id, name, email, is_archived")
+        .eq("workspace_id", ws)
+        .order("name"),
+      supabase
+        .from("memberships")
+        .select("user_id, profile:profiles(full_name)")
+        .eq("workspace_id", ws)
+        .eq("is_active", true),
+      loadRoles(supabase, ws),
+    ]);
 
   type Member = {
     user_id: string;
@@ -87,10 +110,23 @@ export default async function ContentPage({
 
   // A video filter narrows to that video; a client filter narrows the video
   // dropdown to that client's work so the two compose sensibly.
-  const videoOptions = (clientId
-    ? overview.videos.filter((v) => v.clientId === clientId)
-    : overview.videos
+  type LightVideo = { id: string; title: string; client_id: string | null };
+  const videoOptions = (
+    overview
+      ? (clientId
+          ? overview.videos.filter((v) => v.clientId === clientId)
+          : overview.videos
+        ).map((v) => ({ id: v.id, title: v.title }))
+      : ((lightVideosRes?.data ?? []) as LightVideo[])
+          .filter((v) => !clientId || v.client_id === clientId)
   ).map((v) => ({ value: v.id, label: v.title }));
+
+  const platformOptions = overview
+    ? overview.platformOptions
+    : ((platformsRes?.data ?? []) as { slug: string; display_name: string }[]).map((p) => ({
+        slug: p.slug,
+        name: p.display_name,
+      }));
 
   const filters = (
     <FilterBar
@@ -123,7 +159,7 @@ export default async function ContentPage({
           label: "Filter by platform",
           allLabel: "All platforms",
           value: sp.platform ?? null,
-          options: overview.platformOptions.map((p) => ({ value: p.slug, label: p.name })),
+          options: platformOptions.map((p) => ({ value: p.slug, label: p.name })),
         },
         {
           key: "person",
@@ -210,6 +246,9 @@ export default async function ContentPage({
   }
 
   /* ---- Single client ---------------------------------------------------- */
+  // Every branch from here down renders the overview, and only the video
+  // branch above (which already returned) skips loading it.
+  if (!overview) throw new Error("unreachable: overview is loaded for non-video views");
   if (clientId) {
     const named = allClients.find((c) => c.id === clientId);
     if (!named) {
