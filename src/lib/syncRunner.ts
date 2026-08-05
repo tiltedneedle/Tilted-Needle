@@ -355,6 +355,14 @@ export async function runSync(
   if (opts.accountId) q = q.eq("id", opts.accountId);
   if (opts.platformSlug) q = q.eq("platform_slug", opts.platformSlug);
 
+  // Stalest first, never-synced before everything. The account list used to
+  // come back in arbitrary-but-stable order, so when a run hit the function
+  // time limit the SAME accounts sat past the cutoff every day -- six
+  // Instagram accounts were found six days stale while their siblings
+  // refreshed each morning. Ordered this way, a killed run self-heals: the
+  // accounts it missed are exactly the ones the next run starts with.
+  q = q.order("last_synced_at", { ascending: true, nullsFirst: true });
+
   const { data, error } = await q;
   if (error) throw new Error(`Could not list accounts: ${error.message}`);
 

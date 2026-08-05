@@ -14,9 +14,13 @@ import { runSync, serviceClient } from "@/lib/syncRunner";
  * the same value as a Bearer token.
  */
 export const dynamic = "force-dynamic";
-// Discovery plus metrics across several accounts comfortably exceeds the
-// default 10s budget on a first run.
-export const maxDuration = 60;
+// A full run across ~30 accounts takes over a minute -- at 60 the function
+// was killed mid-list with an HTTP 504, and whichever accounts sat at the
+// tail never synced: six Instagram accounts were found six days stale while
+// their siblings refreshed every morning. 300s is the Fluid Compute ceiling.
+// The ordering fix in runSync (stalest accounts first) is the structural
+// guard: even if a run still dies, starvation can no longer be chronic.
+export const maxDuration = 300;
 
 function authorised(req: Request): boolean {
   const secret = process.env.CRON_SECRET;
