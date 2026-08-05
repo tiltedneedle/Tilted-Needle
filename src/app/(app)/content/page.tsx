@@ -134,6 +134,7 @@ export default async function ContentPage({
       searchKey="q"
       searchValue={sp.q ?? null}
       searchPlaceholder="Search titles…"
+      searchClears={["video"]}
       filters={[
         {
           key: "client",
@@ -154,12 +155,17 @@ export default async function ContentPage({
           value: videoId ?? null,
           options: videoOptions,
         },
+        // Every population filter below clears the single-video drill-down:
+        // a single video's view ignores them, so leaving ?video= in place
+        // showed one video while the bar claimed a filtered list -- same
+        // conflict the People page had with person vs personFilter.
         {
           key: "platform",
           label: "Filter by platform",
           allLabel: "All platforms",
           value: sp.platform ?? null,
           options: platformOptions.map((p) => ({ value: p.slug, label: p.name })),
+          clears: ["video"],
         },
         {
           key: "person",
@@ -167,6 +173,7 @@ export default async function ContentPage({
           allLabel: "Anyone credited",
           value: sp.person ?? null,
           options: members.map((m) => ({ value: m.userId, label: m.name })),
+          clears: ["video"],
         },
         {
           key: "period",
@@ -178,6 +185,7 @@ export default async function ContentPage({
             { value: "90", label: "Last 90 days" },
             { value: "365", label: "Last year" },
           ],
+          clears: ["video"],
         },
         {
           key: "status",
@@ -189,6 +197,7 @@ export default async function ContentPage({
             { value: "unpublished", label: "Not posted yet" },
             { value: "boosting", label: "Boosting (2×+)" },
           ],
+          clears: ["video"],
         },
       ]}
     />

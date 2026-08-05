@@ -35,6 +35,7 @@ export default function FilterBar({
   searchKey,
   searchValue,
   searchPlaceholder = "Search…",
+  searchClears = [],
   primaryCount = 2,
 }: {
   basePath: string;
@@ -43,6 +44,9 @@ export default function FilterBar({
   searchKey?: string;
   searchValue?: string | null;
   searchPlaceholder?: string;
+  /** Keys a search clears -- e.g. a drill-down param the searched list view
+      would otherwise sit invisibly beneath. */
+  searchClears?: string[];
   /** How many filters stay visible before the rest collapse. */
   primaryCount?: number;
 }) {
@@ -102,7 +106,7 @@ export default function FilterBar({
           onSubmit={(e) => {
             e.preventDefault();
             const input = e.currentTarget.elements.namedItem("q") as HTMLInputElement;
-            set(searchKey, input.value);
+            set(searchKey, input.value, searchClears);
           }}
         >
           <input
@@ -117,7 +121,9 @@ export default function FilterBar({
             placeholder={searchPlaceholder}
             defaultValue={searchValue ?? ""}
             onBlur={(e) => {
-              if (e.target.value !== (searchValue ?? "")) set(searchKey, e.target.value);
+              if (e.target.value !== (searchValue ?? "")) {
+                set(searchKey, e.target.value, searchClears);
+              }
             }}
             aria-label={searchPlaceholder}
           />

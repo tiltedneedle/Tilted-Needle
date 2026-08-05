@@ -90,6 +90,7 @@ export default async function TeamPage({
       searchKey="q"
       searchValue={sp.q ?? null}
       searchPlaceholder="Search names…"
+      searchClears={["person"]}
       filters={[
         {
           key: "personFilter",
@@ -98,7 +99,13 @@ export default async function TeamPage({
           // Always the full roster, so a narrowing filter can never make
           // someone unreachable from the dropdown.
           options: unfiltered.people.map((p) => ({ value: p.userId, label: p.name })),
-          value: sp.personFilter ?? null,
+          // On a person drill-down (?person=), the dropdown reflects that
+          // person rather than claiming "Everyone", and choosing someone
+          // else REPLACES the drill-down (clears) instead of stacking a
+          // filter under it -- person + personFilter naming two different
+          // people showed one person's page over the other's roster.
+          value: sp.personFilter ?? personId ?? null,
+          clears: ["person"],
         },
         {
           key: "role",
