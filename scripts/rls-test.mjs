@@ -422,6 +422,18 @@ async function mkUser(email) {
   check("a plain member cannot delete their own entry once the week is approved",
     (stillThere?.length ?? 0) === 1 && (afterDeleteAttempt?.length ?? 0) === 1);
 
+  // The last door: INSERTING a brand-new entry into an approved week would
+  // drift the approved total without touching any locked row. Same lock,
+  // same manager exception.
+  const { error: insertLockedErr } = await plainMember.client
+    .from("time_entries")
+    .insert({
+      workspace_id: wsA.id, user_id: plainMember.id, description: "sneaked in after approval",
+      started_at: "2026-01-06T14:00:00Z", ended_at: "2026-01-06T15:00:00Z",
+    });
+  check("a plain member cannot insert a new entry into an approved week",
+    !!insertLockedErr);
+
   // Managers can still correct a locked entry -- the lock protects members
   // from themselves, not managers from doing their job.
   const { data: managerEdit } = await a.client
