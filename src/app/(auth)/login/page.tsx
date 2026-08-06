@@ -28,7 +28,7 @@ export default function LoginPage() {
         setBusy(false);
         return;
       }
-      router.push("/track");
+      router.push("/home");
       router.refresh();
     } else {
       const { data, error } = await supabase.auth.signUp({
@@ -48,7 +48,7 @@ export default function LoginPage() {
         setBusy(false);
         return;
       }
-      router.push("/track");
+      router.push("/home");
       router.refresh();
     }
   }

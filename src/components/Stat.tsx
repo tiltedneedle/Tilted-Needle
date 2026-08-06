@@ -22,7 +22,8 @@ export function Stat({
   hero = false,
 }: {
   label: string;
-  value: string;
+  /** Usually a string; a node lets tiles animate (CountUp) without markup drift. */
+  value: ReactNode;
   hint?: string;
   accent?: boolean;
   /** An optional glyph in the corner -- purely decorative, no new data. */

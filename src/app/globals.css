@@ -206,6 +206,69 @@ h3 {
   animation: slide-in-left var(--dur-base) var(--ease) both;
 }
 
+/* ---- Chart motion ---------------------------------------------------------
+   A sparkline draws itself once on mount; bars grow from the baseline with
+   a small stagger. Both are entrance cues only -- data changes re-render,
+   they never re-animate mid-read. Reduced motion flattens both globally. */
+@keyframes spark-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+.spark-draw {
+  stroke-dasharray: 1;
+  animation: spark-draw 900ms var(--ease) both;
+}
+
+@keyframes bar-grow {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+.bar-grow {
+  transform-origin: bottom;
+  animation: bar-grow 600ms var(--ease) both;
+}
+
+/* ---- Chart motion ---------------------------------------------------------
+   Lines draw themselves in (pathLength is normalised to 1 in the SVG, so
+   the same dasharray works for any path); bars rise from the baseline with
+   a per-bar delay set inline. Both flatten under prefers-reduced-motion via
+   the global rule above. */
+@keyframes draw-in {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.chart-line {
+  stroke-dasharray: 1;
+  animation: draw-in 900ms var(--ease) both;
+}
+
+@keyframes bar-rise {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+.chart-bar {
+  transform-origin: bottom;
+  animation: bar-rise 500ms var(--ease) both;
+}
+
 /* Dashboard cards stagger in on load. Attach .stagger to any grid/list
    whose children carry .animate-rise and each child waits a beat longer
    than the one before it -- pure CSS, no per-item wiring. */

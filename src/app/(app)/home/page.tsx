@@ -1,16 +1,20 @@
 import Link from "next/link";
 import PageHeader from "@/components/PageHeader";
 import HomeTodoList from "@/components/HomeTodoList";
+import Avatar from "@/components/Avatar";
+import CountUp from "@/components/CountUp";
+import Sparkline from "@/components/viz/Sparkline";
+import MiniBars from "@/components/viz/MiniBars";
+import ProgressRing from "@/components/viz/ProgressRing";
 import { Stat, StatGrid, SectionHeading, Empty } from "@/components/Stat";
 import {
-  BookOpen,
   Briefcase,
   CheckCircle2,
   Clapperboard,
   Clock,
   GraduationCap,
   ListChecks,
-  PlayCircle,
+  RefreshCw,
   TrendingUp,
   Trophy,
   Users,
@@ -18,10 +22,18 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import { requireSession } from "@/lib/workspace";
 import { startOfWeek } from "@/lib/dashboards";
+import { loadPlatformMomentum, loadWeekMovers, loadWeekHoursByDay } from "@/lib/homeData";
 import { cachedRankings } from "@/lib/cachedRankings";
 import { asMultiplier } from "@/lib/scoring";
-import { formatDurationShort } from "@/lib/format";
-import { canManage, one, type Todo, type TrainingModule } from "@/lib/types";
+import { formatCount, formatDurationShort } from "@/lib/format";
+import {
+  canManage,
+  one,
+  PLATFORM_COLORS,
+  PLATFORM_LABEL,
+  type Todo,
+  type TrainingModule,
+} from "@/lib/types";
 
 /** Browser-tab identity; the root layout template appends the app name. */
 export const metadata = { title: "Home" };
@@ -44,17 +56,20 @@ function greetingDubai(): string {
   return "Good evening";
 }
 
+const countFmt = (n: number) => formatCount(Math.round(n)) ?? "0";
+
 /**
- * Home -- the landing page, shaped by role.
+ * Home -- the landing page after sign-in, shaped by role.
  *
- * An employee gets their day: today's tasks (with the same done toggle as
- * the sheet), the training they're mid-way through, their week against
- * capacity, and their own per-role standing -- which matters doubly now
- * that the People dashboard is manager-only; this is a member's one view
- * of their own scores.
+ * A manager gets the command center: how reach is moving per platform,
+ * how today's sheet and this week's hours are going, what's growing,
+ * who's performing, and whether the data pipeline is healthy -- maximum
+ * state of the business, one screen, no clicking around. A member gets
+ * their day: tasks, training, their week, their standing.
  *
- * A manager gets the workspace at a glance: headline counts, how today's
- * sheet is progressing per person, and the doors into every dashboard.
+ * Charts follow the house dataviz rules: one series per axis (platforms
+ * are small multiples, never summed), ink-colored text, thin marks,
+ * hover layers, entrance-only motion that reduced-motion flattens.
  */
 export default async function HomePage() {
   const session = await requireSession();
@@ -71,9 +86,24 @@ export default async function HomePage() {
     month: "long",
   }).format(new Date());
 
-  /* ---- Manager: workspace overview -------------------------------------- */
+  /* ---- Manager: the command center --------------------------------------- */
   if (manages) {
-    const [peopleRes, clientsRes, videosRes, todosRes] = await Promise.all([
+    const weekStart = startOfWeek();
+    const [
+      peopleRes,
+      clientsRes,
+      videosRes,
+      todosRes,
+      accountsRes,
+      momentum,
+      movers,
+      weekHours,
+      rankings,
+      trainingModulesRes,
+      trainingVideosRes,
+      trainingAssignRes,
+      trainingDoneRes,
+    ] = await Promise.all([
       supabase
         .from("memberships")
         .select("id", { count: "exact", head: true })
@@ -91,12 +121,29 @@ export default async function HomePage() {
       supabase
         .from("todos")
         .select(
-          // FK named explicitly: todos carries two profile references.
           "id, workspace_id, user_id, client_id, assigned_on, description, is_done, done_at, profile:profiles!todos_user_id_fkey(full_name)",
         )
         .eq("workspace_id", ws)
         .eq("assigned_on", today)
         .order("created_at"),
+      supabase
+        .from("accounts")
+        .select("last_synced_at, last_sync_error")
+        .eq("workspace_id", ws)
+        .eq("is_archived", false)
+        .eq("sync_enabled", true),
+      loadPlatformMomentum(supabase, ws),
+      loadWeekMovers(supabase, ws),
+      loadWeekHoursByDay(supabase, ws, startOfWeek()),
+      cachedRankings(ws),
+      supabase
+        .from("training_modules")
+        .select("id")
+        .eq("workspace_id", ws)
+        .eq("is_archived", false),
+      supabase.from("training_videos").select("id, module_id").eq("workspace_id", ws),
+      supabase.from("training_assignments").select("module_id, user_id").eq("workspace_id", ws),
+      supabase.from("training_completions").select("video_id, user_id").eq("workspace_id", ws),
     ]);
 
     const todos = (todosRes.data ?? []) as unknown as Todo[];
@@ -112,48 +159,313 @@ export default async function HomePage() {
     }
     const sheet = [...byPerson.values()].sort((a, b) => a.name.localeCompare(b.name));
 
-    const QUICK_LINKS = [
-      { href: "/content", label: "Content", icon: PlayCircle },
-      { href: "/team", label: "People", icon: Trophy },
-      { href: "/clients", label: "Clients", icon: Briefcase },
-      { href: "/todos", label: "To-dos", icon: ListChecks },
-      { href: "/training", label: "Training", icon: GraduationCap },
-      { href: "/guidelines", label: "Guidelines", icon: BookOpen },
-    ];
+    // Pipeline health, at a glance.
+    const accounts = (accountsRes.data ?? []) as {
+      last_synced_at: string | null;
+      last_sync_error: string | null;
+    }[];
+    const lastSync = accounts
+      .map((a) => a.last_synced_at)
+      .filter((t): t is string => !!t)
+      .sort()
+      .at(-1);
+    const syncErrors = accounts.filter((a) => a.last_sync_error).length;
+
+    // Training pulse: how much of everything assigned is complete.
+    const activeModules = new Set(
+      ((trainingModulesRes.data ?? []) as { id: string }[]).map((m) => m.id),
+    );
+    const videosByModule = new Map<string, string[]>();
+    for (const v of (trainingVideosRes.data ?? []) as { id: string; module_id: string }[]) {
+      if (!videosByModule.has(v.module_id)) videosByModule.set(v.module_id, []);
+      videosByModule.get(v.module_id)!.push(v.id);
+    }
+    const doneByUser = new Map<string, Set<string>>();
+    for (const c of (trainingDoneRes.data ?? []) as { video_id: string; user_id: string }[]) {
+      if (!doneByUser.has(c.user_id)) doneByUser.set(c.user_id, new Set());
+      doneByUser.get(c.user_id)!.add(c.video_id);
+    }
+    let unitsTotal = 0;
+    let unitsDone = 0;
+    for (const a of (trainingAssignRes.data ?? []) as { module_id: string; user_id: string }[]) {
+      if (!activeModules.has(a.module_id)) continue;
+      const vids = videosByModule.get(a.module_id) ?? [];
+      unitsTotal += vids.length;
+      const mine = doneByUser.get(a.user_id);
+      if (mine) unitsDone += vids.filter((v) => mine.has(v)).length;
+    }
+
+    // Top performers: mean of each person's rankable role scores.
+    const perUser = new Map<string, { name: string; scores: number[] }>();
+    for (const p of rankings.people) {
+      if (p.overall == null || !p.platforms.some((pl) => pl.rankable)) continue;
+      if (!perUser.has(p.userId)) perUser.set(p.userId, { name: p.name, scores: [] });
+      perUser.get(p.userId)!.scores.push(p.overall);
+    }
+    const performers = [...perUser.entries()]
+      .map(([userId, u]) => ({
+        userId,
+        name: u.name,
+        mean: u.scores.reduce((s, x) => s + x, 0) / u.scores.length,
+      }))
+      .sort((a, b) => b.mean - a.mean)
+      .slice(0, 3);
+
+    const weekTotalSeconds = weekHours.reduce((s, d) => s + d.seconds, 0);
+    const maxMoverGain = Math.max(...movers.map((m) => m.gained), 1);
 
     return (
-      <div className="mx-auto max-w-5xl px-6 py-6">
+      <div className="mx-auto max-w-6xl px-6 py-6">
         <PageHeader title={`${greetingDubai()}, ${firstName}`} subtitle={dateLabel} />
 
+        {/* ---- Headline numbers ------------------------------------------- */}
         <StatGrid>
-          <Stat
-            hero
-            icon={ListChecks}
-            label="Today's sheet"
-            value={todos.length ? `${done}/${todos.length}` : "—"}
-            hint={todos.length ? "tasks done across the team" : "nothing assigned yet"}
-          />
+          <div className="card-hero animate-rise relative flex items-center justify-between gap-3 p-4">
+            <div className="relative">
+              <div
+                className="text-[11px] font-medium uppercase tracking-wide"
+                style={{ color: "rgb(255 255 255 / 0.6)" }}
+              >
+                Today&apos;s sheet
+              </div>
+              <div
+                className="tabular mt-1.5 text-2xl font-semibold leading-none"
+                style={{ color: "var(--white)" }}
+              >
+                {todos.length ? (
+                  <>
+                    <CountUp value={done} />
+                    <span style={{ color: "rgb(255 255 255 / 0.55)" }}>/{todos.length}</span>
+                  </>
+                ) : (
+                  "—"
+                )}
+              </div>
+              <div className="relative mt-1.5 text-xs" style={{ color: "rgb(255 255 255 / 0.55)" }}>
+                {todos.length ? "tasks done across the team" : "nothing assigned yet"}
+              </div>
+            </div>
+            <ProgressRing fraction={todos.length ? done / todos.length : 0} size={64} stroke={6}>
+              <ListChecks size={18} style={{ color: "rgb(255 255 255 / 0.75)" }} />
+            </ProgressRing>
+          </div>
           <Stat
             icon={Users}
             label="People"
-            value={String(peopleRes.count ?? 0)}
+            value={<CountUp value={peopleRes.count ?? 0} />}
             hint="active members"
           />
           <Stat
             icon={Briefcase}
             label="Clients"
-            value={String(clientsRes.count ?? 0)}
+            value={<CountUp value={clientsRes.count ?? 0} />}
             hint="currently active"
           />
           <Stat
             icon={Clapperboard}
             label="Videos"
-            value={String(videosRes.count ?? 0)}
+            value={<CountUp value={videosRes.count ?? 0} />}
             hint="tracked in the system"
           />
         </StatGrid>
 
+        {/* ---- Reach momentum: one sparkline per platform, never summed ---- */}
         <section className="mb-7">
+          <SectionHeading
+            title="Reach momentum"
+            note="Views gained per day, last 30 days — each platform on its own scale"
+          />
+          {momentum.length === 0 ? (
+            <Empty>No snapshot history yet — momentum appears after a few daily syncs.</Empty>
+          ) : (
+            <div className="stagger grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {momentum.map((m) => (
+                <div key={m.slug} className="card animate-rise p-4">
+                  <div className="flex items-baseline gap-2">
+                    <span
+                      className="size-2.5 shrink-0 rounded-full"
+                      style={{ background: PLATFORM_COLORS[m.slug] ?? "var(--muted)" }}
+                    />
+                    <span className="text-sm font-semibold">
+                      {PLATFORM_LABEL[m.slug] ?? m.slug}
+                    </span>
+                    <span className="tabular ml-auto text-lg font-semibold">
+                      +<CountUp value={m.total} format={countFmt} />
+                    </span>
+                  </div>
+                  <div className="mt-2">
+                    <Sparkline
+                      data={m.points}
+                      color={PLATFORM_COLORS[m.slug] ?? "var(--accent)"}
+                      formatValue={(v) => `+${v.toLocaleString()} views`}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* ---- Hours + what's moving -------------------------------------- */}
+        <div className="mb-7 grid gap-3 lg:grid-cols-2">
+          <div className="card animate-rise p-4">
+            <div className="mb-3 flex items-baseline gap-2">
+              <Clock size={15} className="text-[var(--muted)]" />
+              <span className="text-sm font-semibold">Team hours this week</span>
+              <span className="tabular ml-auto text-lg font-semibold">
+                {weekTotalSeconds ? formatDurationShort(weekTotalSeconds) : "—"}
+              </span>
+            </div>
+            <MiniBars
+              data={weekHours.map((d) => ({
+                label: d.label,
+                hint: d.hint,
+                value: Math.round((d.seconds / 3600) * 10) / 10,
+              }))}
+              formatValue={(v) => `${v}h`}
+            />
+          </div>
+
+          <div className="card animate-rise p-4">
+            <div className="mb-2 flex items-baseline gap-2">
+              <TrendingUp size={15} className="text-[var(--muted)]" />
+              <span className="text-sm font-semibold">Moving this week</span>
+              <span className="ml-auto text-xs text-[var(--muted)]">views gained, 7 days</span>
+            </div>
+            {movers.length === 0 ? (
+              <p className="py-6 text-center text-sm text-[var(--muted)]">
+                Nothing gained views this week yet.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {movers.map((v, i) => (
+                  <Link
+                    key={v.id}
+                    href={`/content?video=${v.id}`}
+                    className="group block"
+                  >
+                    <div className="flex items-baseline gap-2 text-sm">
+                      <span className="w-4 shrink-0 text-xs text-[var(--muted)]">{i + 1}</span>
+                      <span className="min-w-0 flex-1 truncate transition-colors group-hover:text-[var(--accent)]">
+                        {v.title}
+                      </span>
+                      <span className="flex shrink-0 items-center gap-1">
+                        {v.platforms.map((p) => (
+                          <span
+                            key={p}
+                            className="size-1.5 rounded-full"
+                            style={{ background: PLATFORM_COLORS[p] ?? "var(--muted)" }}
+                            title={PLATFORM_LABEL[p] ?? p}
+                          />
+                        ))}
+                      </span>
+                      <span className="tabular shrink-0 text-xs font-medium text-[var(--success)]">
+                        +{formatCount(v.gained)}
+                      </span>
+                    </div>
+                    <div className="ml-6 mt-1 h-1 overflow-hidden rounded-full bg-[var(--bg-subtle)]">
+                      <div
+                        className="bar-grow h-full rounded-full"
+                        style={{
+                          width: `${Math.max(4, (v.gained / maxMoverGain) * 100)}%`,
+                          background: "var(--accent)",
+                          animationDelay: `${i * 60}ms`,
+                          transformOrigin: "left",
+                        }}
+                      />
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ---- Performers, training, pipeline ------------------------------ */}
+        <div className="mb-7 grid gap-3 sm:grid-cols-3">
+          <div className="card animate-rise p-4">
+            <div className="mb-3 flex items-center gap-2">
+              <Trophy size={15} className="text-[var(--muted)]" />
+              <span className="text-sm font-semibold">Top performers</span>
+            </div>
+            {performers.length === 0 ? (
+              <p className="text-xs text-[var(--muted)]">
+                Not enough scored history yet — standings appear as credited videos mature.
+              </p>
+            ) : (
+              <div className="space-y-2.5">
+                {performers.map((p) => (
+                  <Link
+                    key={p.userId}
+                    href={`/team?person=${p.userId}`}
+                    className="group flex items-center gap-2.5"
+                  >
+                    <Avatar name={p.name} seed={p.userId} size={26} />
+                    <span className="min-w-0 flex-1 truncate text-sm transition-colors group-hover:text-[var(--accent)]">
+                      {p.name}
+                    </span>
+                    <span className="tabular text-sm font-semibold text-[var(--success)]">
+                      {asMultiplier(p.mean).toFixed(2)}×
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <Link href="/training" className="card card-interactive animate-rise flex items-center gap-4 p-4">
+            <ProgressRing
+              fraction={unitsTotal ? unitsDone / unitsTotal : 0}
+              size={56}
+              stroke={6}
+              track="var(--bg-subtle)"
+            >
+              <GraduationCap size={16} className="text-[var(--muted)]" />
+            </ProgressRing>
+            <div className="min-w-0">
+              <div className="text-sm font-semibold">Training</div>
+              <div className="tabular mt-0.5 text-lg font-semibold">
+                {unitsTotal ? `${Math.round((unitsDone / unitsTotal) * 100)}%` : "—"}
+              </div>
+              <div className="text-xs text-[var(--muted)]">
+                {unitsTotal
+                  ? `${unitsDone}/${unitsTotal} assigned videos watched`
+                  : "nothing assigned yet"}
+              </div>
+            </div>
+          </Link>
+
+          <Link href="/data" className="card card-interactive animate-rise flex items-center gap-4 p-4">
+            <div
+              className="grid size-10 shrink-0 place-items-center rounded-full"
+              style={{
+                background: syncErrors ? "var(--danger-100)" : "var(--success-100)",
+                color: syncErrors ? "var(--danger)" : "var(--success)",
+              }}
+            >
+              {syncErrors ? <RefreshCw size={16} /> : <CheckCircle2 size={16} />}
+            </div>
+            <div className="min-w-0">
+              <div className="text-sm font-semibold">Data pipeline</div>
+              <div className="mt-0.5 text-xs text-[var(--muted)]">
+                {lastSync
+                  ? `last sync ${new Date(lastSync).toLocaleTimeString(undefined, {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}`
+                  : "never synced"}
+              </div>
+              <div className={`text-xs ${syncErrors ? "text-[var(--danger)]" : "text-[var(--muted)]"}`}>
+                {syncErrors
+                  ? `${syncErrors} account${syncErrors === 1 ? "" : "s"} with errors`
+                  : "all accounts healthy"}
+              </div>
+            </div>
+          </Link>
+        </div>
+
+        {/* ---- Today's sheet, person by person ----------------------------- */}
+        <section>
           <SectionHeading title="Today's sheet by person">
             <Link
               href="/todos"
@@ -189,27 +501,13 @@ export default async function HomePage() {
             </div>
           )}
         </section>
-
-        <SectionHeading title="Dashboards" />
-        <div className="stagger grid grid-cols-2 gap-3 sm:grid-cols-3">
-          {QUICK_LINKS.map(({ href, label, icon: Icon }) => (
-            <Link
-              key={href}
-              href={href}
-              className="card card-interactive animate-rise flex items-center gap-2.5 p-4 text-sm font-medium"
-            >
-              <Icon size={16} strokeWidth={1.8} style={{ color: "var(--accent)" }} />
-              {label}
-            </Link>
-          ))}
-        </div>
       </div>
     );
   }
 
   /* ---- Member: my day ----------------------------------------------------- */
-  const weekStart = startOfWeek().toISOString();
-  const [todosRes, modulesRes, videosRes, doneRes, timeRes, membershipRes, rankings] =
+  const weekStart = startOfWeek();
+  const [todosRes, modulesRes, videosRes, doneRes, myWeek, membershipRes, rankings] =
     await Promise.all([
       supabase
         .from("todos")
@@ -226,13 +524,7 @@ export default async function HomePage() {
         .order("sort_order"),
       supabase.from("training_videos").select("id, module_id").eq("workspace_id", ws),
       supabase.from("training_completions").select("video_id").eq("user_id", session.userId),
-      supabase
-        .from("time_entries")
-        .select("duration_seconds")
-        .eq("workspace_id", ws)
-        .eq("user_id", session.userId)
-        .gte("started_at", weekStart)
-        .not("ended_at", "is", null),
+      loadWeekHoursByDay(supabase, ws, weekStart, session.userId),
       supabase
         .from("memberships")
         .select("weekly_capacity_hours")
@@ -269,10 +561,7 @@ export default async function HomePage() {
     { done: 0, total: 0 },
   );
 
-  const weekSeconds = ((timeRes.data ?? []) as { duration_seconds: number | null }[]).reduce(
-    (s, t) => s + (t.duration_seconds ?? 0),
-    0,
-  );
+  const weekSeconds = myWeek.reduce((s, d) => s + d.seconds, 0);
   const capacity = Number(membershipRes.data?.weekly_capacity_hours ?? 0);
 
   const myRoles = rankings.people
@@ -292,13 +581,35 @@ export default async function HomePage() {
       <PageHeader title={`${greetingDubai()}, ${firstName}`} subtitle={dateLabel} />
 
       <StatGrid>
-        <Stat
-          hero
-          icon={ListChecks}
-          label="Today"
-          value={todos.length ? `${doneCount}/${todos.length}` : "—"}
-          hint={todos.length ? "tasks done" : "nothing assigned yet"}
-        />
+        <div className="card-hero animate-rise relative flex items-center justify-between gap-3 p-4">
+          <div className="relative">
+            <div
+              className="text-[11px] font-medium uppercase tracking-wide"
+              style={{ color: "rgb(255 255 255 / 0.6)" }}
+            >
+              Today
+            </div>
+            <div
+              className="tabular mt-1.5 text-2xl font-semibold leading-none"
+              style={{ color: "var(--white)" }}
+            >
+              {todos.length ? (
+                <>
+                  <CountUp value={doneCount} />
+                  <span style={{ color: "rgb(255 255 255 / 0.55)" }}>/{todos.length}</span>
+                </>
+              ) : (
+                "—"
+              )}
+            </div>
+            <div className="relative mt-1.5 text-xs" style={{ color: "rgb(255 255 255 / 0.55)" }}>
+              {todos.length ? "tasks done" : "nothing assigned yet"}
+            </div>
+          </div>
+          <ProgressRing fraction={todos.length ? doneCount / todos.length : 0} size={64} stroke={6}>
+            <ListChecks size={18} style={{ color: "rgb(255 255 255 / 0.75)" }} />
+          </ProgressRing>
+        </div>
         <Stat
           icon={Clock}
           label="This week"
@@ -309,7 +620,16 @@ export default async function HomePage() {
         <Stat
           icon={GraduationCap}
           label="Training"
-          value={trainingTotals.total ? `${trainingTotals.done}/${trainingTotals.total}` : "—"}
+          value={
+            trainingTotals.total ? (
+              <>
+                <CountUp value={trainingTotals.done} />
+                <span className="text-[var(--muted)]">/{trainingTotals.total}</span>
+              </>
+            ) : (
+              "—"
+            )
+          }
           hint={trainingTotals.total ? "videos completed" : "nothing assigned"}
         />
         <Stat
@@ -321,21 +641,37 @@ export default async function HomePage() {
         />
       </StatGrid>
 
-      <section className="mb-7">
-        <SectionHeading title="Today's tasks">
-          <Link
-            href="/todos"
-            className="rounded px-2 py-0.5 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--fg)]"
-          >
-            Open To-dos →
-          </Link>
-        </SectionHeading>
-        {todos.length === 0 ? (
-          <Empty>Nothing assigned for today yet.</Empty>
-        ) : (
-          <HomeTodoList todos={todos} />
-        )}
-      </section>
+      <div className="mb-7 grid gap-3 lg:grid-cols-2">
+        <section>
+          <SectionHeading title="Today's tasks">
+            <Link
+              href="/todos"
+              className="rounded px-2 py-0.5 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--fg)]"
+            >
+              Open To-dos →
+            </Link>
+          </SectionHeading>
+          {todos.length === 0 ? (
+            <Empty>Nothing assigned for today yet.</Empty>
+          ) : (
+            <HomeTodoList todos={todos} />
+          )}
+        </section>
+
+        <section>
+          <SectionHeading title="My week" note="hours per day" />
+          <div className="card p-4">
+            <MiniBars
+              data={myWeek.map((d) => ({
+                label: d.label,
+                hint: d.hint,
+                value: Math.round((d.seconds / 3600) * 10) / 10,
+              }))}
+              formatValue={(v) => `${v}h`}
+            />
+          </div>
+        </section>
+      </div>
 
       {inProgress.length > 0 && (
         <section className="mb-7">
@@ -378,8 +714,7 @@ export default async function HomePage() {
                   <span
                     className="tabular text-sm font-semibold"
                     style={{
-                      color:
-                        asMultiplier(r.overall!) >= 1 ? "var(--success)" : "var(--warning)",
+                      color: asMultiplier(r.overall!) >= 1 ? "var(--success)" : "var(--warning)",
                     }}
                   >
                     {asMultiplier(r.overall!).toFixed(2)}×
