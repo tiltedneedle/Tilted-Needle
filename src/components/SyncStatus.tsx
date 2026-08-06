@@ -82,7 +82,7 @@ export default function SyncStatus({
         {live.length > 0 ? (
           <span className="flex items-center gap-1.5 rounded bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-500">
             <span className="size-1.5 rounded-full bg-emerald-500" />
-            {live.map((p) => p.displayName).join(", ")} — every 15 min
+            {live.map((p) => p.displayName).join(", ")} — daily
           </span>
         ) : (
           <span className="rounded bg-[var(--bg-subtle)] px-2 py-0.5 text-xs text-[var(--muted)]">

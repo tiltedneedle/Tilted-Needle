@@ -1,3 +1,4 @@
+import Link from "next/link";
 import PageHeader from "@/components/PageHeader";
 import AccountsManager from "@/components/AccountsManager";
 import FilterBar from "@/components/FilterBar";
@@ -178,6 +179,36 @@ export default async function AccountsPage({
         connections={connections}
         connectorStatus={connectorStatus}
       />
+
+      {/* Archived accounts are hidden by the default status filter, which
+          made archiving read as deletion -- an account someone had just
+          archived was "not anywhere". One visible line keeps them a single
+          click away without cluttering the default view. */}
+      {!params.status &&
+        (() => {
+          const hidden = allAccounts.filter(
+            (a) =>
+              a.is_archived &&
+              (!params.platform || a.platform_slug === params.platform) &&
+              (!params.client || a.client_id === params.client),
+          ).length;
+          if (hidden === 0) return null;
+          const qs = new URLSearchParams();
+          if (params.platform) qs.set("platform", params.platform);
+          if (params.client) qs.set("client", params.client);
+          qs.set("status", "all");
+          return (
+            <p className="mt-3 text-center text-xs text-[var(--muted)]">
+              {hidden} archived account{hidden === 1 ? "" : "s"} hidden —{" "}
+              <Link
+                href={`/accounts?${qs.toString()}`}
+                className="text-[var(--accent)] hover:underline"
+              >
+                show
+              </Link>
+            </p>
+          );
+        })()}
     </div>
   );
 }
