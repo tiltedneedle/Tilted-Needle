@@ -441,7 +441,7 @@ function ImportRowView({
             : row.status === "skipped"
               ? "bg-[var(--bg-subtle)] text-[var(--muted)]"
               : row.status === "rejected"
-                ? "bg-red-500/15 text-red-400"
+                ? "bg-[var(--danger-100)] text-[var(--danger)]"
                 : "bg-amber-500/15 text-amber-500"
         }`}
       >

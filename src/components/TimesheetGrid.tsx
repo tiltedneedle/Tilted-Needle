@@ -198,7 +198,7 @@ export default function TimesheetGrid({
       </div>
 
       {submission?.status === "rejected" && submission.review_note && (
-        <p className="mb-2 rounded-md border border-red-500/25 bg-red-500/10 px-3 py-2 text-sm text-red-400">
+        <p className="mb-2 rounded-md border border-[var(--danger)]/25 bg-[var(--danger-100)] px-3 py-2 text-sm text-[var(--danger)]">
           Rejected: {submission.review_note}
         </p>
       )}

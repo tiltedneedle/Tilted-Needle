@@ -18,7 +18,7 @@ type Row = {
 const STATUS_CLASS: Record<string, string> = {
   submitted: "bg-amber-500/15 text-amber-500",
   approved: "bg-emerald-500/15 text-emerald-500",
-  rejected: "bg-red-500/15 text-red-400",
+  rejected: "bg-[var(--danger-100)] text-[var(--danger)]",
 };
 
 export default function ApprovalsManager({ rows }: { rows: Row[] }) {

@@ -118,19 +118,44 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <button
-          type="button"
-          className="mt-4 text-sm text-[var(--muted)] transition-colors hover:text-[var(--fg)]"
-          onClick={() => {
-            setMode(mode === "signin" ? "signup" : "signin");
-            setError(null);
-            setNotice(null);
-          }}
-        >
-          {mode === "signin"
-            ? "Need an account? Sign up"
-            : "Already have an account? Sign in"}
-        </button>
+        <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1">
+          <button
+            type="button"
+            className="text-sm text-[var(--muted)] transition-colors hover:text-[var(--fg)]"
+            onClick={() => {
+              setMode(mode === "signin" ? "signup" : "signin");
+              setError(null);
+              setNotice(null);
+            }}
+          >
+            {mode === "signin"
+              ? "Need an account? Sign up"
+              : "Already have an account? Sign in"}
+          </button>
+          {mode === "signin" && (
+            <button
+              type="button"
+              className="text-sm text-[var(--muted)] transition-colors hover:text-[var(--fg)]"
+              onClick={async () => {
+                setError(null);
+                setNotice(null);
+                if (!email.trim()) {
+                  setError("Type your email above first, then click reset.");
+                  return;
+                }
+                // The emailed link lands on /auth/reset, which is on the
+                // session proxy's public list -- see that page's comment.
+                const { error } = await supabase.auth.resetPasswordForEmail(email, {
+                  redirectTo: `${window.location.origin}/auth/reset`,
+                });
+                if (error) setError(error.message);
+                else setNotice("Reset link sent — check your email.");
+              }}
+            >
+              Forgot password?
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

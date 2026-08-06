@@ -89,12 +89,12 @@ export default async function AccountsPage({
         subtitle="One account per platform a client publishes to. Each is scored on its own metrics and baseline."
       />
       {params.oauth_error && (
-        <p className="mb-4 rounded-md border border-red-500/25 bg-red-500/10 px-3 py-2 text-sm text-red-400">
+        <p className="mb-4 rounded-md border border-[var(--danger)]/25 bg-[var(--danger-100)] px-3 py-2 text-sm text-[var(--danger)]">
           {decodeURIComponent(params.oauth_error)}
         </p>
       )}
       {params.oauth_connected && (
-        <p className="mb-4 rounded-md border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-500">
+        <p className="mb-4 rounded-md border border-[var(--success)]/25 bg-[var(--success-100)] px-3 py-2 text-sm text-[var(--success)]">
           Connected to {params.oauth_connected}. Enhanced metrics will appear
           on content as they sync.
         </p>
