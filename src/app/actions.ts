@@ -212,6 +212,51 @@ export async function createClientRecord(
   return {};
 }
 
+/**
+ * Moves an account under a different client (or none). Channel dashboards,
+ * the Clients section, and per-client reach all pivot on this link -- it was
+ * fixed forever at creation until now.
+ */
+export async function updateAccountClient(
+  accountId: string,
+  clientId: string | null,
+): Promise<Result> {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("accounts")
+    .update({ client_id: clientId })
+    .eq("id", accountId);
+  if (error) return { error: error.message };
+  revalidatePath("/accounts");
+  revalidatePath("/clients", "layout");
+  revalidatePath("/content");
+  return {};
+}
+
+/** A client's basics were create-only until now; RLS keeps this manager-only. */
+export async function updateClientRecord(
+  id: string,
+  patch: { name?: string; email?: string | null; note?: string | null },
+): Promise<Result> {
+  const row: Record<string, string | null> = {};
+  if (patch.name !== undefined) {
+    if (!patch.name.trim()) return { error: "Name is required." };
+    row.name = patch.name.trim();
+  }
+  if (patch.email !== undefined) row.email = patch.email?.trim() || null;
+  if (patch.note !== undefined) row.note = patch.note?.trim() || null;
+  if (Object.keys(row).length === 0) return {};
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("clients").update(row).eq("id", id);
+  if (error) return { error: error.message };
+  // The name appears on every dashboard that mentions the client.
+  revalidatePath("/clients", "layout");
+  revalidatePath("/content");
+  revalidatePath("/guidelines", "layout");
+  return {};
+}
+
 export async function createProject(input: {
   workspaceId: string;
   name: string;
@@ -598,6 +643,23 @@ export async function addTrainingVideo(input: {
   });
   if (error) return { error: error.message };
   trainingPaths(input.moduleId);
+  return {};
+}
+
+/** Rename without losing completions -- delete-and-re-add would wipe them. */
+export async function updateTrainingVideo(
+  id: string,
+  moduleId: string,
+  title: string,
+): Promise<Result> {
+  if (!title.trim()) return { error: "Video title is required." };
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("training_videos")
+    .update({ title: title.trim() })
+    .eq("id", id);
+  if (error) return { error: error.message };
+  trainingPaths(moduleId);
   return {};
 }
 

@@ -12,6 +12,7 @@ import {
   resetTrainingProgress,
   unassignTraining,
   updateTrainingModule,
+  updateTrainingVideo,
 } from "@/app/actions";
 import { SectionHeading } from "@/components/Stat";
 import type { TrainingModule, TrainingVideo } from "@/lib/types";
@@ -46,7 +47,32 @@ export default function TrainingAdmin({
   const [video, setVideo] = useState({ title: "", url: "" });
   const [assignee, setAssignee] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // Rename-in-place state: which video row is being edited, and the draft.
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
+  // Module meta editing -- title and description were create-only before.
+  const [editingMeta, setEditingMeta] = useState(false);
+  const [meta, setMeta] = useState({ title: mod.title, description: mod.description ?? "" });
   const refresh = () => startTransition(() => router.refresh());
+
+  async function saveRename(videoId: string) {
+    const res = await updateTrainingVideo(videoId, mod.id, renameDraft);
+    if (res.error) return setError(res.error);
+    setError(null);
+    setRenaming(null);
+    refresh();
+  }
+
+  async function saveMeta() {
+    const res = await updateTrainingModule(mod.id, {
+      title: meta.title,
+      description: meta.description || null,
+    });
+    if (res.error) return setError(res.error);
+    setError(null);
+    setEditingMeta(false);
+    refresh();
+  }
 
   const unassigned = members.filter((m) => !assignments.some((a) => a.userId === m.userId));
 
@@ -79,6 +105,47 @@ export default function TrainingAdmin({
           {error}
         </p>
       )}
+
+      {/* ---- Module meta ---------------------------------------------------- */}
+      <section>
+        {editingMeta ? (
+          <div className="card animate-rise space-y-2 p-3">
+            <input
+              className="input"
+              value={meta.title}
+              onChange={(e) => setMeta({ ...meta, title: e.target.value })}
+              placeholder="Module title"
+              aria-label="Module title"
+              autoFocus
+            />
+            <textarea
+              className="input min-h-[60px]"
+              value={meta.description}
+              onChange={(e) => setMeta({ ...meta, description: e.target.value })}
+              placeholder="What this course covers (optional)"
+              aria-label="Module description"
+            />
+            <div className="flex gap-2">
+              <button className="btn-primary py-1.5" onClick={() => void saveMeta()}>
+                Save
+              </button>
+              <button
+                className="btn py-1.5"
+                onClick={() => {
+                  setEditingMeta(false);
+                  setMeta({ title: mod.title, description: mod.description ?? "" });
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button className="btn-ghost text-xs" onClick={() => setEditingMeta(true)}>
+            Edit title &amp; description
+          </button>
+        )}
+      </section>
 
       {/* ---- Videos -------------------------------------------------------- */}
       <section>
@@ -117,7 +184,34 @@ export default function TrainingAdmin({
             {videos.map((v, i) => (
               <div key={v.id} className="group flex items-center gap-2 px-3 py-2">
                 <span className="tabular w-6 shrink-0 text-xs text-[var(--muted)]">{i + 1}.</span>
-                <span className="min-w-0 flex-1 truncate text-sm">{v.title}</span>
+                {renaming === v.id ? (
+                  <input
+                    className="input min-w-0 flex-1 py-1 text-sm"
+                    value={renameDraft}
+                    onChange={(e) => setRenameDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void saveRename(v.id);
+                      if (e.key === "Escape") setRenaming(null);
+                    }}
+                    onBlur={() => void saveRename(v.id)}
+                    aria-label="Video title"
+                    autoFocus
+                  />
+                ) : (
+                  // Renaming keeps completions; delete-and-re-add would wipe
+                  // everyone's progress through this video.
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 truncate text-left text-sm transition-colors hover:text-[var(--accent)]"
+                    onClick={() => {
+                      setRenaming(v.id);
+                      setRenameDraft(v.title);
+                    }}
+                    title="Rename"
+                  >
+                    {v.title}
+                  </button>
+                )}
                 <div className="row-actions flex shrink-0 items-center gap-1">
                   <button
                     className="btn px-1.5 py-1"

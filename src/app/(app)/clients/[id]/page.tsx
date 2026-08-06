@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import PageHeader from "@/components/PageHeader";
 import ClientActiveToggle from "@/components/ClientActiveToggle";
+import EditClientForm from "@/components/EditClientForm";
 import { Empty } from "@/components/Stat";
 import { PlatformChips } from "@/components/PlatformReach";
 import { PLATFORM_COLORS, PLATFORM_LABEL, canManage } from "@/lib/types";
@@ -18,9 +19,22 @@ export default async function ClientChannelsPage({
   const session = await requireSession();
   const supabase = await createClient();
   const ws = session.active.id;
+  const manages = canManage(session.active.role);
 
   const data = await loadClientChannels(supabase, ws, id);
   if (!data) notFound();
+
+  // The edit form needs the contact fields the channel loader has no
+  // business carrying; one tiny targeted read, managers only.
+  let contact: { email: string | null; note: string | null } = { email: null, note: null };
+  if (manages) {
+    const { data: row } = await supabase
+      .from("clients")
+      .select("email, note")
+      .eq("id", id)
+      .maybeSingle();
+    contact = { email: row?.email ?? null, note: row?.note ?? null };
+  }
 
   const live = data.channels.filter((c) => !c.isArchived);
 
@@ -33,7 +47,7 @@ export default async function ClientChannelsPage({
         ← Clients
       </Link>
       <PageHeader title={data.client.name} subtitle="Channels for this client. Open one for its own dashboard.">
-        {canManage(session.active.role) && (
+        {manages && (
           <ClientActiveToggle clientId={id} isActive={!data.client.isArchived} size="md" />
         )}
         <Link
@@ -43,6 +57,17 @@ export default async function ClientChannelsPage({
           Add or manage channels →
         </Link>
       </PageHeader>
+
+      {manages && (
+        <div className="mb-5 flex justify-end">
+          <EditClientForm
+            clientId={id}
+            name={data.client.name}
+            email={contact.email}
+            note={contact.note}
+          />
+        </div>
+      )}
 
       {live.length === 0 ? (
         <Empty>

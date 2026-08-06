@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { createAccount, setArchived } from "@/app/actions";
+import { createAccount, setArchived, updateAccountClient } from "@/app/actions";
 import { useToast } from "@/components/ui/Toast";
 import { PLATFORM_COLORS } from "@/lib/types";
 import type { Account, Client, Platform } from "@/lib/types";
@@ -188,10 +188,39 @@ export default function AccountsManager({
                       >
                         {a.handle}
                       </span>
-                      {a.client?.name && (
-                        <span className="text-xs text-[var(--muted)]">
-                          {a.client.name}
-                        </span>
+                      {canManage ? (
+                        // The account->client link was fixed forever at
+                        // creation; every client dashboard pivots on it, so
+                        // it has to be correctable in place.
+                        <select
+                          className="max-w-[160px] cursor-pointer truncate rounded bg-transparent text-xs text-[var(--muted)] transition-colors hover:text-[var(--fg)] focus:outline-none"
+                          value={a.client_id ?? ""}
+                          onChange={async (e) => {
+                            const res = await updateAccountClient(
+                              a.id,
+                              e.target.value || null,
+                            );
+                            if (res.error) toast("danger", res.error);
+                            else toast("success", "Client updated.");
+                            startTransition(() => router.refresh());
+                          }}
+                          aria-label={`Client for ${a.handle}`}
+                        >
+                          <option value="">No client</option>
+                          {clients
+                            .filter((c) => !c.is_archived || c.id === a.client_id)
+                            .map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.name}
+                              </option>
+                            ))}
+                        </select>
+                      ) : (
+                        a.client?.name && (
+                          <span className="text-xs text-[var(--muted)]">
+                            {a.client.name}
+                          </span>
+                        )
                       )}
                       <div className="flex-1" />
 
