@@ -15,13 +15,18 @@ export default function Sparkline({
   data,
   color = "var(--accent)",
   height = 56,
-  formatValue = (v) => v.toLocaleString(),
+  valuePrefix = "",
+  valueSuffix = "",
 }: {
   data: SparkPoint[];
   color?: string;
   height?: number;
-  formatValue?: (v: number) => string;
+  /** Serializable formatting -- this renders from Server Components, and a
+      format-function prop would crash at the client boundary at runtime. */
+  valuePrefix?: string;
+  valueSuffix?: string;
 }) {
+  const formatValue = (v: number) => `${valuePrefix}${v.toLocaleString()}${valueSuffix}`;
   const gid = useId();
   const [hover, setHover] = useState<number | null>(null);
 

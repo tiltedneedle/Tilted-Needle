@@ -56,8 +56,6 @@ function greetingDubai(): string {
   return "Good evening";
 }
 
-const countFmt = (n: number) => formatCount(Math.round(n)) ?? "0";
-
 /**
  * Home -- the landing page after sign-in, shaped by role.
  *
@@ -290,14 +288,14 @@ export default async function HomePage() {
                       {PLATFORM_LABEL[m.slug] ?? m.slug}
                     </span>
                     <span className="tabular ml-auto text-lg font-semibold">
-                      +<CountUp value={m.total} format={countFmt} />
+                      +<CountUp value={m.total} kind="count" />
                     </span>
                   </div>
                   <div className="mt-2">
                     <Sparkline
                       data={m.points}
                       color={PLATFORM_COLORS[m.slug] ?? "var(--accent)"}
-                      formatValue={(v) => `+${v.toLocaleString()} views`}
+                      valuePrefix="+" valueSuffix=" views"
                     />
                   </div>
                 </div>
@@ -322,7 +320,7 @@ export default async function HomePage() {
                 hint: d.hint,
                 value: Math.round((d.seconds / 3600) * 10) / 10,
               }))}
-              formatValue={(v) => `${v}h`}
+              valueSuffix="h"
             />
           </div>
 
@@ -667,7 +665,7 @@ export default async function HomePage() {
                 hint: d.hint,
                 value: Math.round((d.seconds / 3600) * 10) / 10,
               }))}
-              formatValue={(v) => `${v}h`}
+              valueSuffix="h"
             />
           </div>
         </section>

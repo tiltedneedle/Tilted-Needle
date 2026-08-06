@@ -14,13 +14,16 @@ export default function MiniBars({
   data,
   height = 96,
   color = "var(--accent)",
-  formatValue = (v) => v.toLocaleString(),
+  valueSuffix = "",
 }: {
   data: Bar[];
   height?: number;
   color?: string;
-  formatValue?: (v: number) => string;
+  /** Serializable formatting -- this renders from Server Components, and a
+      format-function prop would crash at the client boundary at runtime. */
+  valueSuffix?: string;
 }) {
+  const formatValue = (v: number) => `${v.toLocaleString()}${valueSuffix}`;
   const [hover, setHover] = useState<number | null>(null);
   const max = Math.max(...data.map((d) => d.value), 1);
   const active = hover != null ? data[hover] : null;

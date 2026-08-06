@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { formatCount } from "@/lib/format";
 
 /**
  * A number that counts up to its value on first paint -- the one place
@@ -8,16 +9,24 @@ import { useEffect, useRef, useState } from "react";
  * prefers-reduced-motion by rendering the final value immediately, and
  * animates only once per mount (never on re-render), so it reads as an
  * entrance, not a slot machine.
+ *
+ * Formatting is chosen by a serializable `kind`, NOT a function prop: this
+ * renders from Server Components, and a function crossing that boundary is
+ * a runtime crash ("Functions cannot be passed directly to Client
+ * Components") that the build never exercises on a session-gated page.
  */
 export default function CountUp({
   value,
-  format = (n) => Math.round(n).toLocaleString(),
+  kind = "int",
   durationMs = 900,
 }: {
   value: number;
-  format?: (n: number) => string;
+  /** "int" = 1,234; "count" = 4.6k / 10.2M (the house abbreviation). */
+  kind?: "int" | "count";
   durationMs?: number;
 }) {
+  const format = (n: number) =>
+    kind === "count" ? formatCount(Math.round(n)) : Math.round(n).toLocaleString();
   const [shown, setShown] = useState(0);
   const done = useRef(false);
 
