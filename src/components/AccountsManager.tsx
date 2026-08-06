@@ -267,7 +267,11 @@ export default function AccountsManager({
 
                       {canManage && (
                         <button
-                          className="row-actions rounded px-2 py-1 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--fg)]"
+                          // "Restore" must be visible without hovering: on a
+                          // struck-through row it is the one action someone is
+                          // hunting for, and hover-reveal hides it entirely on
+                          // touch. "Archive" on live rows stays hover-quiet.
+                          className={`${a.is_archived ? "btn px-2 py-1" : "row-actions rounded px-2 py-1 text-[var(--muted)] hover:bg-[var(--border)] hover:text-[var(--fg)]"} text-xs transition-colors`}
                           onClick={() => void toggle(a)}
                         >
                           {a.is_archived ? "Restore" : "Archive"}
