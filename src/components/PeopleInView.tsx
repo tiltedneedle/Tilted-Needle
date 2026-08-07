@@ -4,18 +4,7 @@ import { PlatformChips } from "@/components/PlatformReach";
 import { SectionHeading } from "@/components/Stat";
 import { formatDurationShort } from "@/lib/format";
 
-export type PersonInView = {
-  userId: string;
-  name: string;
-  videosInView: number;
-  /** Per-platform reach on their in-view videos -- chips, never summed. */
-  platforms: { platform: string; views: number }[];
-  /** Mean boost index (already a multiplier, e.g. 1.24) across scored posts of their in-view videos. */
-  avgBoost: number | null;
-  roles: string[];
-  /** Their tracked seconds on the in-view videos. */
-  seconds: number;
-};
+import type { PersonStats } from "@/lib/reports";
 
 /**
  * PRD v0.5 §3: the person-shaped mirror of the client summary. Every
@@ -24,7 +13,7 @@ export type PersonInView = {
  * entire point of the merge. Plain multipliers only: the tier vocabulary
  * is removed by request, the number is the information.
  */
-export default function PeopleInView({ people }: { people: PersonInView[] }) {
+export default function PeopleInView({ people }: { people: PersonStats[] }) {
   if (people.length === 0) return null;
 
   return (

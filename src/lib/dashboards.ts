@@ -59,6 +59,12 @@ export type VideoSummary = {
    * different from "gained nothing", and is shown as such rather than zero.
    */
   recentGain: { views: number; days: number } | null;
+  /**
+   * The same gain, kept split by platform. `recentGain.views` pools it into
+   * one number, which is fine for "is this still moving" but useless to the
+   * platform report, where the whole row IS one platform (PRD v0.5 §5).
+   */
+  platformGains: { platform: string; views: number }[];
 };
 
 export type ClientSummary = {
@@ -300,6 +306,7 @@ export async function loadContentOverview(
   const byItem = new Map<string, VideoSummary["platforms"]>();
   const postsByItem = new Map<string, number>();
   const gainByItem = new Map<string, { views: number; days: number }>();
+  const platformGainByItem = new Map<string, Map<string, number>>();
   for (const p of posts) {
     const acct = one(p.account);
     if (!acct) continue;
@@ -325,6 +332,11 @@ export async function loadContentOverview(
         views: (acc?.views ?? 0) + gain.views,
         days: Math.max(acc?.days ?? 0, gain.days),
       });
+      if (!platformGainByItem.has(p.content_item_id)) {
+        platformGainByItem.set(p.content_item_id, new Map());
+      }
+      const pg = platformGainByItem.get(p.content_item_id)!;
+      pg.set(acct.platform_slug, (pg.get(acct.platform_slug) ?? 0) + gain.views);
     }
   }
 
@@ -363,6 +375,9 @@ export async function loadContentOverview(
     postCount: postsByItem.get(i.id) ?? 0,
     credits: creditsByItem.get(i.id) ?? [],
     recentGain: gainByItem.get(i.id) ?? null,
+    platformGains: [...(platformGainByItem.get(i.id)?.entries() ?? [])].map(
+      ([platform, views]) => ({ platform, views }),
+    ),
   }));
 
   /* ---- Filters -----------------------------------------------------------

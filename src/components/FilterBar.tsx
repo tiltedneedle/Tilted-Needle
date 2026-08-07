@@ -76,6 +76,7 @@ export default function FilterBar({
   searchClears = [],
   range,
   rangeClears = [],
+  preserveOnClear = [],
   primaryCount = 2,
 }: {
   basePath: string;
@@ -90,6 +91,10 @@ export default function FilterBar({
   /** When set, renders the time-range control bound to from/to params. */
   range?: RangeValue;
   rangeClears?: string[];
+  /** Params "Clear all" keeps -- for state that is not a filter at all, like
+      which report tab you are reading. Clearing filters must not navigate
+      you off the thing you were looking at. */
+  preserveOnClear?: string[];
   /** How many filters stay visible before the rest collapse. */
   primaryCount?: number;
 }) {
@@ -282,7 +287,15 @@ export default function FilterBar({
         {active && (
           <button
             className="rounded px-2 py-1 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--fg)]"
-            onClick={() => router.push(basePath)}
+            onClick={() => {
+              const kept = new URLSearchParams();
+              for (const k of preserveOnClear) {
+                const v = searchParams.get(k);
+                if (v) kept.set(k, v);
+              }
+              const qs = kept.toString();
+              router.push(qs ? `${basePath}?${qs}` : basePath);
+            }}
           >
             Clear all
           </button>
