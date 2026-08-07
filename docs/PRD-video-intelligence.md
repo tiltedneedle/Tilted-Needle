@@ -1,4 +1,4 @@
-# PRD — Video Intelligence (v2.0)
+# PRD — Video Intelligence (v3.0)
 
 **Status:** design only. Nothing here is built.
 **Depends on:** the unified performance surface (PRD-unified-performance v0.5, shipped).
@@ -7,119 +7,208 @@ inside permanently-free tiers: Vercel Hobby, Supabase Free, Oracle Cloud
 **Always Free** (never the 30-day $300 trial).
 
 > **HARD CONSTRAINT — no OAuth, ever.** The agency does not and will not hold
-> owner access to client YouTube channels. Every feature in this document works
-> from public data only. Nothing may be designed, staged, or "left ready" for a
-> channel-owner API. v1.0 of this PRD was built around an OAuth tier; §2 records
-> what that removal costs, because the honest accounting matters more than the
-> feature list.
+> owner credentials for client channels. No feature may depend on a
+> channel-owner API. This is not merely a design rule: **the codebase currently
+> contains a working OAuth surface**, and §0 removes it. Nothing may be left
+> scaffolded, dormant, or "ready for later."
+
+---
+
+## 0. First: delete the OAuth that already exists
+
+An audit for this revision found live OAuth machinery in the shipped product.
+Leaving it in place while claiming the constraint would be a lie in the
+codebase, and every dormant credential path is a security surface nobody is
+watching.
+
+| What exists today | Disposition |
+|---|---|
+| `src/app/api/oauth/[provider]/{connect,callback,disconnect}/route.ts` (283 lines) | **Delete** |
+| `src/lib/connectors.ts` — `YOUTUBE_CLIENT_ID/SECRET`, `META_*`, `TIKTOK_*` | **Delete**; purge the vars from every environment |
+| `oauth_connections` table + Supabase Vault secret references | **Drop** by migration; revoke any tokens still stored |
+| `platforms.oauth_configured` column | **Drop** |
+| `/accounts` connect / disconnect UI, `?oauth_connected`, `?oauth_error` states | **Remove**; `connection_mode` collapses to manual-vs-api-key |
+| `post_analytics.source = 'oauth'` | Retain the **column**, retire the **value**; a check constraint permits `'manual' \| 'import' \| 'vision'` only |
+
+**`post_analytics` itself stays — it is the single most valuable table in this
+document (§2).** Only the OAuth route into it dies.
 
 ---
 
 ## 1. The thesis
 
-The system already knows *what was made*, *who made it*, *how it performed*, and
-*how that compares to the account's own baseline*. It does not know **what is
-actually said in the video**.
+The system knows *what was made*, *who made it*, *how it performed*, and *how
+that compares to the account's own baseline*. Three things it does not know:
 
-That one addition — the transcript, joined to the performance model already in
-place — is what turns a metrics dashboard into something that can answer the
-question the agency is paid to answer:
+1. **What is actually said in the video** — the transcript.
+2. **How each video behaved over its lifetime** — which is already sitting in
+   `post_snapshots`, unread.
+3. **What the platforms tell the owner but not the public** — which the client
+   can simply hand over (§2).
+
+Joined to the performance model already in place, those turn a metrics dashboard
+into something that answers the question the agency is actually paid to answer:
 
 > *Not "did this video do well" — but "what do the ones that work have in
-> common, and what should the next script do differently."*
+> common, which platform suits which content, what is still earning six months
+> later, and what should the next brief say."*
 
-Two hundred videos of transcript sitting next to two hundred boost scores is a
-corpus with an outcome variable attached. That is a genuinely rare asset, and no
-part of it requires permission from anyone.
-
-Replay data (§3) is a bonus layer on top, available for some videos, never
-depended upon. Everything else in here earns its place against the thesis or is
-cut — §11 lists what was cut and why.
+Two hundred transcripts beside two hundred boost scores is a proprietary corpus
+with an outcome variable already attached. Nothing about it needs anyone's
+permission.
 
 ---
 
-## 2. What no-OAuth costs, stated plainly
+## 2. Recovering what OAuth would have given us
 
-Removing owner access is not a small trim. Recorded here so nobody later
-mistakes an absent feature for an oversight:
+The direct answer to *"can we get the lost features another way?"* — **yes, most
+of them, and the schema was built for it before this PRD existed.**
 
-| Lost | Consequence |
+`post_analytics` (migration `20260728160000`) already carries `impressions`,
+`ctr`, `avg_watch_seconds`, `retention_30s`, `retention_60s`, **`retention_curve
+jsonb`**, **`traffic_sources jsonb`**, and `subscribers_gained` — with a `source`
+column whose original comment reads: *"'manual' lets a client's own Studio export
+unlock scoring today, without waiting on Phase 6 credentials."* A manual entry
+form is already wired into `ContentDetail`.
+
+The insight the original author had, and which the no-OAuth constraint now makes
+central: **the client owns this data and can give it to you.** A person
+downloading a report is not an OAuth integration.
+
+### 2.1 Three routes in, none of them OAuth
+
+**Route A — CSV import (best).** YouTube Studio's Advanced Mode exports per-video
+tables as CSV: views, **impressions**, **impressions click-through rate**,
+average view duration, **average percentage viewed**, watch time, plus separate
+traffic-source and geography reports. TikTok offers a comparable data download.
+The client exports and sends; the agency drops the file into `/import`, which
+already exists as a batch-import surface with `import_batches` behind it.
+
+*Verify at implementation:* whether the per-video **retention curve** itself
+exports cleanly. If it does not, the design loses nothing important — average
+percentage viewed plus the 30s/60s markers already in the schema carry most of
+the signal, and §5.10 degrades to those.
+
+**Route B — screenshot extraction (for Instagram, and for lazy weeks).**
+Instagram Insights has no clean CSV path, but it does have a screen the client
+already screenshots. A vision-capable model reads the image and proposes the
+numbers; **a human confirms every value before it is written.** This is the one
+place OCR belongs in the product, and it is never trusted silently — extracted
+values render in an editable form with the source image beside them.
+
+**Route C — manual entry.** Already built. Stays as the floor.
+
+All three write the same table with `source` recording which. Every downstream
+feature reads the table, not the route.
+
+### 2.2 What this recovers
+
+| Thought lost in v2.0 | Recovered by |
 |---|---|
-| **True audience retention** | We cannot know where viewers *left*. The replay map (§3) is a different, weaker measurement and is never presented as retention. |
-| **Impressions and click-through rate** | We cannot separate *nobody clicked* from *everybody clicked and left*. Thumbnail and title effectiveness becomes unmeasurable — which is why §11 cuts thumbnail analysis rather than faking it. |
-| **Traffic sources, demographics, subscriber attribution** | No answer to "where did this audience come from." |
-| **Official caption download** | Transcripts come only from the public endpoint, which puts them on the fragile path (§3). |
-| **A stable, in-terms data route** | Everything now depends on undocumented endpoints. Block tolerance stops being a nicety and becomes a core requirement (§10). |
+| Impressions and click-through rate | Route A/B — **and with it the click-vs-stay diagnosis** (§5.10), the single most valuable thing OAuth offered |
+| Average percentage viewed — real retention, summarised | Route A/B |
+| Full retention curve | Route A where the export supports it; otherwise 30s/60s markers |
+| Traffic sources | Route A |
+| Thumbnail and title effectiveness | Recovered — CTR is the outcome variable that was missing, so §5.9 comes back off the cut list |
+| Instagram reach, saves, shares | Route B — and `post_snapshots` already has idle `shares`, `saves`, `reach` columns waiting |
 
-**The strategic consequence:** the product's centre of gravity moves from
-*retention analysis* to *transcript-corpus analysis*. That is a defensible place
-to stand — the corpus is proprietary, the outcome variable already exists, and
-no competitor dashboard has both. But the design must stop leaning on a curve it
-will frequently not have.
+### 2.3 What stays genuinely gone
+
+Anything requiring a live owner session that no export reproduces: real-time
+data, subscriber identity, and per-video demographic breakdowns beyond what the
+geography export gives. Accepted, and not worked around.
+
+### 2.4 The honest catch
+
+This converts a **technical** blocker into a **client-relations** one. The data
+only exists if someone sends it. That is a problem the agency can actually
+solve — and to make it solvable, §8.5 shows a per-client **data completeness**
+indicator, so "chase EuroEyes for last month's export" is a visible task rather
+than a thing nobody remembers.
+
+Everything else in this document works whether or not a single client ever sends
+a file.
 
 ---
 
-## 3. What is actually obtainable, and how reliable it is
+## 3. The four data tiers, ordered by resilience
 
-| Data | Route | Cost | Reliability |
+The product is deliberately structured so that **value degrades gracefully**. If
+every fragile fetch fails forever and no client ever sends an export, Tiers 1
+and 2 still deliver a materially better product than exists today.
+
+| Tier | Source | Risk | Powers |
 |---|---|---|---|
-| Video lists, metadata, duration, stats | **Official API v3** — uploads playlist | ~1 unit / 50 videos | Stable, in-terms |
-| Comments | **Official API v3** — `commentThreads` | 1 unit / 100 | Stable, in-terms |
-| Description-derived chapters | Already fetched with metadata | free | Stable |
-| **Transcript** | Public `timedtext` endpoint | free | **Undocumented, blockable** |
-| **Replay intensity ("most replayed")** | Public player response | free | **Undocumented, blockable, often absent** |
+| **1** | Data **already in the database**, unread | None | Lifecycle, velocity, platform fit, metadata patterns, alerts |
+| **2** | Official YouTube API v3 | None — stable, in-terms | Comments, themes, gaps, free enrichment |
+| **3** | Client-supplied exports (§2) | Social, not technical | CTR, true retention, traffic sources |
+| **4** | Public undocumented endpoints | Blockable, breakable | Transcripts, replay map |
 
-**3.1 — The official API already covers more than the research suggested.**
-Listing a channel's videos costs 1 unit per page of 50 via the uploads playlist,
-not 100 via `search.list`; this codebase already does the cheap thing, with the
-reasoning at [youtube.ts:256](src/lib/providers/youtube.ts:256). Comments are 1
-unit per 100. So metadata and comments need no scraping at all, stay inside
-terms, and consume roughly 1% of the daily quota.
+**3.1 — The official API covers more than the research suggested.** Listing a
+channel's videos costs 1 unit per 50 via the uploads playlist, not 100 via
+`search.list`; this codebase already does the cheap thing, with the reasoning at
+[youtube.ts:256](src/lib/providers/youtube.ts:256). Comments are 1 unit per 100.
+Metadata and comments need no scraping, stay in terms, and use roughly 1% of the
+daily quota.
 
-**3.2 — What "most replayed" actually measures, because getting this wrong
-would put false advice in a client report.** The heat markers are ~100 buckets
-of *relative replay intensity* across the video's duration. A peak means that
-segment was **re-watched or scrubbed back to** more than others. It is **not**
-audience retention, and a low region does **not** reliably mean people left
-there — it means that stretch wasn't replayed.
+**3.2 — Free enrichment we are not currently collecting.** All from calls the
+sync already makes:
 
-The system therefore presents it as an **attention map**: *"these are the moments
-your audience went back to."* That claim is true, useful, and defensible to a
-client. "This is where you lost them" would be neither true nor defensible, and
-is banned from the UI copy and from every prompt.
+- **`contentDetails.caption`** — a boolean saying whether the video has captions
+  *at all*. Checking it before queueing a transcript fetch avoids a wasted
+  fragile request on every caption-less video. Directly reduces block exposure.
+- **`topicDetails.topicCategories`** — YouTube's own topic labels, free, useful
+  as a cross-check on model-derived topics.
+- **`snippet.description`** — fetched today and **discarded**. It is free corpus
+  text and the source of chapter timestamps.
+- **Instagram caption text** — the provider fetches it and keeps only the first
+  line as a title ([instagram.ts:76](src/lib/providers/instagram.ts:76)). The
+  rest is thrown away. It is the only text those posts have.
+- **Full publish timestamps** — the API returns an ISO datetime; `posted_at` is
+  a `date`, truncating it. Keeping the time enables time-of-day analysis (§5.4).
+  Cheap now, impossible to backfill later.
+- *Verify:* whether `snippet.tags` is returned for third-party videos. If yes,
+  free keyword signal; if not, nothing is lost.
 
-**3.3 — Replay data is frequently absent.** YouTube only publishes heat markers
-for videos above a view threshold. For a typical agency library a large share
-will have none. Absence is the normal case, designed for as such, and no feature
-may depend on its presence.
+**3.3 — What "most replayed" actually measures**, because getting this wrong
+would put false advice in a client report. The heat markers are ~100 buckets of
+*relative replay intensity*. A peak means that segment was **re-watched or
+scrubbed back to**. It is **not** audience retention, and a trough does **not**
+reliably mean people left. The system presents it as an **attention map** —
+*"the moments your audience went back to"* — which is true, useful, and
+defensible. "This is where you lost them" is banned from the UI copy and from
+every prompt. Where a client export exists (Tier 3), that is the real retention
+and is labelled as such; the two are never plotted together or compared.
 
-**3.4 — The x-axis is percent of video**, not seconds — ~100 buckets spread
-across the duration regardless of length. This makes videos of different lengths
-directly comparable, which is what the small-multiples view in §8.3 relies on.
+**3.4 — Replay data is often absent.** YouTube publishes heat markers only above
+a view threshold. Absence is the normal case and is designed for.
 
-**3.5 — On terms of service, once and plainly.** The transcript and replay
+**3.5 — The x-axis is percent of video**, ~100 buckets across the duration
+regardless of length — which is what makes videos of different lengths
+comparable in §8.3.
+
+**3.6 — On terms of service, once and plainly.** The transcript and replay
 endpoints sit outside YouTube's published terms, can change without notice, and
-are blocked on IP reputation rather than on request volume. There is no version
-of this feature set that avoids that, now that owner access is off the table.
-The architecture's answer is to make the footprint genuinely tiny (§9: about
-**two requests a day** in steady state), to cache permanently so nothing is ever
-fetched twice, and to degrade to a manual paste rather than to a broken page.
+are blocked on IP reputation rather than request volume. The architecture's
+answer is a genuinely tiny footprint (§9: about **two requests a day**),
+permanent caching so nothing is fetched twice, and degradation to manual paste
+rather than to a broken page.
 
 ---
 
-## 4. Architecture — what runs where, and why
-
-Four components. One costs money, and it is not infrastructure.
+## 4. Architecture
 
 ```
 ┌─ Vercel (Hobby, free) ──────────────────────────────────────┐
 │  The Next.js app. Reads Supabase. Renders charts.           │
-│  Writes JOB ROWS. Never calls YouTube. Never calls the LLM. │
+│  Handles CSV/screenshot upload. Writes JOB ROWS.            │
+│  Never calls YouTube. Never calls the LLM.                  │
 └────────────────────────┬────────────────────────────────────┘
                          │
 ┌─ Supabase (Free) ──────▼────────────────────────────────────┐
-│  The ONLY database. Transcripts, replay maps, analyses and  │
-│  the job queue all live beside the data they describe.      │
+│  The ONLY database. Transcripts, replay maps, analytics,    │
+│  analyses and the job queue live beside the data they       │
+│  describe.                                                  │
 └────────────────────────▲────────────────────────────────────┘
                          │  polls for jobs, writes results
 ┌─ Oracle Always Free ───┴────────────────────────────────────┐
@@ -130,172 +219,275 @@ Four components. One costs money, and it is not infrastructure.
                     External LLM API  ← the only paid line item
 ```
 
-**4.1 — Why a separate machine.** Three hard constraints, not preference:
-Vercel's IP ranges are among the most aggressively blocked by YouTube;
-serverless functions time out long before a backfill finishes; and Hobby cron
-fires once a day, which cannot pace a throttled queue. A machine whose IP we
-control is now load-bearing, because the fragile path has no fallback above it.
+**4.1 — Why a separate machine.** Vercel's IP ranges are among the most
+aggressively blocked by YouTube; serverless functions time out long before a
+backfill finishes; and Hobby cron fires once a day, which cannot pace a
+throttled queue.
 
-**4.2 — The job queue is the API.** The worker exposes **no HTTP endpoint at
-all**. It polls a Supabase table, does the work, writes results back. An admin
-pressing "Fetch transcript" inserts a row. No inbound firewall rules, no public
+**4.2 — The job queue is the API.** The worker exposes **no HTTP endpoint**. It
+polls a Supabase table, works, writes back. No inbound firewall rules, no public
 service, no TLS certificates, no auth layer to get wrong, no attack surface.
-Manual-trigger latency is one poll interval (30s), which is irrelevant for work
-measured in hours.
+Manual-trigger latency is one poll interval (30s).
 
 **4.3 — One database, deliberately.** Oracle's Always Free tier includes two
 Autonomous Databases. **We use neither.** The data is tiny (§9) and a second
-store would mean two sources of truth, a sync path, and a class of bug that does
-not currently exist.
+store means two sources of truth and a class of bug that does not exist today.
 
-**4.4 — The worker is stateless and disposable.** All state lives in Supabase.
-The instance holds code and two secrets, nothing else. If Oracle reclaims it,
-the region runs out of capacity, or the IP gets burned, the recovery is: run the
-provisioning script on a new instance. **The provisioning script is committed to
-the repo and is the only deployment artifact.** This turns every Oracle
-reliability quirk from an incident into a chore.
+**4.4 — The worker is stateless and disposable.** All state lives in Supabase;
+the instance holds code and two secrets. If Oracle reclaims it, capacity
+vanishes, or the IP is burned, recovery is running the provisioning script on a
+new instance. **That script is committed to the repo and is the only deployment
+artifact.** Every Oracle quirk becomes a chore rather than an incident.
 
-**4.5 — Which Oracle shape.** The workload is a few dozen outbound HTTP calls a
-day — I/O-bound, not compute-bound. It fits comfortably on an **always-free AMD
-micro** (1 OCPU / 1 GB), which is reliably available. Take an **Ampere A1** if
-capacity exists, but never design for it. §14 covers provisioning in detail.
+**4.5 — Shape.** A few dozen outbound calls a day: I/O-bound, not compute-bound.
+Fits an always-free **AMD micro** (1 OCPU / 1 GB), which is reliably available.
+Take an Ampere A1 if capacity exists; never design for it. §14 has the detail.
 
-**4.6 — Idle reclamation.** Oracle may stop Always Free compute judged idle over
-a 7-day window, and a worker that sleeps 23 hours a day looks exactly like an
-idle instance. The worker therefore runs a continuous light poll loop with a
-heartbeat row rather than a cron that fires and exits — which also gives §10 its
-liveness signal for free.
+**4.6 — Idle reclamation.** Oracle stops Always Free compute judged idle over a
+7-day window, and a worker sleeping 23 hours a day looks exactly like that. It
+therefore runs a continuous light poll loop with a heartbeat row — which also
+gives §10 its liveness signal for free.
 
-**4.7 — Secrets.** The LLM API key and the Supabase service key live **only** on
-the Oracle box. Neither is ever added to Vercel's environment, so neither can
-reach a client bundle or an edge function. The browser never sees a model call.
+**4.7 — Secrets.** The LLM key and the Supabase service key live **only** on the
+Oracle box. Neither enters Vercel's environment, so neither can reach a client
+bundle. The browser never sees a model call.
+
+**4.8 — Vision extraction runs on the worker too.** A screenshot uploaded in the
+browser goes to Supabase Storage, a job row is written, the worker calls the
+vision model and writes a *draft* row for confirmation. No image is retained
+after confirmation.
 
 ---
 
 ## 5. Features
 
-Five. Each states the question it answers and what would be lost by cutting it.
-They are ordered by how much they depend on the fragile path — the first three
-work on data that is reliably obtainable.
+Eleven, ordered by tier so the dependency structure is visible. Each states the
+question it answers and what would be lost by cutting it.
 
-### 5.1 Library search over what was actually said — the spine
+### Tier 1 — from data already in the database
 
-**Question:** *Have we covered this before? What did we say about it? Which
-videos mention this product, objection, or phrase?*
+Zero new fetching, zero block risk, zero API cost. `post_snapshots` has been
+accumulating daily readings since the system launched and nothing has ever read
+it as a time series.
 
+#### 5.1 Lifecycle: evergreen, spike, or second wind
+
+**Question:** *Does this video keep earning, or did it burn out in a week?*
+
+From each post's snapshot history: the view-velocity curve, **half-life** (days
+to reach half of current views), **decay shape**, and **second-wind detection**
+(re-acceleration after decay — the algorithm picking a video back up).
+Classification per video: **spike** (front-loaded, dead in days), **evergreen**
+(still accumulating months later), **sleeper** (slow start, later climb).
+
+For an agency deciding what to make more of, "this format still earns nine
+months later" is worth more than any single-day number — and the data has been
+there all along.
+
+**Cut it and** the snapshot history stays a chart nobody derives anything from.
+
+#### 5.2 Expected-curve alerts
+
+**Question:** *Is this new video over- or under-performing, while we can still
+do something about it?*
+
+Pool the client's history into a typical accumulation curve per platform, then
+compare each new video against it at day 1, 3, 7. Flag material divergence in
+both directions: an over-performer is a promotion opportunity while it is still
+live; an under-performer is a lesson while the shoot is still fresh.
+
+Also yields a **projected final view count** with an honest range.
+
+#### 5.3 Platform fit
+
+**Question:** *Which platform suits which kind of content, for this client?*
+
+The data model already groups the same content across platforms —
+`content_items` → many `platform_posts`. Nobody has ever asked it the obvious
+question: the same edit scored 3.1× baseline on TikTok and 0.4× on YouTube.
+Across a library, with transcripts attached, that becomes *"this client's
+explainer content wins on YouTube; their behind-the-scenes wins on TikTok"* —
+a scheduling and budgeting decision, not a vanity metric.
+
+**Cut it and** a structural advantage of the existing schema goes unused.
+
+#### 5.4 Metadata patterns
+
+**Question:** *Do our titles, lengths, and posting days matter?*
+
+Title shape (length, question vs statement, numerals, emoji), video duration,
+and day-of-week — each correlated against the existing boost score, computed in
+code. Requires the timestamp-precision fix in §3.2 for time-of-day.
+
+Modest individually; together they are the cheapest reliable input to a brief.
+
+### Tier 2 — official API only
+
+#### 5.5 Comment themes and sentiment
+
+**Question:** *What is the audience saying, without reading 400 comments?*
+
+Comments arrive via the official API (1 unit per 100). The model clusters them
+into named themes with counts, assigns sentiment, and surfaces the negative
+cluster separately — complaints are the actionable ones. Finally fills
+`platform_posts.comment_sentiment`, a column that has existed since the first
+content migration and has never been written to.
+
+#### 5.6 Content gaps
+
+**Question:** *What is the audience asking for that we have not made?*
+
+Cross-references recurring questions in comments against the transcript corpus.
+*"Fourteen comments across six videos ask about aftercare; no video covers it."*
+That is a commissioned video, sourced from the audience.
+
+Degrades gracefully: with no transcripts it still surfaces recurring questions,
+just without the have-we-covered-it check.
+
+### Tier 3 — client-supplied exports (§2)
+
+#### 5.7 The import pipeline
+
+CSV import for Studio/TikTok exports, vision-assisted screenshot extraction with
+mandatory human confirmation, and the existing manual form — all writing
+`post_analytics`. Per-client completeness tracking (§8.5) so gaps are chaseable.
+
+#### 5.8 Click versus stay — the diagnosis OAuth was wanted for
+
+**Question:** *Did nobody click, or did everybody click and leave?*
+
+CTR against average percentage viewed separates the two failure modes that look
+identical from outside. **Low CTR, high retention** = the content works, the
+packaging failed — fix the thumbnail and title. **High CTR, low retention** =
+the packaging over-promised — fix the hook or the edit. Different problems,
+different owners on the team, and no public metric can tell them apart.
+
+This is the highest-value item in the document per unit of effort, and it needs
+one CSV per client per month.
+
+#### 5.9 Thumbnail and title effectiveness
+
+**Question:** *Which packaging earns the click?*
+
+Cut in v2.0 for lack of an outcome variable; restored because Route A supplies
+CTR. Thumbnail attributes (face present, text overlay, contrast, framing) via
+the vision model, plus title patterns from §5.4, correlated against **CTR** —
+the correct denominator, not views.
+
+Strictly gated: it renders only for clients with CTR data on ≥8 videos, prints
+the sample size next to every claim, and pools across the workspace only when it
+says so.
+
+#### 5.10 True retention, where it exists
+
+Where an export supplies a real curve, it renders in the §8.2 panel labelled
+**"Audience retention, from the channel's own analytics"** — visually and
+verbally distinct from the replay map, never on the same axis. Where only 30s /
+60s markers exist, those render as two honest points rather than an interpolated
+curve pretending to be one.
+
+### Tier 4 — public undocumented endpoints
+
+#### 5.11 The transcript corpus — search, analysis, briefs
+
+**Question (a):** *Have we covered this? What did we say about it?*
 Postgres full-text search across every transcript, wired into the existing
 `/content` search box so one control finds a video by title **or** by something
-said inside it. Results show the matching line with its timestamp and link
-straight to that moment.
+said inside it. Results show the matching line and timestamp. No AI, no API
+cost — `tsvector` handles thousands of transcripts instantly.
 
-No AI, no API cost, no embeddings — `tsvector` handles a few thousand
-transcripts instantly. Highest value per unit of effort in this document, and it
-works the moment a transcript exists.
+**Question (b):** *What do our best videos have in common?*
+The system computes the top/bottom quartile split by boost score and derives
+opening structure, length, topic distribution, and call-to-action placement. The
+model receives that computed table and writes the read. **Suppressed below 8
+scored videos per client**, with the sample size printed beside every claim.
 
-**Cut it and** the transcripts are a database column nobody ever reads.
+**Question (c):** *So what should we make next?*
+The brief generator: given the corpus findings, the content gaps (§5.6), and the
+platform-fit read (§5.3), draft the next video brief — angle, hook direction,
+target length, platform, and the evidence behind each choice. This is where the
+model earns its cost, because it closes the loop from measurement to action.
+Every line is traceable to a computed input.
 
-### 5.2 What works — the corpus analysis
+**A transcript attaches to the `content_item`, not the post** (§6.1) — so the
+YouTube cut's transcript describes the TikTok and Instagram posts of the same
+edit, and transcript-driven analysis covers all three platforms wherever a
+YouTube version exists.
 
-**Question:** *What do our best-performing videos have in common, and what
-should the next script do?*
+#### 5.12 The attention map, and what to cut next
 
-The system computes, **in code**, the split between the top and bottom quartile
-of a client's videos by the existing boost score, and derives from the
-transcripts: opening structure (the first 15 seconds), length, question-vs-claim
-openings, topic distribution, and where the call-to-action lands. The model then
-receives that computed table and writes the read. Every figure in the prose
-exists in the table; the model contributes sentences, never numbers.
+**Question:** *Which moments did the audience replay — and which 30 seconds is
+our next Short?*
 
-**Sample-size guard:** suppressed entirely below 8 scored videos for that
-client, and the sample size prints beside every claim. A pattern drawn from
-three videos is astrology.
+The replay curve and transcript render together, locked to the same axis, with
+cross-highlighting. The system finds the strongest sustained peaks
+arithmetically; the model describes what is said at each.
 
-**Cut it and** the corpus has no outcome variable attached to it — which is the
-only thing making it more valuable than a folder of subtitle files.
-
-### 5.3 Comment themes and sentiment
-
-**Question:** *What is the audience actually saying, without reading 400
-comments?*
-
-Comments arrive via the official API. The model clusters them into named themes
-with counts, assigns an overall sentiment, and surfaces the negative cluster
-separately — complaints are the actionable ones.
-
-This finally fills `platform_posts.comment_sentiment`, a column that has existed
-since the first content migration and has never once been written to.
-
-Works on all three platforms wherever comment text is available, not just
-YouTube.
-
-### 5.4 The attention map (where replay data exists)
-
-**Question:** *Which moments did the audience go back to, and what was said
-there?*
-
-The replay curve and the transcript render together on the video page, locked to
-the same axis. Hovering the curve highlights the transcript line at that moment;
-hovering a line marks its position on the curve. The system identifies the
-strongest sustained peaks arithmetically; the model then describes what is being
-said at each — *"the most replayed moment is 0:47–1:02, where the price
-comparison is stated."*
-
-Framed throughout as **replayed moments**, never as retention or drop-off
-(§3.2). Absent for many videos, and says so.
-
-### 5.5 The weekly client read
-
-**Question:** *What do we tell the client on Monday, and what should the team
-make next?*
-
-Once a week per client, the system computes the range's movers, the boost
-distribution by format and length, the §5.2 corpus findings, and the comment
-themes. The model receives only that computed table and writes the read.
-
-Lands as a fifth tab in `/reports`, dated, with its inputs viewable beneath.
+Then the part that pays for itself: **the highest-sustained-replay window of a
+long video is the best available candidate for a Short or Reel.** The system
+proposes the segment with its in/out timestamps and the transcript of that
+window, ready to hand to an editor. Repurposing decisions currently made on
+instinct become evidence-led, and the existing role credits mean the resulting
+Short is already attributable to whoever cuts it.
 
 ---
 
 ## 6. Data model
 
-Five new tables. All workspace-scoped with RLS matching the existing tables; the
-worker connects with the service key and is exempt, as the sync runner already
-is. **No OAuth token storage anywhere** — there is no column for it, by design.
+All workspace-scoped with RLS matching existing tables; the worker uses the
+service key and is exempt, as the sync runner already is. **No OAuth token
+storage anywhere — §0 removes the table that had it.**
 
 ```sql
--- 6.1 One transcript per post, segment timings preserved.
+-- 6.1 Transcript per CONTENT ITEM, not per post: the same edit posted to three
+--     platforms has one transcript, and it describes all three.
 video_transcripts (
-  id, workspace_id, platform_post_id → platform_posts,
-  source          text,   -- 'public' | 'manual'
+  id, workspace_id, content_item_id → content_items,
+  source_post_id  uuid,             -- which platform post it was pulled from
+  source          text,             -- 'public' | 'manual' | 'import'
   language        text,
-  is_generated    boolean,          -- auto-captions vs human-written
-  full_text       text,             -- FTS + LLM input
+  is_generated    boolean,
+  full_text       text,
   segments        jsonb,            -- [{start_ms, dur_ms, text}]
   search_vector   tsvector generated,
   fetched_at, created_at
 )
--- unique (platform_post_id)
--- index gin (search_vector)
+-- unique (content_item_id); index gin (search_vector)
 
--- 6.2 Replay intensity. NOT retention -- the column name says so.
+-- 6.2 Replay intensity. NOT retention -- the table name says so.
 video_replay_map (
   id, workspace_id, platform_post_id → platform_posts,
   points          jsonb,  -- [{pct: 0.00..1.00, intensity: 0..1}]
   captured_at, created_at
 )
 
--- 6.3 Comments, stored raw enough to re-analyse without refetching.
+-- 6.3 Lifecycle, derived from post_snapshots. Materialised because every
+--     dashboard read would otherwise re-derive it from the full series.
+post_lifecycle (
+  id, workspace_id, platform_post_id → platform_posts,
+  shape             text,     -- 'spike' | 'evergreen' | 'sleeper' | 'unknown'
+  half_life_days    numeric,
+  peak_daily_views  bigint,
+  days_to_peak      integer,
+  second_wind_at    timestamptz,
+  projected_views   bigint,
+  vs_expected_pct   numeric,  -- +/- against the client's typical curve
+  computed_at
+)
+
+-- 6.4 Comments, stored raw enough to re-analyse without refetching.
 post_comments (
   id, workspace_id, platform_post_id, external_id,
   author, text, like_count, published_at, fetched_at
 )
 
--- 6.4 Every AI output, versioned by prompt so a prompt change re-runs cleanly.
+-- 6.5 Every AI output, versioned by prompt so a prompt change re-runs cleanly.
 ai_analyses (
   id, workspace_id,
-  subject_type    text,   -- 'post' | 'client'
+  subject_type    text,   -- 'post' | 'content_item' | 'client'
   subject_id      uuid,
-  kind            text,   -- 'attention_map' | 'comment_themes' | 'corpus' | 'weekly_read'
+  kind            text,   -- 'attention_map' | 'comment_themes' | 'corpus'
+                          -- | 'weekly_read' | 'brief' | 'packaging' | 'gaps'
   prompt_version  int,
   model           text,
   input_digest    text,             -- hash of the exact inputs
@@ -306,97 +498,122 @@ ai_analyses (
 -- unique (subject_type, subject_id, kind, prompt_version, input_digest)
 --   ⇒ identical inputs are never paid for twice
 
--- 6.5 The queue. This table IS the worker's API.
+-- 6.6 The queue. This table IS the worker's API.
 ingest_jobs (
   id, workspace_id,
-  kind            text,   -- 'transcript' | 'replay' | 'comments' | 'analyse' | 'weekly_read'
+  kind            text,   -- 'transcript' | 'replay' | 'comments' | 'lifecycle'
+                          -- | 'analyse' | 'vision_extract' | 'weekly_read'
   subject_id      uuid,
   status          text,   -- 'pending' | 'running' | 'done' | 'failed' | 'unavailable'
   attempts        int,
-  not_before      timestamptz,      -- backoff and jitter scheduling
+  not_before      timestamptz,
   last_error      text,
   priority        int,
   created_at, updated_at
 )
 -- index (status, not_before) where status = 'pending'
+
+-- 6.7 Changes to existing tables.
+alter table content_items  add column description   text;      -- free corpus (§3.2)
+alter table content_items  add column topic_labels  text[];    -- topicCategories
+alter table platform_posts add column has_captions  boolean;   -- skip futile fetches
+alter table platform_posts add column posted_at_ts  timestamptz; -- full precision
+alter table post_analytics add constraint source_no_oauth
+  check (source in ('manual','import','vision'));
+drop table oauth_connections;                                   -- §0
+alter table platforms drop column oauth_configured;             -- §0
 ```
 
 `platform_posts.external_id` already holds the YouTube video id
-([youtube.ts:340](src/lib/providers/youtube.ts:340)), so every fetcher's join
-key exists today. No change to the sync pipeline.
+([youtube.ts:340](src/lib/providers/youtube.ts:340)), so every fetcher's join key
+exists today. `post_snapshots.shares`, `saves`, and `reach` already exist and
+have never been written — Route B fills them for Instagram.
 
 ---
 
 ## 7. The AI layer
 
 **7.1 — Provider-agnostic by contract.** One adapter: base URL, API key, model
-name, all from environment. Targets an OpenAI-compatible chat-completions shape,
-which every major provider speaks. Changing provider is a config change.
+name, from environment. Targets an OpenAI-compatible chat-completions shape.
+Changing provider is a config change. A separate `vision_model` setting, since
+extraction (§2.1 Route B) and prose may warrant different models.
 
 **7.2 — The model narrates; it never computes.** Every prompt receives a
-pre-computed table and is instructed to write only about what is in it. No
-prompt asks the model to calculate a percentage, rank a list, or decide what
-counts as a peak. This is the entire anti-hallucination strategy and it is not
-negotiable: a client report that quietly invents a number is worse than no
-report.
+pre-computed table and writes only about what is in it. No prompt asks the model
+to calculate a percentage, rank a list, or decide what counts as a peak. This is
+the entire anti-hallucination strategy and it is not negotiable: a client report
+that quietly invents a number is worse than no report.
 
 **7.3 — Structured output.** Every analysis returns JSON against a fixed schema
 (claims, evidence, confidence, sample size). The UI renders fields. A response
 failing validation is retried once, then marked failed — never rendered raw.
 
 **7.4 — Paid once per input.** `input_digest` hashes the exact inputs. Same
-transcript + same metrics + same prompt version = the stored result, no call.
+inputs + same prompt version = the stored result, no call.
 
-**7.5 — A hard monthly budget.** A configured token ceiling per calendar month.
-At 80% the admin panel warns; at 100% the worker queues instead of calling.
-Since the LLM is the only cost in the platform, it is the only thing that can
-produce a surprise bill — so it gets a hard stop, not a warning.
+**7.5 — A hard monthly budget.** A configured token ceiling per calendar month;
+at 80% the admin panel warns, at 100% the worker queues instead of calling.
+The LLM is the only cost in the platform, so it is the only thing that can
+produce a surprise bill — it gets a hard stop, not a warning.
 
-**7.6 — Vocabulary is constrained by prompt.** Every prompt touching replay data
-is given the §3.2 framing and forbidden the words *retention*, *drop-off*, and
-*audience left*. Getting this wrong would put a false claim in front of a paying
-client.
+**7.6 — Vocabulary is constrained by prompt.** Prompts touching replay data are
+given the §3.3 framing and forbidden the words *retention*, *drop-off*, and
+*audience left*. Prompts touching Tier 3 data may use them, because there the
+measurement is real. Mixing the two vocabularies is the single most likely way
+this product says something false to a paying client.
 
-**7.7 — Every claim is attributable.** Each rendered claim carries its sample
+**7.7 — Extraction is never trusted.** Vision output is a **draft**, rendered in
+an editable form beside the source image, saved only on human confirmation.
+Anything else puts OCR errors into client reporting.
+
+**7.8 — Every claim is attributable.** Each rendered claim carries its sample
 size and links to the videos behind it.
 
 ---
 
 ## 8. Interface and visualisation
 
-No new top-level pages. The system already has the right surfaces.
+No new top-level pages.
 
 ### 8.1 Content list (`/content`)
 
-The existing search box also searches transcripts; matches show the line and its
-timestamp. A small transcript indicator per row (present / none / pasted), since
-knowing what the corpus covers is itself operationally useful.
+Search also covers transcripts, with matching line and timestamp. Two small
+indicators per row: transcript present/absent, and lifecycle shape as a glyph
+(spike / evergreen / sleeper) — the latter is the cheapest way to make §5.1
+visible everywhere without adding a column of numbers.
 
-### 8.2 Video page (`/content/[id]`) — transcript, and the attention map when it exists
+### 8.2 Video page (`/content/[id]`)
 
-**The transcript panel is the primary addition** and renders whenever a
-transcript exists, independent of replay data. Timestamped lines, searchable
-within the page, each linking to that moment in the embedded player.
+**Transcript panel** — the primary addition, rendering whenever a transcript
+exists, independent of everything else. Timestamped lines, in-page search, each
+line linking to that moment in the embedded player.
 
-**The attention curve, when present.** Single series, so an **area chart**: x =
-percent of video, y = replay intensity. One accent hue at low fill opacity, 2px
-line, recessive grid, crosshair and tooltip on hover reading *"38% through ·
-0:47 · replayed heavily."* No legend — the title names the single series. The
-panel header states what it is in words: **"Most-replayed moments — a relative
-attention signal, not audience retention."**
+**Lifecycle chart** — views accumulated over time as a line, with the client's
+expected curve behind it in the de-emphasis gray. **Emphasis form**: this video
+in accent, context in gray. Same unit, same axis. Peak, half-life, and any
+second wind marked directly.
 
-**Never a second y-axis.** Replay intensity is never overlaid with views,
-engagement, or anything else on a shared plot. The dual-axis chart is the most
-common way to make a chart lie and is banned here outright.
+**Attention curve, when present** — a single-series **area chart**, x = percent
+of video, y = replay intensity. One accent hue at low fill, 2px line, recessive
+grid, crosshair and tooltip. No legend; the title names the series. Header states
+what it is: *"Most-replayed moments — a relative attention signal, not audience
+retention."* Where a Tier 3 export exists, a **separate** panel reads *"Audience
+retention, from the channel's own analytics."* The two never share an axis.
+
+**Never a second y-axis.** Nothing here is overlaid on a second scale. The
+dual-axis chart is the most common way to make a chart lie and is banned.
 
 **The transcript carries the heat.** Each line's left edge takes a **sequential
-single-hue tint** — light to dark, more-is-darker, never a rainbow — for
+single-hue tint** — light to dark, more-is-darker, never a rainbow — for replay
 intensity at that moment. This is where a heat encoding earns its place: against
-the words, where it is actionable, rather than as a decorative band repeating
-what the curve already said. Hovering either side highlights the other.
+the words, where it is actionable, rather than as a band repeating the curve.
+Hovering either side highlights the other.
 
-**Peak markers** on the curve with tinted bands on the transcript, the model's
-sentences inline beneath.
+**The repurposing card** (§5.12): the proposed Short window with in/out
+timestamps, its transcript, and a one-line reason.
+
+**Packaging card** (§5.9, Tier 3 only): CTR and average percentage viewed as two
+stat tiles with the click-vs-stay reading in a sentence beneath.
 
 **Absence is stated, not hidden.** *"No replay data — YouTube only publishes it
 for videos above a view threshold."* Silence reads as a bug; a sentence reads as
@@ -404,27 +621,27 @@ a system that knows what it knows.
 
 ### 8.3 Client page
 
-Small multiples of the client's recent attention curves at sparkline scale, on a
-shared y-scale within the set so shape comparison is honest — the percent-of-video
-x-axis (§3.4) is what makes videos of different lengths comparable at all. Plus
-the §5.2 corpus card.
+Small multiples of recent attention curves at sparkline scale on a shared
+y-scale — the percent-of-video x-axis (§3.5) is what makes different lengths
+comparable at all. Plus the platform-fit read and the corpus card.
 
 ### 8.4 Reports — a fifth tab, "Insights"
 
-The weekly read per client, dated, computed inputs expandable beneath the prose.
-Same range control as the other four tabs.
+The weekly read per client, dated, with computed inputs expandable beneath the
+prose, and the current brief suggestions. Same range control as the other tabs.
 
 ### 8.5 Data panel (`/data`)
 
 Queue depth by kind, worker heartbeat age, last successful fetch per source,
-block-detection state with cooldown remaining, month-to-date token spend against
-budget, transcript coverage (how many videos have one), and per-video manual
-retry. Everything needed to judge whether the machine is healthy, on one screen.
+block state with cooldown remaining, month-to-date token spend against budget,
+transcript coverage, and **per-client analytics completeness** — which clients
+have sent exports, how recent, and what is missing. That last one turns §2.4's
+social dependency into a visible, chaseable task rather than a silent gap.
 
-**Manual transcript paste** lives here and on the video page. With no official
-caption route, this is a real feature and not a fallback afterthought: a
-30-second paste permanently fixes any video the fetcher cannot reach, and the
-pasted transcript feeds every other feature identically.
+Manual transcript paste and CSV/screenshot upload live here and on the video
+page. With no official caption route, paste is a real feature: 30 seconds
+permanently fixes any video the fetcher cannot reach, and a pasted transcript
+feeds everything downstream identically.
 
 ### 8.6 House rules that still apply
 
@@ -438,200 +655,208 @@ palette validator before shipping.
 
 ## 9. Capacity and cost
 
-**Request footprint — the number that decides whether blocking is a real risk.**
-Transcripts are fetched **once and never again** (captions do not change). Replay
-maps are fetched **once, when the video is ~28 days old** and its numbers have
-matured, then only on manual request. At ~30 new videos a month that is **about
-60 fragile requests a month — two a day**, paced with jitter across the day.
-That is a genuinely tiny footprint. It is not a guarantee (§3.5), but it is the
-difference between a system that looks like a person and one that looks like a
-scraper.
+**Fragile-request footprint — the number that decides whether blocking is real.**
+Transcripts are fetched **once and never again**; the `has_captions` pre-check
+(§3.2) skips videos that have none; replay maps are fetched **once at ~28 days**
+when the numbers have matured, then only on request. At ~30 new videos a month
+that is **about 60 fragile requests a month — two a day**, jittered across the
+day. Not a guarantee (§3.6), but the difference between looking like a person
+and looking like a scraper.
 
-**Storage.** A 10-minute transcript is ~8–10 KB; a replay map is under 2 KB. The
-existing 202-video library is **≈2 MB**. With comments and five years of growth
-it stays well under 100 MB against Supabase's 500 MB free allowance. No pruning
-policy is needed.
+**Tiers 1–3 add zero fragile requests.** Lifecycle is a local computation over
+rows already stored; comments and enrichment ride the official API; imports are
+files a human uploads.
 
-**Quota.** Metadata ~1 unit per 50 videos, comments 1 unit per 100 — roughly 1%
+**Storage.** A 10-minute transcript is ~8–10 KB; a replay map under 2 KB;
+lifecycle rows are trivial. The existing 202-video library is **≈2 MB**. With
+comments and five years of growth it stays well under 100 MB against Supabase's
+500 MB. Screenshots are deleted after confirmation. No pruning policy needed.
+
+**Quota.** ~1 unit per 50 videos for metadata, 1 per 100 comments — roughly 1%
 of the 10,000-unit daily allowance.
 
-**Compute and egress.** A few dozen HTTP calls a day; megabytes a month against
-a 10 TB allowance.
+**Compute and egress.** Dozens of calls a day; megabytes a month against 10 TB.
 
-**LLM — the only cost.** Per new video: one attention-map narration where replay
-data exists (~3–4k in, ~600 out) and one comment analysis (~2–3k in, ~400 out).
-Per client per week: one read (~4–6k in, ~800 out), plus a monthly corpus
-analysis per client (~8–12k in, ~1k out). At 30 new videos and 10 clients:
-**roughly 300–400k input and 60k output tokens a month** — a small monthly figure
-at current rates for a mid-tier model, and bounded absolutely by §7.5.
+**LLM — the only cost.** Per new video: attention-map narration where replay
+data exists (~3–4k in, ~600 out) and comment analysis (~2–3k in, ~400 out). Per
+client per week: one read (~4–6k in, ~800 out). Per client per month: corpus
+analysis (~8–12k in, ~1k out) and briefs (~6k in, ~1k out). Vision extraction is
+per uploaded image, occasional. At 30 new videos and 10 clients: **roughly
+400–500k input and 80k output tokens a month** — small at current mid-tier rates,
+and bounded absolutely by §7.5.
 
-**Backfill** of the existing 202 videos is a one-off of roughly 1M input tokens
-and ~400 fragile requests, spread across weeks by the same throttle.
+**Backfill** of the existing library is a one-off of roughly 1M input tokens and
+~400 fragile requests, spread across weeks by the same throttle.
 
 ---
 
 ## 10. Failure modes
 
-Now that the fragile path has no tier above it, this section is load-bearing.
-
 | Failure | Behaviour |
 |---|---|
-| Captions disabled on a video | Marked `unavailable`, retried twice with long backoff, then left alone permanently. The video page offers manual paste. |
-| Replay data not published | Marked `unavailable` — the normal case, not an error. Retried once at 90 days in case the video crossed the threshold. |
-| Our IP gets blocked | Detected by response signature → fragile fetchers pause for a cooldown; official-API work, AI analysis and the whole app continue. `/data` shows the state and resume time. Auto-resumes. Escalation path in §10.1. |
-| Endpoint changes shape | Parse failure is a *failed job with the payload logged*, not a crash. Queue keeps draining; `/data` surfaces the pattern. |
-| Transcript library API changes | Version-pinned, with the call surface verified at install (§12 P3). |
+| Video has no captions | Caught by the `has_captions` pre-check before any fragile request. Marked, never queued. |
+| Captions exist but fetch fails | Two retries with long backoff, then `unavailable` permanently. Video page offers manual paste. |
+| Replay data not published | `unavailable` — the normal case, not an error. Retried once at 90 days in case it crossed the threshold. |
+| Our IP gets blocked | Detected by response signature → fragile fetchers pause for a cooldown; **Tiers 1–3, the AI layer and the whole app continue**. `/data` shows state and resume time. Auto-resumes. Escalation in §10.1. |
+| Endpoint changes shape | Parse failure is a *failed job with the payload logged*, not a crash. Queue keeps draining. |
+| Transcript library API changes | Version-pinned, call surface verified at install (§12 P4). |
+| Client never sends exports | Tier 3 features stay dark for that client and say so; everything else is unaffected. `/data` shows it as an outstanding item. |
+| Vision misreads a screenshot | Caught at the confirmation step, which is mandatory. Nothing is written unconfirmed. |
 | LLM API down or over budget | Analyses queue; UI shows the last analysis with its date. Nothing renders blank. |
-| Oracle instance reclaimed or lost | The app is unaffected — it only reads Supabase. Heartbeat age in `/data` makes the stall visible in minutes; recovery is re-running the provisioning script (§4.4). |
+| Oracle instance reclaimed or lost | App unaffected — it only reads Supabase. Heartbeat age in `/data` surfaces the stall in minutes; recovery is re-running the provisioning script (§4.4). |
 | Worker dies mid-job | Jobs are leased with a timeout; expired leases return to `pending`. Every fetcher is idempotent. |
 
-**10.1 — If the IP is burned for good.** Three escalations, in order: rotate the
-instance's ephemeral public IP (free on Oracle, may or may not land in a cleaner
-range); fall back to manual paste for the affected videos, which keeps every
-downstream feature working; or route the fragile fetchers through a cheap
-rotating proxy — the only line item that would ever push this system past "LLM
-is the sole cost," and explicitly a last resort, not a default.
+**10.1 — If the IP is burned for good.** In order: rotate the instance's
+ephemeral public IP (free on Oracle; may or may not land in a cleaner range);
+fall back to manual paste, which keeps every downstream feature working; or
+route fragile fetchers through a cheap rotating proxy — the only line item that
+would push this past "the LLM is the sole cost," and explicitly a last resort.
 
-**Manual effort in steady state: none.** New videos enrich themselves within a
-day. The only human action that ever exists is pasting a transcript for a video
-whose captions are disabled — and even that is optional; everything else about
-the video still works.
+**Manual effort in steady state:** collecting client exports monthly (§2.4), and
+optionally pasting a transcript where captions are disabled. Everything else
+runs itself.
 
 ---
 
 ## 11. Deliberately not built
 
-Discipline is the feature. Each was considered and cut.
-
-- **Anything requiring channel-owner access** — hard constraint. Not staged, not
-  scaffolded, not left half-wired.
-- **Thumbnail or title effectiveness analysis** — without click-through rate
-  there is no outcome variable to correlate against, so any finding would be a
-  guess dressed as analysis. This is a direct casualty of no-OAuth and is listed
-  here rather than shipped hollow.
-- **Social cross-link extraction** — the research proposed scraping a channel's
-  linked handles. The `accounts` table already holds every client's handle on
-  every platform. This would scrape data we have. **Zero value.**
-- **Competitor and trend tracking at scale** — a different product, and by far
-  the most block-prone use of the fragile path we now fully depend on. Named
-  future phase, not smuggled in.
+- **Anything requiring channel-owner credentials** — hard constraint, and §0
+  removes what exists.
+- **Competitor transcript or replay scraping** — the most block-prone use of the
+  path we now fully depend on.
+- **Competitor *metadata* benchmarking** — worth noting it needs no scraping at
+  all (the official API serves any public channel at ~1 unit per 50 videos), so
+  it is a legitimate later phase rather than a cut. Out of v1 because it is a
+  different product with a different buyer.
+- **Social cross-link extraction** — the `accounts` table already holds every
+  client's handle on every platform. This would scrape data we have.
 - **TikTok and Instagram transcripts** — no comparable endpoint; would need
-  media download plus paid speech-to-text, adding cost, storage and fragility.
-  **However**, comment analysis and the weekly read cover all three platforms
-  from day one using the text those platforms do expose. Only §5.1, §5.2 and
-  §5.4 are YouTube-only, and the UI says so.
+  media download plus paid speech-to-text. **Mitigated:** §6.1 attaches
+  transcripts to the content item, so cross-posted edits are covered by their
+  YouTube version, and §3.2 recovers Instagram caption text that is currently
+  discarded.
 - **Semantic search / embeddings** — full-text search answers the real question
-  at zero cost. Revisit only if FTS demonstrably misses results; pgvector makes
-  it a later addition, not a rewrite.
+  at zero cost. pgvector makes it a later addition, not a rewrite.
 - **A second database on Oracle** — see §4.3.
 - **Synchronous "analyse now"** — would put long calls on Vercel and make cost
   unpredictable. Everything queues.
+- **Retaining uploaded screenshots** — extract, confirm, delete. No image store,
+  no retention question to answer later.
 
 ---
 
 ## 12. Implementation prompts
 
-Staged; each ships independently and leaves the system working. **Verification
-bar for every stage:** tsc clean · lint 0 errors · build passes · all unit
-suites · RLS suite extended for new tables · every new surface proven with an
-authenticated render probe before it is called done.
+Each ships independently and leaves the system working. **Verification bar:**
+tsc clean · lint 0 errors · build passes · all unit suites · RLS suite extended
+for new tables · every new surface proven with an authenticated render probe.
 
-**P1 — Schema and queue.** The five tables from §6, RLS policies, `ingest_jobs`
-with leasing and backoff, and the enqueue helper the app calls. No worker yet;
-jobs accumulate harmlessly.
+**P0 — Remove OAuth.** Everything in §0: routes, connectors, table, column, UI
+states, environment variables, plus the `post_analytics` source constraint. RLS
+suite updated. Ships first, alone, so the constraint is true in the code before
+anything is built on top of it.
 
-**P2 — The worker skeleton.** The Oracle service: poll loop, heartbeat, lease
-handling, jitter throttle, block detection with cooldown, structured logging,
-and the **committed provisioning script** (§4.4). First real job kind is
-`comments`, because it runs on the official API — proving the whole pipeline
-end to end without touching anything fragile.
+**P1 — Lifecycle.** `post_lifecycle`, the derivation over `post_snapshots`, the
+expected-curve model, shape classification, the §8.2 chart and the `/content`
+glyph. **Zero new data sources, immediate value** — this is the proof that Tier
+1 was worth reading.
 
-**P3 — Transcripts.** The public fetcher behind the same queue. Version-pin the
-library and **verify its call surface against the installed version** — its API
-changed shape across major versions, and code written against the older
-static-method form will not run. Manual paste UI ships in the same stage, so a
-failed fetch always has a human path.
+**P2 — Free enrichment.** `has_captions`, `topic_labels`, description and
+Instagram caption persistence, full publish timestamps. Small, and everything
+downstream is cheaper for it.
 
-**P4 — Search.** Transcript FTS wired into `/content` search, with timestamped
-result lines. No AI. This must be valuable with the model switched off — if it
-is not, the corpus is not worth what it costs to gather.
+**P3 — Schema, queue, worker.** The remaining tables, RLS, `ingest_jobs` with
+leasing and backoff, and the Oracle service: poll loop, heartbeat, jitter
+throttle, block detection, structured logging, **committed provisioning
+script**. First job kind is `comments` — official API, proving the pipeline end
+to end without touching anything fragile.
 
-**P5 — The replay map.** Fetcher at 28-day maturity, the §8.2 chart, the tinted
-transcript strip, peak detection, cross-highlighting, and the empty state that
-explains absence. Still no AI.
+**P4 — Transcripts and search.** Public fetcher behind the queue, gated on
+`has_captions`. **Version-pin the library and verify its call surface against
+the installed version** — its API changed shape across major versions and older
+static-method code will not run. Manual paste ships in the same stage. Then FTS
+in `/content` search. Must be valuable with the model switched off.
 
-**P6 — The AI layer.** Adapter, prompt versioning, schema-validated structured
-output, `input_digest` caching, budget ceiling and enforcement, and the §7.6
-vocabulary constraints. Comment themes and attention-map narration first — both
-per-video and cacheable.
+**P5 — Client analytics import.** CSV importer on the existing `/import`
+infrastructure, per-client completeness tracking, and the §5.8 click-vs-stay
+panel. **This is the highest-value stage in the document** and depends on
+nothing fragile.
 
-**P7 — Insights.** Corpus analysis with its sample-size guard, the weekly client
-read, the fifth Reports tab, the client-page cards, and the weekly schedule.
+**P6 — Replay map.** Fetcher at 28-day maturity, the attention chart, tinted
+transcript strip, peak detection, cross-highlighting, empty states.
 
-**P8 — Backfill and hardening.** Throttled backfill across weeks, the full
-`/data` operations panel, and failure-mode tests: simulated block, endpoint
-shape change, budget exhaustion, worker death mid-job.
+**P7 — The AI layer.** Adapter, prompt versioning, schema-validated output,
+`input_digest` caching, budget ceiling, §7.6 vocabulary constraints. Comment
+themes and attention narration first — per-video and cacheable.
+
+**P8 — Vision extraction.** Screenshot upload, worker-side extraction, mandatory
+confirmation UI, image deletion after confirm.
+
+**P9 — Insights and briefs.** Corpus analysis with sample-size guards, platform
+fit, metadata patterns, content gaps, packaging analysis, repurposing
+suggestions, the weekly read, the fifth Reports tab, and the weekly schedule.
+
+**P10 — Backfill and hardening.** Throttled backfill across weeks, the full
+`/data` operations panel, and failure-mode tests: simulated block, endpoint shape
+change, budget exhaustion, worker death mid-job, malformed CSV, vision
+misread.
 
 ---
 
 ## 13. Open questions
 
-1. **Which LLM provider and model?** The adapter is provider-agnostic, but §9's
-   budget and the prompt tuning assume a mid-tier model.
-2. **Should the weekly read be emailed?** It is designed as an in-app tab
-   because the platform has no email capability today. Adding one (Resend's free
-   tier fits) is small, separate work — but it is what turns "automated client
-   reports" from *available* into *delivered*.
-3. **Does the client see any of this?** `/portal` exists for client users.
-   Exposing a curated read there is cheap, but it changes who the writing is for
-   and should be a deliberate decision.
-4. **Is manual paste acceptable as the standing fallback?** If the team will not
-   paste transcripts for videos with captions disabled, those videos simply stay
-   outside the corpus — which is fine, but the coverage number in `/data` should
-   then be read as a permanent ceiling rather than a backlog.
+1. **Will clients send Studio exports?** This single answer decides whether Tier
+   3 — including the click-vs-stay diagnosis, the most valuable thing here —
+   exists at all. Worth asking one client before P5 rather than building on an
+   assumption.
+2. **Which LLM provider and model, and does it do vision?** §9's budget assumes
+   a mid-tier model; §2.1 Route B needs a vision-capable one, which may be a
+   second model in the same adapter.
+3. **Should the weekly read be emailed?** Designed as an in-app tab because the
+   platform has no email capability. Adding one (Resend's free tier fits) is
+   small, separate work — and it is what turns "automated client reports" from
+   *available* into *delivered*.
+4. **Does the client see any of this?** `/portal` exists for client users.
+   Exposing a curated read is cheap, but changes who the writing is for.
+5. **How far back should lifecycle analysis reach?** Snapshot history only goes
+   back to launch, so older videos have partial curves. Suggest computing
+   whatever is available and labelling the coverage, rather than excluding them.
 
 ---
 
 ## 14. Oracle provisioning notes
 
-Operational detail that determines whether this stays free. Verify current
-allowances at signup — Oracle revises them.
+Verify current allowances at signup — Oracle revises them.
 
-**14.1 — The home region is permanent and cannot be changed.** Always Free
+**14.1 — The home region is permanent** and cannot be changed; Always Free
 resources exist only there. **Choose Singapore (`ap-singapore-1`)** to sit beside
-the rest of the stack (Supabase and Vercel are both Singapore), which keeps the
-worker's database round-trips local.
+the rest of the stack, keeping the worker's database round-trips local.
 
-**14.2 — Signing up needs a card for identity verification.** A small temporary
-authorisation, typically refunded. It is not a charge, and it surprises people.
+**14.2 — Signup needs a card** for identity verification: a small temporary
+authorisation, typically refunded. Not a charge, and it surprises people.
 
-**14.3 — The account starts on a 30-day trial with credits, then converts.**
-This is the one that matters for the cost constraint. To land purely on Always
-Free: **only ever provision shapes the console explicitly labels "Always Free
-Eligible."** Anything else is trial-funded and gets reclaimed at conversion. Do
-not upgrade to Pay As You Go — upgrading is what makes ARM capacity reliably
-available, and also what makes overspending possible.
+**14.3 — The account starts on a 30-day trial, then converts.** To land purely
+on Always Free: **only ever provision shapes the console explicitly labels
+"Always Free Eligible."** Anything else is trial-funded and gets reclaimed at
+conversion. Do not upgrade to Pay As You Go — upgrading is what makes ARM
+capacity reliably available, and also what makes overspending possible.
 
-**14.4 — Take the AMD micro; treat ARM as a bonus.** `VM.Standard.E2.1.Micro`
-(1 OCPU, 1 GB) is reliably available and is sized correctly for this workload
-(§4.5). Ampere A1 capacity requests frequently fail with "out of host capacity"
-on free accounts, sometimes for weeks. Do not let the project wait on it.
+**14.4 — Take the AMD micro; treat ARM as a bonus.**
+`VM.Standard.E2.1.Micro` (1 OCPU, 1 GB) is reliably available and correctly
+sized (§4.5). Ampere A1 requests frequently fail with "out of host capacity" on
+free accounts, sometimes for weeks. Do not let the project wait on it.
 
-**14.5 — Save the SSH private key at instance creation.** It is offered once. A
-lost key means rebuilding the instance — cheap here, since the worker is
-stateless (§4.4), but avoidable.
+**14.5 — Save the SSH private key at instance creation.** Offered once.
 
-**14.6 — No inbound ports are needed beyond SSH.** The design (§4.2) polls
-outward and serves nothing, so the default security list needs no changes at
-all. Worth knowing that Oracle's images also carry local firewall rules on top
-of the cloud security list — a classic source of "I opened the port and it still
-doesn't work." It never bites us, because we open nothing.
+**14.6 — No inbound ports are needed beyond SSH.** The design serves nothing, so
+the default security list needs no changes. Worth knowing Oracle's images carry
+local firewall rules on top of the cloud security list — the classic "I opened
+the port and it still doesn't work." It never bites us, because we open nothing.
 
 **14.7 — Guard against idle reclamation** (§4.6): the continuous poll loop
-handles it. A once-daily cron would not.
+handles it; a once-daily cron would not.
 
-**14.8 — Keep swap on the micro.** 1 GB is workable for a poller but leaves no
-headroom; a small swap file is free insurance.
+**14.8 — Keep swap on the micro.** 1 GB is workable but leaves no headroom.
 
 **14.9 — Treat the instance as cattle.** Provisioning script in the repo,
 secrets injected at deploy, `systemd` unit with `Restart=always`, unattended
