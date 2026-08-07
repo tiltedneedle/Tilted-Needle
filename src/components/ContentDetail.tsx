@@ -15,7 +15,7 @@ import {
   updatePlatformPost,
 } from "@/app/actions";
 import { formatDurationShort, parseDuration } from "@/lib/format";
-import { asMultiplier, tierFor, TIER_LABELS, type Tier } from "@/lib/scoring";
+import { asMultiplier } from "@/lib/scoring";
 import VideoEmbed from "@/components/VideoEmbed";
 import Avatar from "@/components/Avatar";
 import { PLATFORM_COLORS, one } from "@/lib/types";
@@ -47,14 +47,6 @@ export type AnalyticsRow = {
   retention_30s: number | null;
   retention_60s: number | null;
   source: string;
-};
-
-const TIER_CLASS: Record<Tier, string> = {
-  top: "text-emerald-500",
-  above: "text-emerald-400",
-  at: "text-[var(--muted)]",
-  below: "text-amber-500",
-  insufficient: "text-[var(--muted)] opacity-70",
 };
 
 /** A credited person's standing in the role they hold on this video. */
@@ -604,15 +596,16 @@ export default function ContentDetail({
                   const score = creditScores.find(
                     (s) => s.userId === h.user_id && s.roleSlug === role.slug,
                   );
-                  const tier = tierFor(score?.overall ?? 0, !!score?.rankable);
                   return (
                     <span
                       key={h.id}
                       className="group/chip flex items-center gap-1.5 rounded-full bg-[var(--bg-subtle)] py-0.5 pl-0.5 pr-2 text-xs"
                       title={
-                        score?.rankable
-                          ? `${TIER_LABELS[tier]} in this role`
-                          : "Not enough posts yet to rank them in this role"
+                        // PRD v0.5 §3: the multiplier IS the information; the
+                        // tier vocabulary around it is removed by request.
+                        score?.rankable && score.overall != null
+                          ? `${asMultiplier(score.overall).toFixed(2)}× in this role`
+                          : "Not enough posts yet to score them in this role"
                       }
                     >
                       {/* Same colour as this person's circle everywhere else
@@ -623,16 +616,15 @@ export default function ContentDetail({
                         size={20}
                         title=""
                       />
-                      {/* Into the People dashboard -- the credit panel is the
-                          natural jumping-off point between the two. */}
+                      {/* Their whole body of work, on this same surface. */}
                       <Link
-                        href={`/team?person=${h.user_id}`}
+                        href={`/content?person=${h.user_id}`}
                         className="transition-colors hover:text-[var(--accent)]"
                       >
                         {h.profile?.full_name ?? "Unknown"}
                       </Link>
                       {score?.rankable && score.overall != null ? (
-                        <span className={`tabular ${TIER_CLASS[tier]}`}>
+                        <span className="tabular font-medium">
                           {asMultiplier(score.overall).toFixed(2)}×
                         </span>
                       ) : (

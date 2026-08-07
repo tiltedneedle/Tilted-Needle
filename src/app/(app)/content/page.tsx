@@ -3,6 +3,7 @@ import NewContentForm from "@/components/NewContentForm";
 import ContentOverview from "@/components/ContentOverview";
 import ContentDetail, { type AnalyticsRow, type SnapshotRow } from "@/components/ContentDetail";
 import ClientDetail from "@/components/ClientDetail";
+import PeopleInView from "@/components/PeopleInView";
 import FilterBar from "@/components/FilterBar";
 import PlatformReach from "@/components/PlatformReach";
 import { Stat, StatGrid, SectionHeading } from "@/components/Stat";
@@ -316,6 +317,63 @@ export default async function ContentPage({
     (v) => v.recentGain != null && v.recentGain.views > 0,
   );
   const gained = stillGrowing.reduce((s, v) => s + (v.recentGain?.views ?? 0), 0);
+
+  // People-in-view strip (PRD v0.5 §3): per selected person, their numbers
+  // computed on the CURRENT intersection -- the whole point of the merge.
+  let peopleInView: import("@/components/PeopleInView").PersonInView[] = [];
+  if (f.personIds.length > 0) {
+    const viewIds = new Set(overview.videos.map((v) => v.id));
+    const videoById = new Map(overview.videos.map((v) => [v.id, v]));
+    const wanted = new Set(f.personIds);
+
+    // Their tracked time on the in-view videos only.
+    const { data: timeRows } = await supabase
+      .from("time_entries")
+      .select("user_id, content_item_id, duration_seconds")
+      .eq("workspace_id", ws)
+      .in("user_id", f.personIds)
+      .not("content_item_id", "is", null)
+      .not("ended_at", "is", null);
+    const secondsBy = new Map<string, number>();
+    for (const r of (timeRows ?? []) as {
+      user_id: string;
+      content_item_id: string;
+      duration_seconds: number | null;
+    }[]) {
+      if (!viewIds.has(r.content_item_id)) continue;
+      secondsBy.set(r.user_id, (secondsBy.get(r.user_id) ?? 0) + (r.duration_seconds ?? 0));
+    }
+
+    peopleInView = f.personIds.map((userId) => {
+      const theirs = rankings.assignments.filter(
+        (a) => a.user_id === userId && viewIds.has(a.content_item_id),
+      );
+      const videoIds = [...new Set(theirs.map((a) => a.content_item_id))];
+      const roles = [...new Set(theirs.map((a) => a.roleName))];
+
+      const perPlatform = new Map<string, number>();
+      const boosts: number[] = [];
+      for (const id of videoIds) {
+        for (const pl of videoById.get(id)?.platforms ?? []) {
+          perPlatform.set(pl.platform, (perPlatform.get(pl.platform) ?? 0) + pl.views);
+        }
+        for (const s of rankings.scoredByContent.get(id) ?? []) boosts.push(s.index);
+      }
+
+      return {
+        userId,
+        name: members.find((m) => m.userId === userId)?.name ?? "Unknown",
+        videosInView: videoIds.length,
+        platforms: [...perPlatform.entries()]
+          .map(([platform, views]) => ({ platform, views }))
+          .sort((a, b) => b.views - a.views),
+        avgBoost: boosts.length ? boosts.reduce((s, x) => s + x, 0) / boosts.length : null,
+        roles,
+        seconds: secondsBy.get(userId) ?? 0,
+      };
+    });
+  }
+
   return (
     <Shell
       title="Content"
@@ -350,6 +408,8 @@ export default async function ContentPage({
           hint="tracked against content"
         />
       </StatGrid>
+
+      <PeopleInView people={peopleInView} />
 
       <section className="mb-7">
         <SectionHeading
