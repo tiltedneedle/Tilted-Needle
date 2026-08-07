@@ -26,12 +26,11 @@ import type {
 } from "@/lib/types";
 
 /**
- * Dashboard 1 of 2: Content.
- *
- * Everything about what was made and how it performed -- videos, the clients
- * they belong to, and the per-platform numbers behind them. People live on
- * the other dashboard (/team); the only person data here is the credit panel
- * on a single video, because that is a property of the video.
+ * THE performance surface (PRD v0.5): everything about what was made and how
+ * it performed -- videos, the clients they belong to, the people credited on
+ * them, and the per-platform numbers behind it all. Clients, people, and
+ * time ranges are all filters on this one view; there is no separate People
+ * dashboard any more, only /team-admin for the employment records.
  *
  * Filters are query params, so any view of this page is a shareable URL.
  */

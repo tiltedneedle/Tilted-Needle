@@ -28,8 +28,8 @@ import {
   Share2,
   ShieldCheck,
   Tag,
-  Trophy,
   Upload,
+  Users,
 } from "lucide-react";
 import type { ComponentType } from "react";
 import { switchWorkspace, signOut } from "@/app/actions";
@@ -77,10 +77,11 @@ const MEMBER_NAV = [
 ];
 
 /**
- * The three dashboards lead, because they are what the tool is for. Content
- * and People each answer one question across everything; Clients drills the
- * other way, from one client down to one channel's own chart. Everything
- * below them is the supporting machinery that feeds them.
+ * The dashboards lead, because they are what the tool is for. Content is THE
+ * performance surface -- clients, people, and time ranges are all filters on
+ * one view since the People merge (PRD v0.5); Clients drills the other way,
+ * from one client down to one channel's own chart. Everything below them is
+ * the supporting machinery that feeds them.
  */
 const NAV = [
   {
@@ -88,7 +89,6 @@ const NAV = [
     items: [
       { href: "/home", label: "Home", icon: LayoutGrid as IconType },
       { href: "/content", label: "Content", icon: PlayCircle as IconType },
-      { href: "/team", label: "People", icon: Trophy as IconType },
       { href: "/clients", label: "Clients", icon: Briefcase as IconType },
       // Sits with the dashboards rather than under Manage: it is read during
       // the work (an editor mid-timeline needs the CTA) not while configuring
@@ -98,10 +98,8 @@ const NAV = [
   },
   {
     // Approvals and Time off live here rather than in their own "Team"
-    // group -- that name collided directly with People, the actual
-    // employee dashboard, which sits one line above at a URL that is
-    // literally /team. Everything here is the same underlying concept
-    // anyway: a person's own tracked hours and leave.
+    // group -- everything here is the same underlying concept anyway: a
+    // person's own tracked hours and leave.
     group: "Track",
     items: [
       // First in the group: it is the first thing an employee opens each
@@ -130,6 +128,7 @@ const NAV = [
     // two an item like Kiosks or Developers belonged in.
     group: "Manage",
     items: [
+      { href: "/team-admin", label: "Team admin", icon: Users as IconType },
       { href: "/accounts", label: "Accounts", icon: Share2 as IconType },
       { href: "/data", label: "Data sync", icon: RefreshCw as IconType },
       { href: "/projects", label: "Projects", icon: Folder as IconType },

@@ -13,15 +13,18 @@ import { MANAGER_ROLES, type WorkspaceRole } from "@/lib/types";
 type Result = { error?: string };
 
 /**
- * /team's rendered data and the cached rankings model (lib/cachedRankings)
- * change together -- one helper so no mutation can ever refresh the page
- * yet leave a stale scoring model behind, which was the exact failure mode
- * that kept rankings uncached this long. Over-busting from sites that don't
- * strictly feed scoring costs one ~1s recompute on the next view; a missed
- * bust would silently show wrong scores.
+ * The pages that render people data (/content since the People merge,
+ * /team-admin for the roster) and the cached rankings model
+ * (lib/cachedRankings) change together -- one helper so no mutation can
+ * ever refresh the page yet leave a stale scoring model behind, which was
+ * the exact failure mode that kept rankings uncached this long.
+ * Over-busting from sites that don't strictly feed scoring costs one ~1s
+ * recompute on the next view; a missed bust would silently show wrong
+ * scores.
  */
 function revalidateTeam() {
-  revalidatePath("/team");
+  revalidatePath("/content");
+  revalidatePath("/team-admin");
   revalidateTag("rankings", "max");
 }
 

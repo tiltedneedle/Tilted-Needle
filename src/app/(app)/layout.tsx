@@ -43,7 +43,7 @@ export default async function AppLayout({
     if (pathname && !allowed) redirect("/portal");
   } else if (!canManage(session.active.role)) {
     // Same defence for plain members: the database write layer is already
-    // manager-gated, but pages like the People dashboard would still show a
+    // manager-gated, but pages like the Content dashboard would still show a
     // member everyone else's scores -- so their world is the allow-list.
     const allowed = MEMBER_ALLOWED.some(
       (p) => pathname === p || pathname.startsWith(`${p}/`),

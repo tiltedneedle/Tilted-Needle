@@ -189,12 +189,9 @@ const day = (n) => new Date(2026, 0, 1 + n);
 }
 
 /* -- presentation -------------------------------------------------------- */
+// Tier bands (tierFor/TIER_LABELS) were removed with the People page merge
+// (PRD v0.5 P3/P4): scores display as plain multipliers everywhere now.
 {
-  check("unrankable always reads as insufficient, never as a low score",
-    S.tierFor(-5, false) === "insufficient");
-  check("well above baseline tiers correctly", S.tierFor(Math.log(2), true) === "top");
-  check("at baseline tiers correctly", S.tierFor(0, true) === "at");
-  check("below baseline tiers correctly", S.tierFor(Math.log(0.5), true) === "below");
   check("multiplier form round-trips", near(S.asMultiplier(Math.log(2)), 2));
   check("boost detection uses the account's own baseline",
     S.isBoost(2.5) === true && S.isBoost(1.5) === false);

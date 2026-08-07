@@ -247,28 +247,6 @@ export function overallScore(platforms: PlatformScore[]): OverallScore {
   return { overall, platforms, contributing: contributing.length };
 }
 
-export type Tier = "top" | "above" | "at" | "below" | "insufficient";
-
-/**
- * Scores are presented as bands, never as precise decimals. A number like
- * "1.37" derived from four posts implies precision the data cannot support.
- */
-export function tierFor(score: number, rankable: boolean): Tier {
-  if (!rankable) return "insufficient";
-  if (score >= Math.log(1.5)) return "top";
-  if (score >= Math.log(1.1)) return "above";
-  if (score >= Math.log(0.9)) return "at";
-  return "below";
-}
-
-export const TIER_LABELS: Record<Tier, string> = {
-  top: "Well above baseline",
-  above: "Above baseline",
-  at: "At baseline",
-  below: "Below baseline",
-  insufficient: "Insufficient data",
-};
-
 /** Multiplier form for display: 0 -> 1.0x, ln(2) -> 2.0x. */
 export function asMultiplier(score: number): number {
   return Math.exp(score);

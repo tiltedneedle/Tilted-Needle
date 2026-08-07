@@ -395,7 +395,7 @@ export default async function HomePage() {
                 {performers.map((p) => (
                   <Link
                     key={p.userId}
-                    href={`/team?person=${p.userId}`}
+                    href={`/content?person=${p.userId}`}
                     className="group flex items-center gap-2.5"
                   >
                     <Avatar name={p.name} seed={p.userId} size={26} />
