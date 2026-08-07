@@ -267,8 +267,34 @@ reduced motion, and the standing verification bar.
 
 1. Home: "current client wise" is implemented as *active-clients-only
    scoping* — if a per-client switcher on Home was meant instead, say so
-   before Prompt 6.
+   and it is a small change.
 2. Should members get a read-only Employee report of **themselves** in
-   Reports (their own numbers, nobody else's)? Cheap either way.
+   Reports (their own numbers, nobody else's)? Today `/reports` is
+   manager-only via the layout allow-list, so members see none of it.
+   Cheap either way.
 3. RY / DRD remain unmapped in the To-dos importer — unrelated to this
    PRD but still the oldest open item on the list.
+
+---
+
+## 10. Built differently from the spec, and why
+
+Three places where following §5 literally would have produced a worse
+system. All shipped as described here.
+
+1. **"Hours per 1k views" is not built.** It needs one pooled view count
+   across platforms — the exact operation the whole model refuses. It is
+   **hours per video** instead: same efficiency question, honestly
+   answerable.
+2. **The Platform report has no totals row.** Every column there would be
+   a cross-platform sum. The rows already are the totals.
+3. **The Client report has a "No active client" row.** Content belonging
+   to an archived client (or to no client) would otherwise vanish from
+   the client rows while still being counted in the Employee report's
+   totals — 178 against 202 on live data. Named, the two reports
+   reconcile and the gap becomes a finding rather than a discrepancy.
+
+Home's scoping (§9.1) excludes archived clients' content from the video
+count, the momentum charts, and the movers list. `/reports` deliberately
+does **not**: reports are where history is analysed, and the client
+filter is right there.

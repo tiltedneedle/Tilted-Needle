@@ -22,7 +22,12 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import { requireSession } from "@/lib/workspace";
 import { startOfWeek } from "@/lib/dashboards";
-import { loadPlatformMomentum, loadWeekMovers, loadWeekHoursByDay } from "@/lib/homeData";
+import {
+  loadArchivedClientItemIds,
+  loadPlatformMomentum,
+  loadWeekMovers,
+  loadWeekHoursByDay,
+} from "@/lib/homeData";
 import { cachedRankings } from "@/lib/cachedRankings";
 import { asMultiplier } from "@/lib/scoring";
 import { formatCount, formatDurationShort } from "@/lib/format";
@@ -87,6 +92,10 @@ export default async function HomePage() {
   /* ---- Manager: the command center --------------------------------------- */
   if (manages) {
     const weekStart = startOfWeek();
+    // PRD v0.5 §9: Home is the picture of the business as it stands, so an
+    // archived client's back catalogue is excluded from every aggregate
+    // below. Nothing is deleted -- /content?client=… still has all of it.
+    const archivedItemIds = await loadArchivedClientItemIds(supabase, ws);
     const [
       peopleRes,
       clientsRes,
@@ -130,8 +139,8 @@ export default async function HomePage() {
         .eq("workspace_id", ws)
         .eq("is_archived", false)
         .eq("sync_enabled", true),
-      loadPlatformMomentum(supabase, ws),
-      loadWeekMovers(supabase, ws),
+      loadPlatformMomentum(supabase, ws, 30, archivedItemIds),
+      loadWeekMovers(supabase, ws, 5, archivedItemIds),
       loadWeekHoursByDay(supabase, ws, startOfWeek()),
       cachedRankings(ws),
       supabase
@@ -143,6 +152,11 @@ export default async function HomePage() {
       supabase.from("training_assignments").select("module_id, user_id").eq("workspace_id", ws),
       supabase.from("training_completions").select("video_id, user_id").eq("workspace_id", ws),
     ]);
+
+    // The count query is unfiltered (a head count cannot express "except
+    // these ids"), so the exclusion is applied here -- exact, and one query
+    // cheaper than asking the database to do it.
+    const activeVideoCount = Math.max(0, (videosRes.count ?? 0) - archivedItemIds.size);
 
     const todos = (todosRes.data ?? []) as unknown as Todo[];
     const done = todos.filter((t) => t.is_done).length;
@@ -262,8 +276,12 @@ export default async function HomePage() {
           <Stat
             icon={Clapperboard}
             label="Videos"
-            value={<CountUp value={videosRes.count ?? 0} />}
-            hint="tracked in the system"
+            value={<CountUp value={activeVideoCount} />}
+            hint={
+              archivedItemIds.size
+                ? `${archivedItemIds.size} more for archived clients`
+                : "tracked in the system"
+            }
           />
         </StatGrid>
 

@@ -155,6 +155,7 @@ async function ContentReport({
             f.clientIds.length
               ? overview.clients.filter((c) => f.clientIds.includes(c.id))
               : overview.clients,
+            overview.videos,
           )
         : buildPlatformReport(
             overview.videos,

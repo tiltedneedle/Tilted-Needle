@@ -29,6 +29,39 @@ function shortLabel(iso: string): string {
   });
 }
 
+/**
+ * Content belonging to clients you have archived (PRD v0.5 §9: "dashboard
+ * should only display according to current client").
+ *
+ * Home describes the business as it stands today, so an archived client's
+ * back catalogue must not pad the video count or keep appearing in the
+ * momentum charts. It is excluded, never deleted -- /content with an
+ * explicit client filter still shows every bit of it, which is where you
+ * go when you actually want the history.
+ *
+ * Content with no client at all (internal work) is NOT excluded: it does
+ * not belong to an archived client, so it is still current.
+ */
+export async function loadArchivedClientItemIds(db: Db, ws: string): Promise<Set<string>> {
+  const { data: archived } = await db
+    .from("clients")
+    .select("id")
+    .eq("workspace_id", ws)
+    .eq("is_archived", true);
+  const ids = ((archived ?? []) as { id: string }[]).map((c) => c.id);
+  if (ids.length === 0) return new Set();
+
+  const rows = await selectAll<{ id: string }>(() =>
+    db
+      .from("content_items")
+      .select("id")
+      .eq("workspace_id", ws)
+      .in("client_id", ids)
+      .order("id"),
+  );
+  return new Set((rows.data ?? []).map((r) => r.id));
+}
+
 export type PlatformMomentum = {
   slug: string;
   /** Views gained per Dubai day, oldest first, zero-filled. */
@@ -48,13 +81,15 @@ export async function loadPlatformMomentum(
   db: Db,
   ws: string,
   days = 30,
+  /** Content ids to leave out entirely -- archived clients' work. */
+  excludeItemIds: Set<string> = new Set(),
 ): Promise<PlatformMomentum[]> {
   const sinceIso = new Date(Date.now() - days * DAY_MS).toISOString();
 
   const [postsRes, snapsRes] = await Promise.all([
     db
       .from("platform_posts")
-      .select("id, account:accounts(platform_slug)")
+      .select("id, content_item_id, account:accounts(platform_slug)")
       .eq("workspace_id", ws),
     // Windowed but still paged: 30 days of daily syncing across every post
     // clears 1000 rows on its own.
@@ -73,8 +108,10 @@ export async function loadPlatformMomentum(
   const platformOfPost = new Map<string, string>();
   for (const p of (postsRes.data ?? []) as {
     id: string;
+    content_item_id: string;
     account: { platform_slug: string } | { platform_slug: string }[] | null;
   }[]) {
+    if (excludeItemIds.has(p.content_item_id)) continue;
     const acct = Array.isArray(p.account) ? p.account[0] : p.account;
     if (acct) platformOfPost.set(p.id, acct.platform_slug);
   }
@@ -124,7 +161,13 @@ export type MoverVideo = {
  * Content page's "recent gain" exactly (a video's growth is one number
  * there too); platform identity rides the dot chips beside each row.
  */
-export async function loadWeekMovers(db: Db, ws: string, limit = 5): Promise<MoverVideo[]> {
+export async function loadWeekMovers(
+  db: Db,
+  ws: string,
+  limit = 5,
+  /** Content ids to leave out entirely -- archived clients' work. */
+  excludeItemIds: Set<string> = new Set(),
+): Promise<MoverVideo[]> {
   const sinceIso = new Date(Date.now() - 7 * DAY_MS).toISOString();
   const [postsRes, snapsRes] = await Promise.all([
     db
@@ -164,7 +207,7 @@ export async function loadWeekMovers(db: Db, ws: string, limit = 5): Promise<Mov
   const byItem = new Map<string, { gained: number; platforms: Set<string> }>();
   for (const [postId, gained] of gainByPost) {
     const post = posts.get(postId);
-    if (!post) continue;
+    if (!post || excludeItemIds.has(post.content_item_id)) continue;
     const acct = Array.isArray(post.account) ? post.account[0] : post.account;
     if (!byItem.has(post.content_item_id)) {
       byItem.set(post.content_item_id, { gained: 0, platforms: new Set() });

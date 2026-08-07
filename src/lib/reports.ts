@@ -223,10 +223,29 @@ export function buildEmployeeReport(
 
 /* ---- 2. Client ---------------------------------------------------------- */
 
-export function buildClientReport(clients: ClientSummary[]): Report {
-  const rows: ReportRow[] = clients.map((c) => ({
+export function buildClientReport(clients: ClientSummary[], videos: VideoSummary[]): Report {
+  // Videos in view whose client is archived or unset get their own row.
+  // Without it the client rows sum to less than the videos in view and the
+  // gap is invisible -- the reader has no way to know whether 24 videos are
+  // missing or simply uncounted. Named, they are a finding.
+  const listed = new Set(clients.map((c) => c.id));
+  const orphans = videos.filter((v) => !v.clientId || !listed.has(v.clientId));
+  const rowsFor: ClientSummary[] = [...clients];
+  if (orphans.length > 0) {
+    rowsFor.push({
+      id: "__unattributed",
+      name: "No active client",
+      videoCount: orphans.length,
+      postCount: orphans.reduce((s, v) => s + v.postCount, 0),
+      totals: totalsByPlatform(orphans.flatMap((v) => v.platforms)),
+      trackedSeconds: orphans.reduce((s, v) => s + v.trackedSeconds, 0),
+      recentGain: orphans.reduce((s, v) => s + (v.recentGain?.views ?? 0), 0),
+    });
+  }
+
+  const rows: ReportRow[] = rowsFor.map((c) => ({
     id: c.id,
-    href: `/content?client=${c.id}`,
+    href: c.id === "__unattributed" ? null : `/content?client=${c.id}`,
     cells: {
       label: { text: c.name, sort: c.name.toLowerCase() },
       videos: c.videoCount > 0 ? num(c.videoCount) : dash(0),
@@ -234,9 +253,16 @@ export function buildClientReport(clients: ClientSummary[]): Report {
       engagement: avgEngagement(c.totals),
       gained: gain(c.recentGain),
       hours: dur(c.trackedSeconds),
-      perVideo: c.videoCount
-        ? { text: formatDurationShort(c.trackedSeconds / c.videoCount), sort: c.trackedSeconds / c.videoCount, tone: "muted" }
-        : dash(0),
+      // No tracked time is "—", never "0s": a zero here means nobody has
+      // booked hours against this client, not that the work took no time.
+      perVideo:
+        c.videoCount && c.trackedSeconds
+          ? {
+              text: formatDurationShort(c.trackedSeconds / c.videoCount),
+              sort: c.trackedSeconds / c.videoCount,
+              tone: "muted",
+            }
+          : dash(0),
     },
     platforms: c.totals,
   }));
@@ -266,15 +292,17 @@ export function buildClientReport(clients: ClientSummary[]): Report {
     rows,
     totals: {
       label: "All clients in view",
+      // Over rowsFor, not clients: the catch-all row is part of the view, and
+      // a totals line that skipped it would contradict the rows above it.
       cells: {
-        videos: num(clients.reduce((s, c) => s + c.videoCount, 0)),
-        posts: num(clients.reduce((s, c) => s + c.postCount, 0)),
-        engagement: avgEngagement(totalsByPlatform(clients.flatMap((c) => c.totals))),
-        gained: gain(clients.reduce((s, c) => s + c.recentGain, 0)),
-        hours: dur(clients.reduce((s, c) => s + c.trackedSeconds, 0)),
+        videos: num(rowsFor.reduce((s, c) => s + c.videoCount, 0)),
+        posts: num(rowsFor.reduce((s, c) => s + c.postCount, 0)),
+        engagement: avgEngagement(totalsByPlatform(rowsFor.flatMap((c) => c.totals))),
+        gained: gain(rowsFor.reduce((s, c) => s + c.recentGain, 0)),
+        hours: dur(rowsFor.reduce((s, c) => s + c.trackedSeconds, 0)),
         perVideo: dash(),
       },
-      platforms: totalsByPlatform(clients.flatMap((c) => c.totals)),
+      platforms: totalsByPlatform(rowsFor.flatMap((c) => c.totals)),
     },
     defaultSort: { key: "videos", dir: "desc" },
     csvPrefix: "report-clients",

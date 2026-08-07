@@ -144,7 +144,8 @@ const seconds = new Map([["u1", 7200], ["u2", 1800]]);
       trackedSeconds: 0, recentGain: 5,
     },
   ];
-  const r = buildClientReport(clients);
+  // The fixture's videos belong to acme and beta, so nothing is orphaned.
+  const r = buildClientReport(clients, videos);
 
   check("client report has one row per client", r.rows.length === 2);
   check("engagement averages each platform's own rate, never a pooled one",
@@ -162,6 +163,30 @@ const seconds = new Map([["u1", 7200], ["u2", 1800]]);
   check("totals reach stays per platform",
     r.totals.platforms.find((p) => p.platform === "tiktok").views === 14000 &&
     r.totals.platforms.find((p) => p.platform === "youtube").views === 1400);
+
+  // The reconciliation guarantee: video counts must add up, or the reader is
+  // silently short some videos with no way to notice.
+  const orphaned = buildClientReport(
+    clients.filter((c) => c.id === "acme"), // beta's video now belongs to no listed client
+    videos,
+  );
+  const unattributed = orphaned.rows.find((x) => x.id === "__unattributed");
+  check("videos whose client is not listed get a named row, not silence",
+    !!unattributed && unattributed.cells.videos.text === "1");
+  check("that row is not a link to a client page that would not load",
+    unattributed.href === null);
+  check("client rows plus the catch-all reconcile to every video in view",
+    orphaned.rows.reduce((s, x) => s + x.cells.videos.sort, 0) === videos.length,
+    `${orphaned.rows.reduce((s, x) => s + x.cells.videos.sort, 0)} vs ${videos.length}`);
+  check("and the totals line agrees with the rows above it",
+    orphaned.totals.cells.videos.text === String(videos.length),
+    orphaned.totals.cells.videos.text);
+  check("the employee and client reports report the same video count",
+    orphaned.totals.cells.videos.text ===
+      buildEmployeeReport(personStats(people, videos, assignments, scored, seconds), videos)
+        .totals.cells.videos.text);
+  check("no tracked time reads as a dash, never 0s",
+    orphaned.rows.find((x) => x.id === "__unattributed").cells.perVideo.text === "—");
 }
 
 /* ---- Platform report ---------------------------------------------------- */
