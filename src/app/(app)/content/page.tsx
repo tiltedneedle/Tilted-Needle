@@ -12,6 +12,7 @@ import { requireSession } from "@/lib/workspace";
 import { canManage, one } from "@/lib/types";
 import { formatDurationShort } from "@/lib/format";
 import { cachedRankings } from "@/lib/cachedRankings";
+import { parseFilters } from "@/lib/contentFilters";
 import { selectAll } from "@/lib/selectAll";
 import { loadContentOverview, loadRoles } from "@/lib/dashboards";
 import type {
@@ -47,7 +48,15 @@ export default async function ContentPage({
   }>;
 }) {
   const sp = await searchParams;
-  const { client: clientId, video: videoId } = sp;
+  // One canonical parse -- PRD v0.5 §2.1: the page is a pure function of
+  // this state, so the order filters were selected in cannot matter.
+  const f = parseFilters(sp);
+  const videoId = f.videoId;
+  // The single-client deep view keeps its page when exactly one client and
+  // nothing person-shaped is selected; any wider combination renders the
+  // overview with its summary strips instead.
+  const soloClientId =
+    f.clientIds.length === 1 && f.personIds.length === 0 ? f.clientIds[0] : null;
   const session = await requireSession();
   const supabase = await createClient();
   const ws = session.active.id;
@@ -66,11 +75,13 @@ export default async function ContentPage({
       videoId
         ? null
         : loadContentOverview(supabase, ws, rankings, {
-            platform: sp.platform ?? null,
-            period: sp.period ?? null,
-            personId: sp.person ?? null,
-            status: sp.status ?? null,
-            q: sp.q ?? null,
+            platform: f.platform,
+            status: f.status,
+            q: f.q,
+            clientIds: f.clientIds,
+            personIds: f.personIds,
+            from: f.from,
+            to: f.to,
           }),
       videoId
         ? supabase
@@ -109,17 +120,18 @@ export default async function ContentPage({
   }));
   const allClients = (clientsRes.data ?? []) as unknown as Client[];
 
-  // A video filter narrows to that video; a client filter narrows the video
-  // dropdown to that client's work so the two compose sensibly.
+  // A video filter narrows to that video; client filters narrow the video
+  // dropdown to those clients' work so the two compose sensibly.
   type LightVideo = { id: string; title: string; client_id: string | null };
+  const clientSet = new Set(f.clientIds);
   const videoOptions = (
     overview
-      ? (clientId
-          ? overview.videos.filter((v) => v.clientId === clientId)
+      ? (clientSet.size
+          ? overview.videos.filter((v) => v.clientId != null && clientSet.has(v.clientId))
           : overview.videos
         ).map((v) => ({ id: v.id, title: v.title }))
       : ((lightVideosRes?.data ?? []) as LightVideo[])
-          .filter((v) => !clientId || v.client_id === clientId)
+          .filter((v) => !clientSet.size || (v.client_id != null && clientSet.has(v.client_id)))
   ).map((v) => ({ value: v.id, label: v.title }));
 
   const platformOptions = overview
@@ -133,66 +145,59 @@ export default async function ContentPage({
     <FilterBar
       basePath="/content"
       searchKey="q"
-      searchValue={sp.q ?? null}
+      searchValue={f.q}
       searchPlaceholder="Search titles…"
       searchClears={["video"]}
+      range={{ from: f.from, to: f.to }}
+      rangeClears={["video"]}
+      primaryCount={3}
       filters={[
+        // Multi-select: within a dimension is OR, across dimensions is AND
+        // (PRD v0.5 §2.1). Options come from the unfiltered lists, so no
+        // combination can make another option unreachable.
         {
           key: "client",
           label: "Filter by client",
           allLabel: "All clients",
-          value: clientId ?? null,
-          // Options come from the unfiltered client list, so narrowing by
-          // platform or period never makes a client unreachable.
+          multi: true,
+          values: f.clientIds,
           options: allClients
             .filter((c) => !c.is_archived)
             .map((c) => ({ value: c.id, label: c.name })),
           clears: ["video"],
         },
         {
-          key: "video",
-          label: "Filter by video",
-          allLabel: clientId ? "All of this client's videos" : "All videos",
-          value: videoId ?? null,
-          options: videoOptions,
-        },
-        // Every population filter below clears the single-video drill-down:
-        // a single video's view ignores them, so leaving ?video= in place
-        // showed one video while the bar claimed a filtered list -- same
-        // conflict the People page had with person vs personFilter.
-        {
-          key: "platform",
-          label: "Filter by platform",
-          allLabel: "All platforms",
-          value: sp.platform ?? null,
-          options: platformOptions.map((p) => ({ value: p.slug, label: p.name })),
-          clears: ["video"],
-        },
-        {
           key: "person",
-          label: "Filter by credited person",
+          label: "Filter by person",
           allLabel: "Anyone credited",
-          value: sp.person ?? null,
+          multi: true,
+          values: f.personIds,
           options: members.map((m) => ({ value: m.userId, label: m.name })),
           clears: ["video"],
         },
         {
-          key: "period",
-          label: "Filter by period",
-          allLabel: "All time",
-          value: sp.period ?? null,
-          options: [
-            { value: "30", label: "Last 30 days" },
-            { value: "90", label: "Last 90 days" },
-            { value: "365", label: "Last year" },
-          ],
+          key: "video",
+          label: "Filter by video",
+          allLabel: f.clientIds.length ? "All of their videos" : "All videos",
+          value: videoId ?? null,
+          options: videoOptions,
+        },
+        // Every population filter clears the single-video drill-down: a
+        // single video's view ignores them, so leaving ?video= in place
+        // would show one video while the bar claimed a filtered list.
+        {
+          key: "platform",
+          label: "Filter by platform",
+          allLabel: "All platforms",
+          value: f.platform,
+          options: platformOptions.map((p) => ({ value: p.slug, label: p.name })),
           clears: ["video"],
         },
         {
           key: "status",
           label: "Filter by status",
           allLabel: "Any status",
-          value: sp.status ?? null,
+          value: f.status,
           options: [
             { value: "published", label: "Published" },
             { value: "unpublished", label: "Not posted yet" },
@@ -255,12 +260,15 @@ export default async function ContentPage({
     );
   }
 
-  /* ---- Single client ---------------------------------------------------- */
+  /* ---- Single client ------------------------------------------------------
+     Kept as the deep client view only when EXACTLY one client and no people
+     are selected; any wider combination falls through to the overview,
+     where the summary strips describe the intersection (PRD v0.5 §3). */
   // Every branch from here down renders the overview, and only the video
   // branch above (which already returned) skips loading it.
   if (!overview) throw new Error("unreachable: overview is loaded for non-video views");
-  if (clientId) {
-    const named = allClients.find((c) => c.id === clientId);
+  if (soloClientId) {
+    const named = allClients.find((c) => c.id === soloClientId);
     if (!named) {
       return (
         <Shell title="Client" subtitle="Not found.">
@@ -274,8 +282,8 @@ export default async function ContentPage({
     // The derived summary only exists when some content survived the other
     // filters; an empty one still needs a real name and zeroed totals rather
     // than a "not found", which would misreport an over-narrow filter.
-    const client = overview.clients.find((c) => c.id === clientId) ?? {
-      id: clientId,
+    const client = overview.clients.find((c) => c.id === soloClientId) ?? {
+      id: soloClientId,
       name: named.name,
       videoCount: 0,
       postCount: 0,
@@ -283,7 +291,7 @@ export default async function ContentPage({
       trackedSeconds: 0,
       recentGain: 0,
     };
-    const mine = overview.videos.filter((v) => v.clientId === clientId);
+    const mine = overview.videos.filter((v) => v.clientId === soloClientId);
     return (
       <Shell
         title={client.name}

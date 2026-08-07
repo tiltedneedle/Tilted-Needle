@@ -90,14 +90,22 @@ export type ContentOverview = {
 
 export type ContentFilters = {
   platform?: string | null;
-  /** Days back from today: "30" | "90" | "365". Null means all time. */
-  period?: string | null;
-  /** Only videos this person is credited on. */
-  personId?: string | null;
   /** "published" | "unpublished" | "boosting" */
   status?: string | null;
   /** Free-text match on the title. */
   q?: string | null;
+  /** Multi-select: a video matches when its client is ANY of these (OR). */
+  clientIds?: string[];
+  /** Multi-select: a video matches when ANY of these people is credited (OR). */
+  personIds?: string[];
+  /**
+   * Inclusive Dubai dates. Filters videos by produced_at AND windows the
+   * growth metrics: gains become the sum of snapshot deltas landing inside
+   * the range, so "last 2 weeks" answers "what moved in the last 2 weeks",
+   * not "what was made recently and what moved ever" (PRD v0.5 §2.4).
+   */
+  from?: string | null;
+  to?: string | null;
 };
 
 /** Rebuilds the derived rollups so every filtered view stays self-consistent. */
@@ -248,16 +256,45 @@ export async function loadContentOverview(
       .push({ at: new Date(s.captured_at).getTime(), views: s.views });
   }
 
-  /** Delta between the last two readings, with the interval they span. */
+  // Range bounds as instants: from 00:00 Dubai on `from` through 24:00
+  // Dubai on `to` (both inclusive). Dubai is fixed UTC+4, no DST.
+  const rangeStart = filters.from ? new Date(`${filters.from}T00:00:00+04:00`).getTime() : null;
+  const rangeEnd = filters.to ? new Date(`${filters.to}T00:00:00+04:00`).getTime() + 86400000 : null;
+
+  /**
+   * A post's growth. Without a range: the delta between its last two
+   * readings (the long-standing "still growing" semantic). With a range:
+   * the sum of positive deltas whose LATER reading landed inside it, so
+   * the figure answers "what moved in this window" (PRD v0.5 §2.4).
+   * Negative platform corrections are clamped in the windowed mode only --
+   * the unwindowed last-two delta keeps showing a real drop as a drop.
+   */
   function gainForPost(postId: string): { views: number; days: number } | null {
     const series = seriesByPost.get(postId);
     if (!series || series.length < 2) return null;
-    const latest = series[series.length - 1];
-    const prev = series[series.length - 2];
-    return {
-      views: latest.views - prev.views,
-      days: Math.max(0, (latest.at - prev.at) / 86400000),
-    };
+
+    if (rangeStart == null && rangeEnd == null) {
+      const latest = series[series.length - 1];
+      const prev = series[series.length - 2];
+      return {
+        views: latest.views - prev.views,
+        days: Math.max(0, (latest.at - prev.at) / 86400000),
+      };
+    }
+
+    let views = 0;
+    let first: number | null = null;
+    let last: number | null = null;
+    for (let i = 1; i < series.length; i++) {
+      const at = series[i].at;
+      if (rangeStart != null && at < rangeStart) continue;
+      if (rangeEnd != null && at >= rangeEnd) break;
+      views += Math.max(0, series[i].views - series[i - 1].views);
+      if (first == null) first = series[i - 1].at;
+      last = at;
+    }
+    if (last == null || first == null) return null;
+    return { views, days: Math.max(0, (last - first) / 86400000) };
   }
 
   const byItem = new Map<string, VideoSummary["platforms"]>();
@@ -328,24 +365,32 @@ export async function loadContentOverview(
     recentGain: gainByItem.get(i.id) ?? null,
   }));
 
-  /* ---- Filters ---------------------------------------------------------- */
+  /* ---- Filters -----------------------------------------------------------
+     PRD v0.5 §2.1: within a dimension OR, across dimensions AND. Each
+     filter below is an independent intersection over the same population,
+     which is what makes selection order structurally irrelevant. */
 
   // A platform filter implies "posted on that platform" -- a video with no
   // post there has nothing to say about it.
   if (filters.platform) videos = videos.filter((v) => v.postCount > 0);
 
-  if (filters.period) {
-    const days = Number(filters.period);
-    if (Number.isFinite(days) && days > 0) {
-      const cutoff = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
-      videos = videos.filter((v) => v.producedAt != null && v.producedAt >= cutoff);
-    }
+  if (filters.from) {
+    videos = videos.filter((v) => v.producedAt != null && v.producedAt >= filters.from!);
+  }
+  if (filters.to) {
+    videos = videos.filter((v) => v.producedAt != null && v.producedAt <= filters.to!);
   }
 
-  if (filters.personId) {
+  if (filters.clientIds && filters.clientIds.length > 0) {
+    const wanted = new Set(filters.clientIds);
+    videos = videos.filter((v) => v.clientId != null && wanted.has(v.clientId));
+  }
+
+  if (filters.personIds && filters.personIds.length > 0) {
+    const wanted = new Set(filters.personIds);
     const theirs = new Set(
       rankings.assignments
-        .filter((a) => a.user_id === filters.personId)
+        .filter((a) => wanted.has(a.user_id))
         .map((a) => a.content_item_id),
     );
     videos = videos.filter((v) => theirs.has(v.id));
