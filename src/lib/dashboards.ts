@@ -19,6 +19,12 @@
 import { one } from "@/lib/types";
 import { selectAll } from "@/lib/selectAll";
 import { totalsByPlatform, type MetricRow, type PlatformTotals } from "@/lib/rollup";
+import {
+  readLifecycle,
+  bestShape,
+  type LifecycleReading,
+  type LifecycleShape,
+} from "@/lib/lifecycle";
 import type { RankingsResult } from "@/lib/performanceData";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -65,6 +71,18 @@ export type VideoSummary = {
    * platform report, where the whole row IS one platform (PRD v0.5 §5).
    */
   platformGains: { platform: string; views: number }[];
+  /**
+   * How each platform's copy of this video is behaving over its life. Kept
+   * per platform because a video genuinely can be evergreen on YouTube and
+   * finished on TikTok, and merging them would hide exactly that.
+   */
+  lifecycle: { platform: string; reading: LifecycleReading }[];
+  /**
+   * The liveliest shape across those platforms -- what the one-glyph summary
+   * in a dense list should say, because the question it answers is "is this
+   * still working anywhere".
+   */
+  lifecycleShape: LifecycleShape;
 };
 
 export type ClientSummary = {
@@ -184,7 +202,7 @@ export async function loadContentOverview(
       supabase
         .from("platform_posts")
         .select(
-          "id, content_item_id, account:accounts(platform_slug), metrics:post_current_metrics(views, likes, comments)",
+          "id, content_item_id, posted_at, account:accounts(platform_slug, last_synced_at), metrics:post_current_metrics(views, likes, comments)",
         )
         .eq("workspace_id", ws)
         .order("id"),
@@ -225,7 +243,11 @@ export async function loadContentOverview(
   type PostRow = {
     id: string;
     content_item_id: string;
-    account: { platform_slug: string } | { platform_slug: string }[] | null;
+    posted_at: string | null;
+    account:
+      | { platform_slug: string; last_synced_at: string | null }
+      | { platform_slug: string; last_synced_at: string | null }[]
+      | null;
     metrics:
       | { views: number | null; likes: number | null; comments: number | null }
       | { views: number | null; likes: number | null; comments: number | null }[]
@@ -307,6 +329,7 @@ export async function loadContentOverview(
   const postsByItem = new Map<string, number>();
   const gainByItem = new Map<string, { views: number; days: number }>();
   const platformGainByItem = new Map<string, Map<string, number>>();
+  const lifecycleByItem = new Map<string, VideoSummary["lifecycle"]>();
   for (const p of posts) {
     const acct = one(p.account);
     if (!acct) continue;
@@ -338,7 +361,24 @@ export async function loadContentOverview(
       const pg = platformGainByItem.get(p.content_item_id)!;
       pg.set(acct.platform_slug, (pg.get(acct.platform_slug) ?? 0) + gain.views);
     }
+
+    // Lifecycle rides the snapshot pass we are already making -- no extra
+    // query. Deliberately NOT windowed by the filter range: "is this still
+    // earning" is a property of the post's whole observed life, and clipping
+    // it to a two-week filter would report every older video as dormant.
+    if (!lifecycleByItem.has(p.content_item_id)) lifecycleByItem.set(p.content_item_id, []);
+    lifecycleByItem.get(p.content_item_id)!.push({
+      platform: acct.platform_slug,
+      reading: readLifecycle({
+        series: seriesByPost.get(p.id) ?? [],
+        // The last time we actually polled this account. Everything after the
+        // final snapshot is known-flat time, not missing time (see lifecycle.ts).
+        observedUntil: acct.last_synced_at ? new Date(acct.last_synced_at).getTime() : null,
+        postedAt: p.posted_at,
+      }),
+    });
   }
+
 
   const bestIndexByItem = new Map<string, number>();
   for (const [contentId, scored] of rankings.scoredByContent) {
@@ -377,6 +417,10 @@ export async function loadContentOverview(
     recentGain: gainByItem.get(i.id) ?? null,
     platformGains: [...(platformGainByItem.get(i.id)?.entries() ?? [])].map(
       ([platform, views]) => ({ platform, views }),
+    ),
+    lifecycle: lifecycleByItem.get(i.id) ?? [],
+    lifecycleShape: bestShape(
+      (lifecycleByItem.get(i.id) ?? []).map((l) => l.reading.shape),
     ),
   }));
 

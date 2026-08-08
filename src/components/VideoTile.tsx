@@ -9,6 +9,7 @@ import { assignRole, unassignRole } from "@/app/actions";
 import { formatCount, formatDurationShort } from "@/lib/format";
 import { PLATFORM_COLORS } from "@/lib/types";
 import { totalsByPlatform, type PlatformTotals } from "@/lib/rollup";
+import { SHAPE_LABEL, SHAPE_HINT, type LifecycleShape } from "@/lib/lifecycle";
 
 export type TileRole = { id: string; slug: string; name: string };
 export type TileMember = { userId: string; name: string };
@@ -338,6 +339,8 @@ export type TileVideo = {
   credits: TileCredit[];
   /** Roles this person holds, when the tile is shown on someone's own page. */
   ownRoles?: string[];
+  /** Liveliest lifecycle shape across this video's platforms (lib/lifecycle). */
+  lifecycleShape?: LifecycleShape;
 };
 
 /**
@@ -407,6 +410,19 @@ export default function VideoTile({
 
       <div className="ml-auto flex shrink-0 items-center gap-3">
         <PlatformMetrics platforms={v.platforms} />
+
+        {/* Where this sits in its life. Only the shapes that are genuinely
+            worth a glance get ink: "long tail" is where most posts end up and
+            printing a badge for it on 73 of 202 rows would be noise, not
+            information. Absence here means ordinary, never broken. */}
+        {(v.lifecycleShape === "rising" || v.lifecycleShape === "launching") && (
+          <span
+            className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-xs font-medium text-emerald-500"
+            title={SHAPE_HINT[v.lifecycleShape]}
+          >
+            {SHAPE_LABEL[v.lifecycleShape]}
+          </span>
+        )}
 
         {/* Still gaining views -- the signal a lifetime total cannot show. */}
         {v.recentGain != null && v.recentGain.views > 0 && (
