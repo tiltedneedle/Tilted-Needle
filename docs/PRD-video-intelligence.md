@@ -1,6 +1,7 @@
-# PRD — Video Intelligence (v3.0)
+# PRD — Video Intelligence (v4.0)
 
-**Status:** design only. Nothing here is built.
+**Status:** design complete. Nothing is built. The Oracle tenancy is live and
+verified (§14) — provisioning is the next action, not a research question.
 **Depends on:** the unified performance surface (PRD-unified-performance v0.5, shipped).
 **Cost envelope:** one paid item — the external LLM API. Everything else stays
 inside permanently-free tiers: Vercel Hobby, Supabase Free, Oracle Cloud
@@ -105,7 +106,7 @@ feature reads the table, not the route.
 
 | Thought lost in v2.0 | Recovered by |
 |---|---|
-| Impressions and click-through rate | Route A/B — **and with it the click-vs-stay diagnosis** (§5.10), the single most valuable thing OAuth offered |
+| Impressions and click-through rate | Route A/B — **and with it the click-vs-stay diagnosis** (§5.8), the single most valuable thing OAuth offered |
 | Average percentage viewed — real retention, summarised | Route A/B |
 | Full retention curve | Route A where the export supports it; otherwise 30s/60s markers |
 | Traffic sources | Route A |
@@ -239,9 +240,21 @@ vanishes, or the IP is burned, recovery is running the provisioning script on a
 new instance. **That script is committed to the repo and is the only deployment
 artifact.** Every Oracle quirk becomes a chore rather than an incident.
 
-**4.5 — Shape.** A few dozen outbound calls a day: I/O-bound, not compute-bound.
-Fits an always-free **AMD micro** (1 OCPU / 1 GB), which is reliably available.
-Take an Ampere A1 if capacity exists; never design for it. §14 has the detail.
+**4.5 — Shape: take the A1.** Earlier revisions assumed Ampere capacity would be
+unobtainable and designed for the AMD micro. **A live query against the tenancy
+disproves that** (§14.4): `VM.Standard.A1.Flex` is offered in this region with
+zero cores used. Provision **4 OCPU / 24 GB — the Always Free ceiling, not the
+quota the console currently shows** (§14.5, which is a trap).
+
+The workload does not need 24 GB. Two things might: the replay-map fetch may
+require a headless browser if the player response proves unobtainable over plain
+HTTP, and the one-off backfill goes faster with parallelism. On 1 GB, Chromium
+is painful; on 24 GB it is a non-event. Taking the headroom costs nothing and
+removes a design risk.
+
+**The AMD micro (1 OCPU / 1 GB) remains the documented fallback**, because quota
+availability is not the same as host capacity — only a launch attempt proves the
+latter, and this region has exactly one availability domain to try (§14.3).
 
 **4.6 — Idle reclamation.** Oracle stops Always Free compute judged idle over a
 7-day window, and a worker sleeping 23 hours a day looks exactly like that. It
@@ -747,50 +760,74 @@ runs itself.
 
 ## 12. Implementation prompts
 
-Each ships independently and leaves the system working. **Verification bar:**
-tsc clean · lint 0 errors · build passes · all unit suites · RLS suite extended
-for new tables · every new surface proven with an authenticated render probe.
+Each ships independently and leaves the system working. **Verification bar for
+every stage:** tsc clean · lint 0 errors · build passes · all unit suites · RLS
+suite extended for new tables · every new surface proven with an authenticated
+render probe. Each stage also carries its own **acceptance test** — the thing
+that must be demonstrably true, not merely written.
 
 **P0 — Remove OAuth.** Everything in §0: routes, connectors, table, column, UI
 states, environment variables, plus the `post_analytics` source constraint. RLS
-suite updated. Ships first, alone, so the constraint is true in the code before
-anything is built on top of it.
+suite updated. Ships first and alone, so the constraint is true in the code
+before anything is built on top of it.
+*Accepts when:* `grep -ri oauth src/` returns nothing outside comments, the app
+builds and every page renders, and inserting `post_analytics.source = 'oauth'`
+is rejected by the database.
 
 **P1 — Lifecycle.** `post_lifecycle`, the derivation over `post_snapshots`, the
 expected-curve model, shape classification, the §8.2 chart and the `/content`
-glyph. **Zero new data sources, immediate value** — this is the proof that Tier
-1 was worth reading.
+glyph. **Zero new data sources, immediate value** — the proof that Tier 1 was
+worth reading.
+*Accepts when:* every post with ≥3 snapshots gets a shape, half-life is
+recomputed independently in a test and matches, and a video with one snapshot
+reports `unknown` rather than a fabricated curve.
 
 **P2 — Free enrichment.** `has_captions`, `topic_labels`, description and
 Instagram caption persistence, full publish timestamps. Small, and everything
 downstream is cheaper for it.
+*Accepts when:* a sync run populates all four on new posts, and the backfill
+leaves no null `has_captions` on YouTube posts.
 
 **P3 — Schema, queue, worker.** The remaining tables, RLS, `ingest_jobs` with
-leasing and backoff, and the Oracle service: poll loop, heartbeat, jitter
-throttle, block detection, structured logging, **committed provisioning
-script**. First job kind is `comments` — official API, proving the pipeline end
-to end without touching anything fragile.
+leasing and backoff, and the Oracle service per §15. First job kind is
+`comments` — official API, proving the pipeline end to end without touching
+anything fragile.
+*Accepts when:* §15.5 holds (rebuild from script, heartbeat visible), a killed
+worker mid-job returns that job to `pending` within the lease timeout, and
+comments land for a real video.
 
 **P4 — Transcripts and search.** Public fetcher behind the queue, gated on
-`has_captions`. **Version-pin the library and verify its call surface against
-the installed version** — its API changed shape across major versions and older
+`has_captions`. **Version-pin the library and verify its call surface against the
+installed version** — its API changed shape across major versions and older
 static-method code will not run. Manual paste ships in the same stage. Then FTS
 in `/content` search. Must be valuable with the model switched off.
+*Accepts when:* a phrase spoken in a video is findable from `/content` search
+and links to its timestamp, and a caption-less video is never queued.
 
 **P5 — Client analytics import.** CSV importer on the existing `/import`
 infrastructure, per-client completeness tracking, and the §5.8 click-vs-stay
-panel. **This is the highest-value stage in the document** and depends on
-nothing fragile.
+panel. **The highest-value stage in the document**, and it depends on nothing
+fragile.
+*Accepts when:* a real Studio export imports without hand-editing, a malformed
+file fails with a row-level message rather than a stack trace, and re-importing
+the same file changes nothing.
 
 **P6 — Replay map.** Fetcher at 28-day maturity, the attention chart, tinted
 transcript strip, peak detection, cross-highlighting, empty states.
+*Accepts when:* a video with no replay data renders the explanatory empty state,
+and no UI string or prompt contains "retention" on a replay-sourced panel (§7.6).
 
 **P7 — The AI layer.** Adapter, prompt versioning, schema-validated output,
 `input_digest` caching, budget ceiling, §7.6 vocabulary constraints. Comment
 themes and attention narration first — per-video and cacheable.
+*Accepts when:* re-running an unchanged analysis makes zero API calls, a
+schema-invalid response is retried once then marked failed, and the budget
+ceiling provably stops calls when simulated as exhausted.
 
 **P8 — Vision extraction.** Screenshot upload, worker-side extraction, mandatory
 confirmation UI, image deletion after confirm.
+*Accepts when:* nothing reaches `post_analytics` without an explicit
+confirmation click, and the stored image is gone afterwards.
 
 **P9 — Insights and briefs.** Corpus analysis with sample-size guards, platform
 fit, metadata patterns, content gaps, packaging analysis, repurposing
@@ -824,40 +861,153 @@ misread.
 
 ---
 
-## 14. Oracle provisioning notes
+## 14. The Oracle tenancy, as verified
 
-Verify current allowances at signup — Oracle revises them.
+Not guidance — **measured**. Every figure below came from signed API calls
+against the live account, so the provisioning decisions in §15 rest on fact
+rather than on what Oracle's marketing pages say.
 
-**14.1 — The home region is permanent** and cannot be changed; Always Free
-resources exist only there. **Choose Singapore (`ap-singapore-1`)** to sit beside
-the rest of the stack, keeping the worker's database round-trips local.
+**14.1 — Identity.** Tenancy `tiltedneedletools` (`TENLS-6209`), home region
+**`ap-singapore-1`**, the only subscribed region. User
+`tiltedneedletools@gmail.com`, `ACTIVE`, **MFA enabled** — worth recording,
+because this account will hold the infrastructure the whole pipeline runs on.
+Home region matches the rest of the stack (Supabase, Vercel), so the worker's
+database round-trips stay in-region.
 
-**14.2 — Signup needs a card** for identity verification: a small temporary
-authorisation, typically refunded. Not a charge, and it surprises people.
+**14.2 — The home region is permanent.** It cannot be changed, and Always Free
+resources exist only there. Already correct here; noted because it forecloses
+"just move regions" as an answer to anything below.
 
-**14.3 — The account starts on a 30-day trial, then converts.** To land purely
-on Always Free: **only ever provision shapes the console explicitly labels
-"Always Free Eligible."** Anything else is trial-funded and gets reclaimed at
-conversion. Do not upgrade to Pay As You Go — upgrading is what makes ARM
-capacity reliably available, and also what makes overspending possible.
+**14.3 — There is exactly ONE availability domain:
+`qJLL:AP-SINGAPORE-1-AD-1`.** This matters more than it looks. Multi-AD regions
+let you retry a failed launch in AD-2 or AD-3 when one runs out of host
+capacity. Singapore offers no such fallback: if capacity is out here, the only
+options are wait or change shape. This is the single strongest argument for
+keeping the AMD micro documented as a fallback (§4.5) and for treating the
+instance as disposable (§4.4).
 
-**14.4 — Take the AMD micro; treat ARM as a bonus.**
-`VM.Standard.E2.1.Micro` (1 OCPU, 1 GB) is reliably available and correctly
-sized (§4.5). Ampere A1 requests frequently fail with "out of host capacity" on
-free accounts, sometimes for weeks. Do not let the project wait on it.
+**14.4 — Both Always Free shapes are offered, and nothing is consumed.**
 
-**14.5 — Save the SSH private key at instance creation.** Offered once.
+| Shape | Offered | Used | Quota shown |
+|---|---|---|---|
+| `VM.Standard.A1.Flex` (Ampere ARM) | yes | 0 cores | 41 OCPU / 277 GB |
+| `VM.Standard.E2.1.Micro` (AMD) | yes | 0 cores | 2 OCPU |
 
-**14.6 — No inbound ports are needed beyond SSH.** The design serves nothing, so
-the default security list needs no changes. Worth knowing Oracle's images carry
-local firewall rules on top of the cloud security list — the classic "I opened
-the port and it still doesn't work." It never bites us, because we open nothing.
+Zero instances exist. Ubuntu images confirmed present for both:
+`Canonical-Ubuntu-24.04-Minimal-aarch64-2026.06.29-0` for A1,
+`Canonical-Ubuntu-24.04-2026.06.29-0` for the micro.
 
-**14.7 — Guard against idle reclamation** (§4.6): the continuous poll loop
-handles it; a once-daily cron would not.
+**14.5 — The quota shown is a trap, and this is the most important line in the
+section.** That 41-OCPU / 277 GB A1 limit is **trial-era quota**, not the Always
+Free allowance. Always Free is **4 OCPU and 24 GB total across all A1
+instances**. Provisioning anywhere near the displayed limit would create
+resources that are reclaimed — or billed — when the 30-day trial converts.
 
-**14.8 — Keep swap on the micro.** 1 GB is workable but leaves no headroom.
+**Provision 4 OCPU / 24 GB and not one core more.** The console will happily let
+you exceed it. Nothing in this system needs more.
 
-**14.9 — Treat the instance as cattle.** Provisioning script in the repo,
+**14.6 — Quota is not capacity.** `available: 41` means quota headroom, not that
+41 cores are physically free on a host. "Out of host capacity" is a launch-time
+error that quota checks cannot predict. The launch attempt is the only proof —
+which is why §15 has an explicit fallback branch instead of assuming success.
+
+**14.7 — Do not upgrade to Pay As You Go.** Upgrading is what makes ARM capacity
+reliably available, and also what makes overspending possible. The whole cost
+premise of this platform depends on staying on the free path.
+
+**14.8 — Save the SSH private key at instance creation.** Offered once. Cheap to
+recover from here (§4.4) but avoidable.
+
+**14.9 — No inbound ports beyond SSH.** The design serves nothing (§4.2), so the
+default security list needs no changes at all. Oracle's images also carry local
+`iptables` rules on top of the cloud security list — the classic "I opened the
+port and it still doesn't work." It never bites us, because we open nothing.
+
+**14.10 — Guard against idle reclamation** (§4.6): the continuous poll loop
+handles it; a once-daily cron would not. A 4-OCPU box running a tiny poller
+looks *extremely* idle, so this matters more on the A1 than it would have on the
+micro.
+
+**14.11 — Local tooling notes**, both of which cost real time to diagnose:
+
+- The **`oci-cli` will not install** on this machine — it ships help files whose
+  paths exceed 260 characters and Windows Long Path support is disabled. Enabling
+  it is a registry change. **Unnecessary:** the `oci` **Python SDK** installs
+  cleanly, is what a provisioning script should use anyway, and is already
+  installed and working.
+- **`~/.oci/config` must not have a byte-order mark.** PowerShell's
+  `Set-Content -Encoding utf8` writes one, and OCI's config parser fails with
+  `MissingSectionHeaderError`. Write it with
+  `[System.IO.File]::WriteAllText(path, text, UTF8Encoding($false))`.
+
+**14.12 — Treat the instance as cattle.** Provisioning script in the repo,
 secrets injected at deploy, `systemd` unit with `Restart=always`, unattended
 security upgrades. Nothing on that box is ever the only copy of anything.
+
+---
+
+## 15. Provisioning runbook
+
+The exact build, decided. Executed by a committed script (§4.4) using the Python
+SDK, not by clicking through the console — so a rebuild after reclamation is one
+command rather than a memory test.
+
+**15.1 — Network.** One VCN with a single public subnet in
+`qJLL:AP-SINGAPORE-1-AD-1`, an internet gateway, and a default route out. The
+security list is left at its default: **SSH (22) inbound, everything outbound.**
+No other ingress rule is ever added, because the worker listens on nothing.
+
+**15.2 — The instance.**
+
+| Setting | Value | Why |
+|---|---|---|
+| Shape | `VM.Standard.A1.Flex` | §4.5 |
+| OCPUs / memory | **4 / 24 GB** | The Always Free ceiling, never the shown quota (§14.5) |
+| Image | `Canonical-Ubuntu-24.04-Minimal-aarch64` | Verified present; minimal = less to patch |
+| Boot volume | Default (~47 GB) | Well inside the 200 GB allowance |
+| Public IP | Ephemeral | Free to release and re-request — the §10.1 escape hatch |
+| Fallback | `VM.Standard.E2.1.Micro` + `Canonical-Ubuntu-24.04` | If launch returns out-of-host-capacity (§14.6) |
+
+**15.3 — Host setup**, all scripted:
+
+- `unattended-upgrades` for security patches
+- a 2 GB swap file (insurance, not necessity, at 24 GB)
+- Python 3 with a virtualenv for the worker
+- a dedicated non-root `worker` user owning the service
+- `systemd` unit: `Restart=always`, `RestartSec=10`, journald logging with size caps
+- **no** web server, **no** reverse proxy, **no** certificates — there is nothing
+  to serve
+
+**15.4 — Secrets.** Two, injected at deploy into a root-owned `0600`
+`EnvironmentFile` read by the systemd unit: the Supabase **service key** and the
+**LLM API key**. Neither is ever committed, and neither is ever added to Vercel
+(§4.7). Rotating either means editing one file and restarting one service.
+
+**15.5 — Acceptance for the provisioning stage.** The instance is done when: the
+systemd unit survives a reboot; the worker writes a heartbeat row Supabase can
+see; `/data` shows that heartbeat age ticking; and terminating and re-running the
+script from scratch produces a working instance without manual steps. If the
+last one does not hold, §4.4's promise is false and the Oracle quirks in §14
+become incidents again.
+
+---
+
+## 16. Security posture
+
+Small, because the architecture removed most of the surface rather than
+defending it.
+
+- **No inbound service.** The worker polls outward (§4.2). There is no endpoint
+  to authenticate, rate-limit, or patch — only SSH.
+- **No OAuth tokens anywhere.** §0 deletes the table, the Vault references, the
+  routes, and the client secrets. The most valuable credentials the old design
+  would have held now do not exist.
+- **Secrets live in exactly one place** — the worker's `EnvironmentFile`. The
+  browser bundle, Vercel's environment, and the repository each hold none of
+  them.
+- **The service key is powerful.** It bypasses RLS by design, which is why it
+  lives only on a machine with no inbound service and a non-root service user.
+- **Client analytics are client data.** Uploaded exports and screenshots are
+  business-sensitive; screenshots are deleted after confirmation (§11) and
+  parsed values inherit the same RLS scoping as every other metric.
+- **MFA is already on** the Oracle account (§14.1). Keep it there.
