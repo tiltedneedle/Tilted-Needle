@@ -2,6 +2,7 @@ import Link from "next/link";
 import PageHeader from "@/components/PageHeader";
 import ReportView from "@/components/ReportView";
 import ReportTable from "@/components/ReportTable";
+import ClientInsights from "@/components/ClientInsights";
 import FilterBar from "@/components/FilterBar";
 import { createClient } from "@/lib/supabase/server";
 import { requireSession } from "@/lib/workspace";
@@ -11,6 +12,7 @@ import { parseFilters } from "@/lib/contentFilters";
 import { cachedRankings } from "@/lib/cachedRankings";
 import { loadContentOverview } from "@/lib/dashboards";
 import { secondsByUserOnVideos } from "@/lib/reportData";
+import { buildClientEvidence } from "@/lib/analysis/clientEvidence";
 import {
   personStats,
   buildEmployeeReport,
@@ -23,6 +25,7 @@ const TABS = [
   { key: "employee", label: "Employees" },
   { key: "client", label: "Clients" },
   { key: "platform", label: "Platforms" },
+  { key: "insights", label: "Insights" },
   { key: "time", label: "Time entries" },
 ] as const;
 
@@ -81,6 +84,8 @@ export default async function ReportsPage({
 
       {tab === "time" ? (
         <TimeEntriesReport params={params} />
+      ) : tab === "insights" ? (
+        <InsightsReport />
       ) : (
         <ContentReport tab={tab} params={params} />
       )}
@@ -198,6 +203,64 @@ async function ContentReport({
       <ReportTable report={report} />
     </>
   );
+}
+
+/* ---- Insights: what works per client ------------------------------------ */
+
+/**
+ * Computed entirely from rows already held -- no model, no network. The AI
+ * layer will narrate this table later; the table is the finding, and it is
+ * readable on its own so every number can be checked against the sample size
+ * printed beside it.
+ */
+async function InsightsReport() {
+  const session = await requireSession();
+  const supabase = await createClient();
+  const ws = session.active.id;
+
+  const rankings = await cachedRankings(ws);
+  const overview = await loadContentOverview(supabase, ws, rankings, {});
+
+  // Publish instants live on the posts; P2 began capturing them because the
+  // date-only column can never answer a timing question.
+  const { data: stamps } = await supabase
+    .from("platform_posts")
+    .select("content_item_id, posted_at_ts")
+    .eq("workspace_id", ws)
+    .not("posted_at_ts", "is", null);
+  const tsBy = new Map(
+    ((stamps ?? []) as { content_item_id: string; posted_at_ts: string }[]).map((r) => [
+      r.content_item_id,
+      r.posted_at_ts,
+    ]),
+  );
+
+  const byClient = new Map<string, Parameters<typeof buildClientEvidence>[1]>();
+  for (const v of overview.videos) {
+    if (!v.clientId) continue;
+    if (!byClient.has(v.clientId)) byClient.set(v.clientId, []);
+    byClient.get(v.clientId)!.push({
+      id: v.id,
+      title: v.title,
+      clientId: v.clientId,
+      bestIndex: v.bestIndex,
+      lengthSeconds: v.lengthSeconds,
+      postedAtTs: tsBy.get(v.id) ?? null,
+      platforms: v.platforms.map((p) => ({ platform: p.platform, views: p.views })),
+    });
+  }
+
+  const names = new Map(overview.clients.map((c) => [c.id, c.name]));
+  const entries = [...byClient.entries()]
+    .map(([clientId, videos]) => ({
+      clientId,
+      clientName: names.get(clientId) ?? "Unknown client",
+      evidence: buildClientEvidence(clientId, videos),
+    }))
+    // Most characterisable first: a reader wants the clients with findings.
+    .sort((a, b) => b.evidence.scoredCount - a.evidence.scoredCount);
+
+  return <ClientInsights entries={entries} />;
 }
 
 /* ---- The original time-entries report, unchanged ------------------------ */
