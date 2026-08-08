@@ -2437,3 +2437,137 @@ export async function saveTranscript(input: {
   revalidatePath("/content");
   return {};
 }
+
+/* ---- Vision extraction: screenshot -> draft -> confirmation ------------- */
+
+/**
+ * Upload a screenshot and queue it for extraction.
+ *
+ * The image goes to a PRIVATE bucket and the worker reads it from there,
+ * because the vision key lives only on the worker and never in this app's
+ * environment (PRD-video-intelligence §4.7). This action writes no analytics
+ * of any kind — it only parks an image and a job.
+ */
+export async function uploadScreenshot(input: {
+  workspaceId: string;
+  platformPostId: string;
+  /** data: URL from the browser's FileReader. */
+  dataUrl: string;
+}): Promise<Result & { jobId?: string }> {
+  const supabase = await createClient();
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth?.user) return { error: "Not signed in." };
+
+  const match = input.dataUrl.match(/^data:(image\/(png|jpeg|webp));base64,(.+)$/);
+  if (!match) return { error: "That is not a PNG, JPEG or WebP image." };
+  const [, mime, , b64] = match;
+
+  const bytes = Buffer.from(b64, "base64");
+  if (bytes.byteLength > 8 * 1024 * 1024) return { error: "Image is larger than 8MB." };
+
+  const ext = mime.split("/")[1];
+  const path = `${input.workspaceId}/${input.platformPostId}/${crypto.randomUUID()}.${ext}`;
+
+  const { error: upErr } = await supabase.storage
+    .from("analytics-screenshots")
+    .upload(path, bytes, { contentType: mime, upsert: false });
+  if (upErr) return { error: upErr.message };
+
+  const { data: job, error: jobErr } = await supabase
+    .from("ingest_jobs")
+    .insert({
+      workspace_id: input.workspaceId,
+      kind: "vision_extract",
+      subject_id: input.platformPostId,
+      priority: 10, // someone is waiting at a screen for this one
+      last_error: path, // carries the object path to the handler
+    })
+    .select("id")
+    .single();
+  if (jobErr) {
+    // Do not leave an orphan image behind if the job could not be queued.
+    await supabase.storage.from("analytics-screenshots").remove([path]);
+    return { error: jobErr.message };
+  }
+
+  return { jobId: job.id };
+}
+
+/**
+ * Write confirmed values, then delete the screenshot.
+ *
+ * This is the ONLY path from an extracted draft into post_analytics, and it
+ * runs on values a human has seen beside the image. The image is removed
+ * immediately afterwards: it is client business data, and keeping it would
+ * create a retention question nobody needs to answer later (PRD §11).
+ */
+export async function confirmExtraction(input: {
+  workspaceId: string;
+  platformPostId: string;
+  values: { name: string; value: number | null }[];
+  storagePath?: string | null;
+}): Promise<Result> {
+  const supabase = await createClient();
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth?.user) return { error: "Not signed in." };
+
+  const get = (n: string) => input.values.find((v) => v.name === n)?.value ?? null;
+  const owner = {
+    impressions: get("impressions"),
+    ctr: get("ctrPercent"),
+    avg_viewed_pct: get("avgViewedPercent"),
+    avg_watch_seconds: get("avgViewSeconds"),
+  };
+  const snapshot = {
+    views: get("views"),
+    likes: get("likes"),
+    comments: get("comments"),
+    shares: get("shares"),
+    saves: get("saves"),
+    reach: get("reach"),
+  };
+
+  const hasOwner = Object.values(owner).some((v) => v != null);
+  const hasSnapshot = Object.values(snapshot).some((v) => v != null);
+  if (!hasOwner && !hasSnapshot) return { error: "Nothing was confirmed." };
+
+  if (hasOwner) {
+    const { error } = await supabase.from("post_analytics").insert({
+      workspace_id: input.workspaceId,
+      platform_post_id: input.platformPostId,
+      ...owner,
+      source: "vision",
+    });
+    if (error) return { error: error.message };
+  }
+
+  // Reach, saves and shares have no owner-metric column; they belong on the
+  // snapshot series, whose columns have existed unused since the first
+  // content migration.
+  if (hasSnapshot) {
+    const { error } = await supabase.from("post_snapshots").insert({
+      workspace_id: input.workspaceId,
+      platform_post_id: input.platformPostId,
+      ...snapshot,
+      source: "vision",
+    });
+    if (error) return { error: error.message };
+  }
+
+  if (input.storagePath) {
+    await supabase.storage.from("analytics-screenshots").remove([input.storagePath]);
+  }
+
+  await logAudit(supabase, {
+    workspaceId: input.workspaceId,
+    actorId: auth.user.id,
+    action: "analytics.vision_confirm",
+    entityType: "post_analytics",
+    entityId: input.platformPostId,
+    detail: { confirmed: input.values.filter((v) => v.value != null).length },
+  });
+
+  revalidatePath("/content");
+  revalidatePath("/data");
+  return {};
+}

@@ -18,9 +18,11 @@
 import { comments } from "./comments.mjs";
 import { transcript } from "./transcript.mjs";
 import { analyse } from "./analyse.mjs";
+import { visionExtract } from "./visionExtract.mjs";
 
 export const handlers = {
   comments,
   transcript,
   analyse,
+  vision_extract: visionExtract,
 };
