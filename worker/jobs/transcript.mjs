@@ -1,0 +1,216 @@
+/**
+ * Fetch a video's transcript.
+ *
+ * This is the fragile path: an undocumented endpoint, outside YouTube's
+ * published terms, blocked on IP reputation rather than request volume. The
+ * architecture's answer is a genuinely tiny footprint -- transcripts are
+ * fetched ONCE and never again (captions do not change) -- plus permanent
+ * caching, cooldown on block, and a manual-paste fallback that keeps every
+ * downstream feature working when this fails.
+ *
+ * Implemented directly rather than through youtube-transcript-api. That
+ * library is Python (the worker is Node), and its call surface changed shape
+ * across major versions -- the PRD flagged version-pinning as a risk. The
+ * logic is short enough that owning it removes both the dependency and the
+ * drift.
+ *
+ * DELIBERATELY NOT GATED ON has_captions. P2 established that the API field
+ * counts manually uploaded tracks only: all 11 YouTube videos here report
+ * false, and the first one probed carries a full auto-generated track. Gating
+ * on it would skip the entire library.
+ */
+
+const UA =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+  "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
+/**
+ * Signatures that mean "the IP is being refused", not "this video has none".
+ *
+ * Exported and tested, because the first version of this function was wrong in
+ * the most expensive possible way: it matched a bare /captcha/i against the
+ * body, and every YouTube watch page contains RECAPTCHA_V3_SITEKEY in its
+ * bootstrap config. A perfectly good HTTP 200 carrying real caption tracks was
+ * read as a block, which would have put transcripts into a two-hour cooldown
+ * on every single attempt -- permanently, with the logs blaming YouTube.
+ *
+ * The rules are now specific enough to be checkable:
+ *   - 429 is unambiguous.
+ *   - Google's interstitial announces itself by REDIRECTING to /sorry/, so the
+ *     final URL is the signal, not a substring of a megabyte of markup.
+ *   - Its body text is a fixed phrase; match that, not the word "captcha".
+ *   - A 403 has no legitimate meaning on a public watch page.
+ * And the decisive counter-signal: if the page carried caption tracks, we
+ * plainly were not refused, whatever else the markup happens to contain.
+ */
+export function looksBlocked({ status, finalUrl = "", body = "" }) {
+  if (/"captionTracks":/.test(body)) return false;
+  if (status === 429 || status === 403) return true;
+  if (/\/sorry\/(index|captcha)/.test(finalUrl)) return true;
+  if (/Our systems have detected unusual traffic/i.test(body)) return true;
+  return false;
+}
+
+function blocked(msg) {
+  const e = new Error(msg);
+  e.blocked = true;
+  return e;
+}
+
+/**
+ * Pick the track worth storing. A human-written track beats auto-generated
+ * every time: ASR mangles names, brands and accents, which is exactly the
+ * vocabulary a marketing corpus gets searched for (P2). English is preferred
+ * only as a tiebreak -- a German clinic's video should keep its German.
+ */
+function pickTrack(tracks) {
+  const score = (t) => {
+    let s = 0;
+    if (t.kind !== "asr") s += 100;                      // manual wins outright
+    if ((t.languageCode ?? "").startsWith("en")) s += 10; // then English
+    return s;
+  };
+  return [...tracks].sort((a, b) => score(b) - score(a))[0];
+}
+
+export async function transcript({ db, job, log }) {
+  const { data: posts, error } = await db
+    .from("platform_posts")
+    .select("id, external_id, account:accounts(platform_slug)")
+    .eq("content_item_id", job.subject_id)
+    .not("external_id", "is", null);
+  if (error) throw new Error(`lookup failed: ${error.message}`);
+
+  const youtube = (posts ?? []).filter((p) => {
+    const a = Array.isArray(p.account) ? p.account[0] : p.account;
+    return a?.platform_slug === "youtube";
+  });
+  if (youtube.length === 0) {
+    // No YouTube cut means no transcript source. Terminal and normal: the
+    // content item is still fully usable, it just has no words attached.
+    return { unavailable: true, note: "no youtube post on this content item" };
+  }
+
+  const post = youtube[0];
+
+  // 1. The watch page carries the player response, which carries the tracks.
+  const watch = await fetch(`https://www.youtube.com/watch?v=${post.external_id}`, {
+    headers: { "User-Agent": UA, "Accept-Language": "en-US,en;q=0.9" },
+  });
+  const html = await watch.text();
+
+  if (looksBlocked({ status: watch.status, finalUrl: watch.url, body: html })) {
+    throw blocked(`watch page refused (HTTP ${watch.status}, url ${watch.url})`);
+  }
+  if (!watch.ok) throw new Error(`watch page HTTP ${watch.status}`);
+
+  const raw = html.match(/"captionTracks":(\[.*?\])/s)?.[1];
+  if (!raw) {
+    // Genuinely no captions published for this video. Terminal -- retrying
+    // forever would spend blockable requests on a settled fact.
+    return { unavailable: true, note: "no caption tracks published for this video" };
+  }
+
+  let tracks;
+  try {
+    tracks = JSON.parse(raw);
+  } catch {
+    // The shape changed. A parse failure is a job failure with the payload
+    // logged, never a crash that stops the queue draining.
+    throw new Error(`caption track list did not parse (${raw.slice(0, 120)})`);
+  }
+  if (!Array.isArray(tracks) || tracks.length === 0) {
+    return { unavailable: true, note: "caption track list was empty" };
+  }
+
+  const track = pickTrack(tracks);
+  if (!track?.baseUrl) throw new Error("chosen caption track carried no baseUrl");
+
+  // 2. json3 gives timings and text without XML entity handling.
+  const url = `${track.baseUrl}&fmt=json3`;
+  const res = await fetch(url, { headers: { "User-Agent": UA } });
+  const body = await res.text();
+  if (looksBlocked({ status: res.status, finalUrl: res.url, body })) {
+    throw blocked(`timedtext refused (HTTP ${res.status})`);
+  }
+  if (!res.ok) throw new Error(`timedtext HTTP ${res.status}`);
+
+  // An empty 200 is YouTube's proof-of-origin refusal, and it is deliberately
+  // ambiguous: no status code, no message, just nothing. Verified against the
+  // live library -- the signed baseUrl straight off the watch page returns
+  // zero bytes for fmt as-is, json3 and srv3 alike, with a correct Referer.
+  //
+  // It is NOT a block (no 429, no interstitial) and NOT "this video has no
+  // captions" (the track list said otherwise). It means a plain server-side
+  // fetch cannot obtain this text, and retrying will not change that -- so
+  // this is terminal, and it says so precisely rather than burning four
+  // attempts to arrive at a worse message. Manual paste is the route
+  // (PRD §8.5), and it feeds everything downstream identically.
+  if (body.trim().length === 0) {
+    return {
+      unavailable: true,
+      note:
+        "caption track exists but timedtext returned an empty body " +
+        "(proof-of-origin refusal); use manual paste",
+      stats: { language: track.languageCode ?? "?", generated: track.kind === "asr" },
+    };
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    throw new Error(`timedtext did not parse (${body.slice(0, 120)})`);
+  }
+
+  const segments = [];
+  for (const ev of parsed.events ?? []) {
+    const text = (ev.segs ?? []).map((s) => s.utf8 ?? "").join("").replace(/\s+/g, " ").trim();
+    if (!text) continue;
+    segments.push({
+      start_ms: ev.tStartMs ?? 0,
+      dur_ms: ev.dDurationMs ?? 0,
+      text,
+    });
+  }
+  if (segments.length === 0) {
+    return { unavailable: true, note: "caption track contained no readable text" };
+  }
+
+  const fullText = segments.map((s) => s.text).join(" ");
+
+  // Upsert on content_item_id: re-running must refresh, never duplicate. The
+  // whole pipeline is built to be safely re-runnable.
+  const { error: upErr } = await db.from("video_transcripts").upsert(
+    {
+      workspace_id: job.workspace_id,
+      content_item_id: job.subject_id,
+      source_post_id: post.id,
+      source: "public",
+      language: track.languageCode ?? null,
+      is_generated: track.kind === "asr",
+      full_text: fullText,
+      segments,
+      fetched_at: new Date().toISOString(),
+    },
+    { onConflict: "content_item_id" },
+  );
+  if (upErr) throw new Error(`upsert failed: ${upErr.message}`);
+
+  log("info", "transcript_stored", {
+    post: post.id,
+    language: track.languageCode,
+    generated: track.kind === "asr",
+    segments: segments.length,
+    chars: fullText.length,
+  });
+
+  return {
+    stats: {
+      segments: segments.length,
+      chars: fullText.length,
+      language: track.languageCode ?? "?",
+      generated: track.kind === "asr",
+    },
+  };
+}

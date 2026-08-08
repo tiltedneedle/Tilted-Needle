@@ -16,7 +16,9 @@
  *                                 block does not burn every job's attempts
  */
 import { comments } from "./comments.mjs";
+import { transcript } from "./transcript.mjs";
 
 export const handlers = {
   comments,
+  transcript,
 };
