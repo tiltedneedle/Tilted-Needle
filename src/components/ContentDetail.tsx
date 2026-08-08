@@ -19,6 +19,7 @@ import { asMultiplier } from "@/lib/scoring";
 import VideoEmbed from "@/components/VideoEmbed";
 import Avatar from "@/components/Avatar";
 import ScreenshotImport from "@/components/ScreenshotImport";
+import ScrapeNowButton, { type ScrapeAllowance } from "@/components/ScrapeNowButton";
 import TranscriptPanel from "@/components/TranscriptPanel";
 import { PLATFORM_COLORS, one } from "@/lib/types";
 import type {
@@ -75,10 +76,13 @@ export default function ContentDetail({
   boostByPlatform = {},
   transcript = null,
   visionDrafts = {},
+  scrapeAllowance = null,
 }: {
   workspaceId: string;
   /** Existing transcript, when one has been fetched or pasted. */
   transcript?: { fullText: string; source: string; isGenerated: boolean | null } | null;
+  /** Remaining metered reads, so the counter sits beside the button. */
+  scrapeAllowance?: ScrapeAllowance;
   /** Vision drafts awaiting confirmation, keyed by platform post id. */
   visionDrafts?: Record<
     string,
@@ -553,6 +557,13 @@ export default function ContentDetail({
               <VideoEmbed platformSlug={slug} url={p.url} externalId={p.external_id} />
 
               {showHistory === p.id && <SnapshotHistory rows={forPost} />}
+
+              {/* Refresh THIS post's numbers, with the remaining metered
+                  allowance shown before the press rather than after. The
+                  account-wide refresh on /data is a different, blunter tool. */}
+              <div className="mt-2">
+                <ScrapeNowButton platformPostId={p.id} allowance={scrapeAllowance} compact />
+              </div>
 
               {/* Route B into the same table the form above writes
                   (PRD-video-intelligence §2.1). Instagram has no export, so

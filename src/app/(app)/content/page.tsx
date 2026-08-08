@@ -18,6 +18,7 @@ import { cachedRankings } from "@/lib/cachedRankings";
 import { parseFilters } from "@/lib/contentFilters";
 import { selectAll } from "@/lib/selectAll";
 import { loadContentOverview, loadRoles } from "@/lib/dashboards";
+import { getScrapeBudget } from "@/app/actions";
 import type {
   Account,
   Client,
@@ -267,6 +268,25 @@ export default async function ContentPage({
       (visionDrafts as Record<string, unknown>)[d.subject_id] = d.output;
     }
 
+    // Metered allowance for the per-post refresh button. Only Instagram is
+    // metered, so this is null for everything else -- and a null allowance
+    // renders no counter rather than a misleading "unlimited" badge.
+    const igPost = view.posts.find(
+      (p) => view.accounts.find((a) => a.id === p.account_id)?.platform_slug === "instagram",
+    );
+    const scrapeAllowance = igPost
+      ? await getScrapeBudget(ws, "instagram").then((b) =>
+          b
+            ? {
+                remaining: b.remaining.manual,
+                limit: b.limits.manual,
+                daysUntilReset: b.daysUntilReset,
+                periodEnd: b.periodEnd,
+              }
+            : null,
+        ).catch(() => null)
+      : null;
+
     const boostByPlatform: Record<string, number> = {};
     for (const s of rankings.scoredByContent.get(videoId) ?? []) {
       boostByPlatform[s.platform] = Math.max(boostByPlatform[s.platform] ?? 0, s.index);
@@ -294,6 +314,7 @@ export default async function ContentPage({
           boostByPlatform={boostByPlatform}
           transcript={transcriptForItem}
           visionDrafts={visionDrafts}
+          scrapeAllowance={scrapeAllowance}
         />
       </Shell>
     );
