@@ -114,6 +114,142 @@ def discover():
     )
 
 
+@app.route("/transcript", methods=["GET"])
+def transcript():
+    """
+    A YouTube video's transcript, via yt-dlp.
+
+    Added because the direct route died. YouTube's timedtext endpoint now
+    requires a proof-of-origin token (PoToken) generated at runtime by the
+    player's own JavaScript, and without one it answers a plain HTTP request
+    with 200 and an EMPTY BODY -- no status, no message. Measured against this
+    library: caption tracks are listed, the track is fetched, nothing comes
+    back.
+
+    yt-dlp already solves that, and this box already runs yt-dlp. So the fix
+    is one endpoint on a service that exists rather than new infrastructure:
+    same bearer secret, same failure conventions, same process model.
+
+    Deliberately per-video and on demand. Transcripts are fetched once and
+    cached forever in Postgres, so this is a handful of calls a week.
+    """
+    if not authorised(request):
+        return jsonify({"error": "Unauthorised."}), 401
+
+    video_id = (request.args.get("v") or "").strip()
+    if not video_id:
+        return jsonify({"error": "v query param is required."}), 400
+
+    url = f"https://www.youtube.com/watch?v={video_id}"
+    opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+        "writesubtitles": True,
+        "writeautomaticsub": True,
+        # json3 carries per-segment timings; the plain formats do not, and
+        # timings are what make a transcript line clickable later.
+        "subtitlesformat": "json3",
+    }
+
+    started = time.time()
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=False) or {}
+
+            # Human-written tracks first: auto-generated captions mangle
+            # names, brands and accents, which is exactly the vocabulary a
+            # marketing corpus gets searched for.
+            manual = info.get("subtitles") or {}
+            auto = info.get("automatic_captions") or {}
+            track, lang, generated = _pick_track(manual, auto)
+            if not track:
+                return jsonify({
+                    "videoId": video_id,
+                    "available": False,
+                    "reason": "no caption track published for this video",
+                }), 200
+
+            # Fetched through yt-dlp's own session so its header and token
+            # handling apply -- which is the entire point of routing here.
+            raw = ydl.urlopen(track["url"]).read().decode("utf-8", "replace")
+    except yt_dlp.utils.DownloadError as e:
+        msg = str(e)
+        if "Private video" in msg or "unavailable" in msg.lower():
+            return jsonify({
+                "videoId": video_id, "available": False,
+                "reason": "video is private or unavailable",
+            }), 200
+        return jsonify({"error": f"Extraction failed: {msg}"}), 502
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"error": f"Unexpected error: {e}"}), 500
+
+    segments = _segments_from_json3(raw)
+    if not segments:
+        return jsonify({
+            "videoId": video_id, "available": False,
+            "reason": "caption track contained no readable text",
+        }), 200
+
+    return jsonify({
+        "videoId": video_id,
+        "available": True,
+        "language": lang,
+        "isGenerated": generated,
+        "segments": segments,
+        "text": " ".join(s["text"] for s in segments),
+        "tookMs": round((time.time() - started) * 1000),
+    })
+
+
+def _pick_track(manual, auto):
+    """Human track beats machine; English breaks ties but never wins outright
+    -- a German clinic's video should keep its German."""
+    def best(tracks):
+        if not tracks:
+            return None, None
+        for lang in list(tracks):
+            if lang.startswith("en"):
+                return tracks[lang], lang
+        lang = next(iter(tracks))
+        return tracks[lang], lang
+
+    entries, lang = best(manual)
+    if entries:
+        return _json3(entries), lang, False
+    entries, lang = best(auto)
+    if entries:
+        return _json3(entries), lang, True
+    return None, None, None
+
+
+def _json3(entries):
+    for e in entries:
+        if e.get("ext") == "json3":
+            return e
+    return entries[0] if entries else None
+
+
+def _segments_from_json3(raw):
+    import json as _json
+    try:
+        data = _json.loads(raw)
+    except ValueError:
+        return []
+    out = []
+    for ev in data.get("events") or []:
+        text = "".join(seg.get("utf8", "") for seg in (ev.get("segs") or []))
+        text = " ".join(text.split())
+        if not text:
+            continue
+        out.append({
+            "startMs": ev.get("tStartMs") or 0,
+            "durMs": ev.get("dDurationMs") or 0,
+            "text": text,
+        })
+    return out
+
+
 def _iso_date(ts):
     if not ts:
         return None
