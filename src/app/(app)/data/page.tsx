@@ -1,5 +1,6 @@
 import PageHeader from "@/components/PageHeader";
 import DataPanel, { type PanelAccount } from "@/components/DataPanel";
+import AnalyticsImport from "@/components/AnalyticsImport";
 import { Stat, StatGrid, SectionHeading } from "@/components/Stat";
 import { Database, RefreshCw, AlertTriangle, Wallet } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
@@ -167,6 +168,17 @@ export default async function DataPage() {
           }
         />
       </StatGrid>
+
+      {/* Owner-only figures arrive here, by export rather than by credential
+          (PRD-video-intelligence §2). Placed above the platform panel because
+          it is the only source of CTR and true retention in the system. */}
+      <SectionHeading
+        title="Owner-only analytics"
+        note="Impressions, CTR and average percentage viewed — supplied by the client, never fetchable"
+      />
+      <div className="mb-7">
+        <AnalyticsImport workspaceId={ws} />
+      </div>
 
       <SectionHeading
         title="Platforms"
