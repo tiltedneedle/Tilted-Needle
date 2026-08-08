@@ -2247,3 +2247,141 @@ export async function getScrapeBudget(workspaceId: string, platformSlug: string)
   if (!(await isMetered(db, platformSlug))) return null;
   return status(db, workspaceId, platformSlug);
 }
+
+/* ---- Owner-only analytics: client-supplied imports ----------------------- */
+
+export type StudioImportPreview = {
+  /** Rows whose video id matched a tracked post, ready to write. */
+  matched: {
+    postId: string;
+    videoId: string;
+    title: string | null;
+    impressions: number | null;
+    ctrPercent: number | null;
+    avgViewSeconds: number | null;
+    avgViewedPercent: number | null;
+    subscribersGained: number | null;
+  }[];
+  /** Rows that parsed but name a video this workspace does not track. */
+  unmatched: { videoId: string; title: string | null }[];
+  problems: string[];
+  columns: string[];
+};
+
+/**
+ * Read a Studio/TikTok export and report what WOULD be imported.
+ *
+ * Deliberately split from the write. The file comes from a UI that changes
+ * between versions and locales, and a silent import of a misread column would
+ * put invented numbers in front of a paying client. Someone confirms first
+ * (PRD-video-intelligence §2.1).
+ */
+export async function previewStudioImport(
+  workspaceId: string,
+  csv: string,
+): Promise<StudioImportPreview & { error?: string }> {
+  const supabase = await createClient();
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth?.user) {
+    return { matched: [], unmatched: [], problems: [], columns: [], error: "Not signed in." };
+  }
+
+  const { parseStudioExport } = await import("@/lib/studioImport");
+  const parsed = parseStudioExport(csv);
+
+  const ids = parsed.rows.map((r) => r.videoId).filter((v): v is string => !!v);
+  const { data: posts } = ids.length
+    ? await supabase
+        .from("platform_posts")
+        .select("id, external_id")
+        .eq("workspace_id", workspaceId)
+        .in("external_id", ids)
+    : { data: [] };
+
+  const postByExternal = new Map(
+    ((posts ?? []) as { id: string; external_id: string | null }[])
+      .filter((p) => p.external_id)
+      .map((p) => [p.external_id!, p.id]),
+  );
+
+  const matched: StudioImportPreview["matched"] = [];
+  const unmatched: StudioImportPreview["unmatched"] = [];
+
+  for (const row of parsed.rows) {
+    if (!row.videoId) continue;
+    const postId = postByExternal.get(row.videoId);
+    if (!postId) {
+      unmatched.push({ videoId: row.videoId, title: row.title });
+      continue;
+    }
+    matched.push({
+      postId,
+      videoId: row.videoId,
+      title: row.title,
+      impressions: row.impressions,
+      // Back to percent for display: the confirmation screen should show the
+      // same 4.85 the person is looking at in Studio, not 0.0485.
+      ctrPercent: row.ctr == null ? null : Math.round(row.ctr * 1e6) / 1e4,
+      avgViewSeconds: row.avgViewSeconds,
+      avgViewedPercent: row.avgViewedPct == null ? null : Math.round(row.avgViewedPct * 1e6) / 1e4,
+      subscribersGained: row.subscribersGained,
+    });
+  }
+
+  const problems = [...parsed.problems];
+  if (unmatched.length > 0) {
+    problems.push(
+      `${unmatched.length} video${unmatched.length === 1 ? "" : "s"} in the file ` +
+        `${unmatched.length === 1 ? "is" : "are"} not tracked in this workspace and will be skipped.`,
+    );
+  }
+
+  return { matched, unmatched, problems, columns: parsed.columns };
+}
+
+/**
+ * Write a previewed import. Every row lands in post_analytics with
+ * source='import', beside the manual and vision routes — everything
+ * downstream reads the table, never the route that filled it.
+ */
+export async function commitStudioImport(
+  workspaceId: string,
+  rows: StudioImportPreview["matched"],
+): Promise<Result & { imported?: number }> {
+  const supabase = await createClient();
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth?.user) return { error: "Not signed in." };
+  if (rows.length === 0) return { error: "Nothing to import." };
+
+  const pct = (v: number | null) => (v == null ? null : v / 100);
+  const { error } = await supabase.from("post_analytics").insert(
+    rows.map((r) => ({
+      workspace_id: workspaceId,
+      platform_post_id: r.postId,
+      impressions: r.impressions,
+      ctr: pct(r.ctrPercent),
+      avg_watch_seconds: r.avgViewSeconds,
+      // Average percentage viewed is the honest summary of "did it hold them"
+      // and the half of the click-versus-stay reading that no public API
+      // serves (PRD §5.8).
+      retention_30s: null,
+      retention_60s: null,
+      avg_viewed_pct: pct(r.avgViewedPercent),
+      subscribers_gained: r.subscribersGained,
+      source: "import",
+    })),
+  );
+  if (error) return { error: error.message };
+
+  await logAudit(supabase, {
+    workspaceId,
+    actorId: auth.user.id,
+    action: "analytics.import",
+    entityType: "post_analytics",
+    detail: { rows: rows.length, source: "studio_csv" },
+  });
+
+  revalidatePath("/content");
+  revalidatePath("/data");
+  return { imported: rows.length };
+}
