@@ -56,12 +56,14 @@ function capabilityFor(): ProviderCapability {
     ? {
         canDiscover: true,
         canFetchMetrics: true,
+        isMetered: false,
         reason: "Discovery runs through a separate self-hosted service (yt-dlp) — see deploy/tiktok-discover.",
         remedy: "",
       }
     : {
         canDiscover: false,
         canFetchMetrics: true,
+        isMetered: false,
         reason:
           "TikTok blocks creator profile pages, so a creator's videos cannot be listed automatically without the optional discovery service.",
         remedy:

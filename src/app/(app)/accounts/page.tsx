@@ -7,18 +7,20 @@ import { PROVIDERS } from "@/lib/providers";
 import { createClient } from "@/lib/supabase/server";
 import { requireSession } from "@/lib/workspace";
 import { canManage } from "@/lib/types";
-import { CONNECTORS, isConfigured, missingEnvVars } from "@/lib/connectors";
 import type { Account, Client, Platform } from "@/lib/types";
 
+/**
+ * Accounts are identified by handle and read through public APIs only. There
+ * is no connect flow: owner-credential access is a hard constraint of this
+ * product (PRD-video-intelligence §0), and the richer owner-only metrics
+ * arrive by client-supplied export instead (§2).
+ */
 export default async function AccountsPage({
   searchParams,
 }: {
   searchParams: Promise<{
-    oauth_error?: string;
-    oauth_connected?: string;
     platform?: string;
     client?: string;
-    connection?: string;
     status?: string;
   }>;
 }) {
@@ -27,7 +29,7 @@ export default async function AccountsPage({
   const ws = session.active.id;
   const params = await searchParams;
 
-  const [accountsRes, platformsRes, clientsRes, connectionsRes] = await Promise.all([
+  const [accountsRes, platformsRes, clientsRes] = await Promise.all([
     supabase
       .from("accounts")
       .select(
@@ -45,30 +47,11 @@ export default async function AccountsPage({
       .select("id, workspace_id, name, email, is_archived")
       .eq("workspace_id", ws)
       .order("name"),
-    supabase
-      .from("oauth_connections")
-      .select("account_id, status, connected_at, scopes")
-      .eq("workspace_id", ws),
   ]);
-
-  const connectorStatus = Object.fromEntries(
-    Object.keys(CONNECTORS).map((slug) => [
-      slug,
-      { configured: isConfigured(slug), missing: missingEnvVars(slug) },
-    ]),
-  );
 
   const allAccounts = (accountsRes.data ?? []) as unknown as Account[];
   const platforms = (platformsRes.data ?? []) as unknown as Platform[];
   const clients = (clientsRes.data ?? []) as unknown as Client[];
-  const connections = (connectionsRes.data ?? []) as {
-    account_id: string;
-    status: string;
-    connected_at: string;
-  }[];
-  const connectedIds = new Set(
-    connections.filter((c) => c.status === "active").map((c) => c.account_id),
-  );
 
   // Archived accounts are hidden unless asked for -- they exist for history,
   // and a list that leads with dead accounts buries the live ones.
@@ -77,10 +60,6 @@ export default async function AccountsPage({
   );
   if (params.platform) accounts = accounts.filter((a) => a.platform_slug === params.platform);
   if (params.client) accounts = accounts.filter((a) => a.client_id === params.client);
-  if (params.connection === "connected")
-    accounts = accounts.filter((a) => connectedIds.has(a.id));
-  else if (params.connection === "manual")
-    accounts = accounts.filter((a) => !connectedIds.has(a.id));
 
   return (
     <div className="mx-auto max-w-4xl px-6 py-6">
@@ -88,17 +67,6 @@ export default async function AccountsPage({
         title="Accounts"
         subtitle="One account per platform a client publishes to. Each is scored on its own metrics and baseline."
       />
-      {params.oauth_error && (
-        <p className="mb-4 rounded-md border border-[var(--danger)]/25 bg-[var(--danger-100)] px-3 py-2 text-sm text-[var(--danger)]">
-          {decodeURIComponent(params.oauth_error)}
-        </p>
-      )}
-      {params.oauth_connected && (
-        <p className="mb-4 rounded-md border border-[var(--success)]/25 bg-[var(--success-100)] px-3 py-2 text-sm text-[var(--success)]">
-          Connected to {params.oauth_connected}. Enhanced metrics will appear
-          on content as they sync.
-        </p>
-      )}
       <SyncStatus
         workspaceId={ws}
         canManage={canManage(session.active.role)}
@@ -123,8 +91,8 @@ export default async function AccountsPage({
             id: a.id,
             handle: a.handle,
             platform: a.platform_slug,
-            lastSyncedAt: (a as { last_synced_at?: string | null }).last_synced_at ?? null,
-            lastError: (a as { last_sync_error?: string | null }).last_sync_error ?? null,
+            lastSyncedAt: a.last_synced_at ?? null,
+            lastError: a.last_sync_error ?? null,
           }))}
       />
 
@@ -148,16 +116,6 @@ export default async function AccountsPage({
               .map((c) => ({ value: c.id, label: c.name })),
           },
           {
-            key: "connection",
-            label: "Filter by connection",
-            allLabel: "Any connection",
-            value: params.connection ?? null,
-            options: [
-              { value: "connected", label: "Connected" },
-              { value: "manual", label: "Manual entry" },
-            ],
-          },
-          {
             key: "status",
             label: "Filter by status",
             allLabel: "Active only",
@@ -176,8 +134,22 @@ export default async function AccountsPage({
         platforms={platforms}
         clients={clients}
         canManage={canManage(session.active.role)}
-        connections={connections}
-        connectorStatus={connectorStatus}
+        // Whether an account's numbers arrive on their own is a property of
+        // the PROVIDER, not of accounts.connection_mode -- that column reads
+        // 'manual' for every account in the workspace, including the fourteen
+        // that sync nightly, so badging on it would print a falsehood.
+        fetchByPlatform={Object.fromEntries(
+          platforms.map((p) => {
+            const provider = PROVIDERS[p.slug];
+            return [
+              p.slug,
+              {
+                auto: Boolean(provider?.capability.canFetchMetrics && provider?.isConfigured()),
+                metered: provider?.capability.isMetered ?? false,
+              },
+            ];
+          }),
+        )}
       />
 
       {/* Archived accounts are hidden by the default status filter, which

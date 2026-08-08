@@ -4,10 +4,8 @@ import { parseIsoDuration } from "@/lib/clockifyParse";
 /**
  * Minimal Clockify REST client for the historical backfill (PRD 11 #2,
  * phasing table 1.5). Authenticates with a personal API key from
- * Profile Settings -> API -- unlike the Phase 6 platforms, Clockify needs no
- * registered OAuth app, so this is genuinely runnable the moment a real key
- * is pasted in, not gated on an external prerequisite the way YouTube/Meta/
- * TikTok OAuth is.
+ * Profile Settings -> API. A single key, no app registration and no consent
+ * screen, so this is runnable the moment a real key is pasted in.
  */
 
 const BASE = "https://api.clockify.me/api/v1";

@@ -8,8 +8,9 @@
  *
  * What this still cannot see, because YouTube reserves it for the channel
  * owner: impressions, click-through rate, watch time, retention, demographics.
- * Those need the OAuth connector in lib/connectors.ts. Public metrics can show
- * *that* a video performed; they cannot explain why (PRD 4).
+ * Those arrive by client-supplied Studio export instead -- there is no connect
+ * flow to fall back on (PRD-video-intelligence §0, §2). Public metrics can
+ * show *that* a video performed; they cannot explain why.
  *
  * Quota: the free tier allows 10,000 units/day. Every call used here costs 1
  * unit and accepts up to 50 ids, so a few hundred videos refreshed every
@@ -115,10 +116,11 @@ function count(v: string | undefined): number | null {
 const capability: ProviderCapability = {
   canDiscover: true,
   canFetchMetrics: true,
+  isMetered: false,
   reason:
     "Public video statistics are served to any API key, so no client authorisation is needed.",
   remedy:
-    "Connect the channel with OAuth to additionally unlock impressions, click-through rate and retention.",
+    "Impressions, click-through rate and retention are owner-only. Ask the client for a YouTube Studio export and import it under Data.",
 };
 
 async function call<T>(

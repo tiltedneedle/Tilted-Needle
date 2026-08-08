@@ -2,10 +2,12 @@
  * Public-metrics providers: fetching what a platform exposes about an account
  * WITHOUT that account's owner authorising anything.
  *
- * This is a different axis from the OAuth connectors in lib/connectors.ts.
- * Those need the client to grant access and unlock owner-only analytics (CTR,
- * retention, impressions). These need nothing from the client at all -- but
- * can only ever see what the platform makes public.
+ * Owner-credential flows are retired outright (PRD-video-intelligence §0), so
+ * this is the only automated route into a platform's numbers. Owner-only
+ * analytics (CTR, retention, impressions) still reach the system, but through
+ * a client-supplied Studio/Insights export rather than a connection (§2).
+ * These providers need nothing from the client at all -- and can only ever
+ * see what the platform makes public.
  *
  * The honest state of that, per platform, as of this writing:
  *
@@ -36,6 +38,14 @@ export type ProviderCapability = {
   canDiscover: boolean;
   /** Can read public metrics for a known post without owner authorisation. */
   canFetchMetrics: boolean;
+  /**
+   * Every fetch costs real money (a paid vendor), rather than a free quota.
+   * A first-class flag rather than a sentence, because the UI has to badge it
+   * and a fact buried in prose is a fact the interface cannot read -- which
+   * is exactly how Instagram came to be labelled "free" on the data panel
+   * while every one of its refreshes was spending credit.
+   */
+  isMetered: boolean;
   /** Shown in the UI to explain why a platform is not syncing. */
   reason: string;
   /** What the workspace owner would have to do to change that, if anything. */
@@ -148,6 +158,7 @@ export function unavailableProvider(
   const capability: ProviderCapability = {
     canDiscover: false,
     canFetchMetrics: false,
+    isMetered: false,
     reason,
     remedy,
   };

@@ -12,7 +12,13 @@ export type PanelAccount = {
   platformSlug: string;
   handle: string;
   clientName: string | null;
-  mode: string;
+  /**
+   * Does this account's platform cost money to refresh? Derived from the
+   * provider, never from accounts.connection_mode -- that column is 'manual'
+   * for every account in the workspace, so keying the pill on it printed
+   * "free" over Instagram, whose every fetch spends vendor credit.
+   */
+  isMetered: boolean;
   syncEnabled: boolean;
   lastSyncedAt: string | null;
   lastDiscoveredAt: string | null;
@@ -194,8 +200,8 @@ export default function DataPanel({
                               {a.clientName ?? "—"}
                             </td>
                             <td className="px-3 py-2.5">
-                              <span className={`pill ${a.mode === "metered" ? "pill-warning" : "pill-info"}`}>
-                                {a.mode === "metered" ? "metered" : "free"}
+                              <span className={`pill ${a.isMetered ? "pill-warning" : "pill-info"}`}>
+                                {a.isMetered ? "metered" : "free"}
                               </span>
                             </td>
                             <td className="tabular px-3 py-2.5 text-right">{a.postsTracked}</td>

@@ -162,9 +162,9 @@ export default function ContentDetail({
   }
 
   /**
-   * The always-available path into the same table an OAuth sync would fill --
-   * a client can hand over their own Studio export today rather than waiting
-   * on Phase 6 platform credentials (PRD 4, 11 open question #2).
+   * Owner-only numbers, typed in. One of three routes into `post_analytics`
+   * -- manual, CSV import, screenshot extraction -- none of which need a
+   * credential from the client (PRD-video-intelligence §2.1).
    */
   async function saveAnalytics(postId: string) {
     const num = (v: string) => (v.trim() === "" ? null : Number(v));
@@ -692,11 +692,11 @@ type AnalyticsDraft = {
 
 /**
  * The data PRD section 4 is built around: CTR and retention are what
- * separate "this boosted" from "here is why" -- and both require the
- * account owner's consent. This section is what makes that constraint
- * visible in the product rather than only in the PRD: it shows the latest
- * reading, labels its source, and offers manual entry as the always-open
- * door regardless of whether OAuth is configured.
+ * separate "this boosted" from "here is why" -- and both are owner-only.
+ * With no connect flow to wait on, the client supplying their own numbers is
+ * the route, not a fallback: this section shows the latest reading, labels
+ * which route filled it, and keeps manual entry permanently open
+ * (PRD-video-intelligence §2).
  */
 function EnhancedMetrics({
   analytics,

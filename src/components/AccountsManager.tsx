@@ -7,8 +7,8 @@ import { useToast } from "@/components/ui/Toast";
 import { PLATFORM_COLORS } from "@/lib/types";
 import type { Account, Client, Platform } from "@/lib/types";
 
-type ConnectorStatus = { configured: boolean; missing: string[] };
-type Connection = { account_id: string; status: string; connected_at: string };
+/** Per platform: do its numbers arrive on their own, and does that cost money. */
+type FetchMode = { auto: boolean; metered: boolean };
 
 export default function AccountsManager({
   workspaceId,
@@ -16,16 +16,14 @@ export default function AccountsManager({
   platforms,
   clients,
   canManage,
-  connections,
-  connectorStatus,
+  fetchByPlatform,
 }: {
   workspaceId: string;
   accounts: Account[];
   platforms: Platform[];
   clients: Client[];
   canManage: boolean;
-  connections: Connection[];
-  connectorStatus: Record<string, ConnectorStatus>;
+  fetchByPlatform: Record<string, FetchMode>;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -34,28 +32,6 @@ export default function AccountsManager({
   const [platformSlug, setPlatformSlug] = useState(platforms[0]?.slug ?? "");
   const [clientId, setClientId] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [disconnecting, setDisconnecting] = useState<string | null>(null);
-
-  const connectionByAccount = new Map(connections.map((c) => [c.account_id, c]));
-
-  async function disconnect(a: Account) {
-    setDisconnecting(a.id);
-    try {
-      const res = await fetch(`/api/oauth/${a.platform_slug}/disconnect`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accountId: a.id }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        setError(body.error ?? "Could not disconnect.");
-        return;
-      }
-      startTransition(() => router.refresh());
-    } finally {
-      setDisconnecting(null);
-    }
-  }
 
   // Archiving is filtered upstream, in the page's URL filters, so the two
   // cannot disagree about what "archived" means.
@@ -164,9 +140,7 @@ export default function AccountsManager({
                 <span className="text-xs text-[var(--muted)]">
                   {p.supports_public_read
                     ? "public metrics available"
-                    : p.auth_model === "oauth_review"
-                      ? "needs client authorisation + app review"
-                      : "needs client authorisation"}
+                    : "manual entry only — no public metrics API"}
                 </span>
                 <span className="ml-auto text-xs text-[var(--muted)]">
                   {p.maturity_window_days}-day scoring window
@@ -175,9 +149,6 @@ export default function AccountsManager({
 
               <div className="card divide-y divide-[var(--border)] overflow-hidden">
                 {byPlatform.get(p.slug)!.map((a) => {
-                  const conn = connectionByAccount.get(a.id);
-                  const cs = connectorStatus[p.slug];
-                  const isConnected = a.connection_mode === "oauth" && conn?.status === "active";
                   return (
                     <div
                       key={a.id}
@@ -224,46 +195,50 @@ export default function AccountsManager({
                       )}
                       <div className="flex-1" />
 
-                      {/* The label PRD section 4 requires: a client user
-                          scoring by outcome alone must never look identical
-                          to one with CTR/retention behind it. */}
-                      {isConnected ? (
-                        <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-xs text-emerald-500">
-                          Enhanced — connected
-                        </span>
-                      ) : (
-                        <span className="rounded bg-[var(--bg-subtle)] px-1.5 py-0.5 text-xs text-[var(--muted)]">
-                          Baseline — public metrics only
-                        </span>
-                      )}
-
-                      {canManage && !a.is_archived && (
-                        <>
-                          {isConnected ? (
-                            <button
-                              className="rounded px-2 py-1 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--danger)] disabled:opacity-50"
-                              disabled={disconnecting === a.id}
-                              onClick={() => void disconnect(a)}
-                            >
-                              {disconnecting === a.id ? "Disconnecting…" : "Disconnect"}
-                            </button>
-                          ) : cs?.configured ? (
-                            <a
-                              className="btn px-2 py-1 text-xs"
-                              href={`/api/oauth/${p.slug}/connect?account_id=${a.id}`}
-                            >
-                              Connect
-                            </a>
-                          ) : (
+                      {/* Every account reads public metrics only; owner-only
+                          figures arrive by client-supplied export, not by a
+                          connection. What is worth saying per row is whether
+                          this one refreshes itself, and whether doing so
+                          spends money. */}
+                      {(() => {
+                        const f = fetchByPlatform[p.slug];
+                        if (!f?.auto) {
+                          return (
                             <span
-                              className="rounded px-2 py-1 text-xs text-[var(--muted)] opacity-60"
-                              title={`Needs ${cs?.missing.join(" and ")} set on the server`}
+                              className="rounded bg-[var(--bg-subtle)] px-1.5 py-0.5 text-xs text-[var(--muted)]"
+                              title="No automatic source for this platform — numbers are entered by hand"
                             >
-                              Connect (not configured)
+                              Manual entry
                             </span>
-                          )}
-                        </>
-                      )}
+                          );
+                        }
+                        if (!a.sync_enabled) {
+                          return (
+                            <span
+                              className="rounded bg-[var(--bg-subtle)] px-1.5 py-0.5 text-xs text-[var(--muted)]"
+                              title="This account can sync automatically, but syncing is switched off for it"
+                            >
+                              Sync paused
+                            </span>
+                          );
+                        }
+                        return (
+                          <span
+                            className={`rounded px-1.5 py-0.5 text-xs ${
+                              f.metered
+                                ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                                : "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                            }`}
+                            title={
+                              f.metered
+                                ? "Refreshes automatically through a paid vendor — each fetch spends credit"
+                                : "Refreshes automatically on a free API quota"
+                            }
+                          >
+                            {f.metered ? "Auto — metered" : "Auto — free"}
+                          </span>
+                        );
+                      })()}
 
                       {canManage && (
                         <button

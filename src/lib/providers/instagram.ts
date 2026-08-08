@@ -39,10 +39,12 @@ function actorId(): string {
 const capability: ProviderCapability = {
   canDiscover: true,
   canFetchMetrics: true,
+  // The only paid route in the system; everything else rides a free quota.
+  isMetered: true,
   reason:
     "Read through Apify's official Instagram actor. Metered: each post returned costs credit, so refreshes are scheduled by post age and capped by a monthly budget.",
   remedy:
-    "Connect the account with OAuth to additionally unlock reach, impressions and saves, which no public source exposes.",
+    "Reach, impressions and saves are owner-only and no public source exposes them. Ask the client for an Insights screenshot or export and import it under Data.",
 };
 
 /** One post as the actor reports it. Field names follow its output schema. */

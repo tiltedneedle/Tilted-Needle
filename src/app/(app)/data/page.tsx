@@ -4,6 +4,7 @@ import { Stat, StatGrid, SectionHeading } from "@/components/Stat";
 import { Database, RefreshCw, AlertTriangle, Wallet } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { requireSession } from "@/lib/workspace";
+import { PROVIDERS } from "@/lib/providers";
 import { one } from "@/lib/types";
 
 export const metadata = { title: "Data sync" };
@@ -62,7 +63,7 @@ export default async function DataPage() {
     platformSlug: a.platform_slug,
     handle: a.handle,
     clientName: one(a.client)?.name ?? null,
-    mode: a.connection_mode,
+    isMetered: PROVIDERS[a.platform_slug]?.capability.isMetered ?? false,
     syncEnabled: a.sync_enabled,
     lastSyncedAt: a.last_synced_at,
     lastDiscoveredAt: a.last_discovered_at,

@@ -1149,13 +1149,16 @@ export async function deleteInvoice(id: string): Promise<Result> {
   return {};
 }
 
-/* ---- Phase 6: owner-only analytics (manual path) ------------------------ */
+/* ---- Owner-only analytics: the client-supplied path --------------------- */
 
 /**
- * Manual entry for CTR/retention, the always-available path for a client to
- * hand over Studio-export numbers without waiting on OAuth credentials (PRD
- * 4, 11 open question #2). Same table, same downstream scoring, as an OAuth
- * sync would populate.
+ * CTR, retention and impressions, typed in by hand.
+ *
+ * This is no longer a stopgap. Owner-credential flows are retired outright
+ * (PRD-video-intelligence §0), so a client handing over their own Studio
+ * numbers IS the route -- alongside CSV import and screenshot extraction,
+ * which write this same table (§2.1). Everything downstream reads the table,
+ * never the route that filled it.
  */
 export async function recordAnalytics(input: {
   workspaceId: string;

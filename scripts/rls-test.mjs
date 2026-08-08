@@ -334,24 +334,37 @@ async function mkUser(email) {
   const { data: bAnalytics } = await b.client.from("post_analytics").select("*");
   check("tenant B cannot see tenant A's analytics", (bAnalytics?.length ?? 0) === 0);
 
-  const { data: cOauth } = await cc.from("oauth_connections").select("*");
-  check("client cannot see OAuth connection rows", (cOauth?.length ?? 0) === 0);
-
   const { error: cAnalyticsWrite } = await cc.from("post_analytics").insert({
     workspace_id: wsA.id, platform_post_id: post.id, ctr: 0.99, source: "manual",
   });
   check("client cannot write analytics", !!cAnalyticsWrite, cAnalyticsWrite ? "" : "INSERT SUCCEEDED");
 
-  const { error: cVaultRpc } = await cc.rpc("vault_store_refresh_token", {
-    p_secret: "stolen", p_name: "x",
-  });
-  check("client cannot call the vault wrapper", !!cVaultRpc, cVaultRpc ? "" : "RPC SUCCEEDED");
+  // --- OAuth is retired, and the schema must enforce that ----------------
+  // Not "we removed the UI": the table, the Vault wrapper, and the source
+  // value are all gone or constrained, so an OAuth ingest path cannot be
+  // reintroduced by accident (PRD-video-intelligence §0).
+  const { error: oauthTable } = await admin.from("oauth_connections").select("id").limit(1);
+  check("oauth_connections table no longer exists", !!oauthTable,
+    oauthTable ? "" : "TABLE STILL PRESENT");
 
-  const { error: aVaultRpc } = await a.client.rpc("vault_store_refresh_token", {
-    p_secret: "stolen", p_name: "x",
+  const { error: vaultRpc } = await admin.rpc("vault_store_refresh_token", {
+    p_secret: "x", p_name: "x",
   });
-  check("no authenticated user can call the vault wrapper directly",
-    !!aVaultRpc, aVaultRpc ? "" : "RPC SUCCEEDED");
+  check("the vault refresh-token wrapper is gone", !!vaultRpc,
+    vaultRpc ? "" : "FUNCTION STILL CALLABLE");
+
+  const { error: oauthSource } = await admin.from("post_analytics").insert({
+    workspace_id: wsA.id, platform_post_id: post.id, ctr: 0.5, source: "oauth",
+  });
+  check("post_analytics rejects source='oauth'", !!oauthSource,
+    oauthSource ? "" : "INSERT SUCCEEDED");
+
+  const { error: oauthMode } = await admin.from("accounts").insert({
+    workspace_id: wsA.id, platform_slug: "youtube",
+    handle: "oauth-mode-probe", connection_mode: "oauth",
+  });
+  check("accounts rejects connection_mode='oauth'", !!oauthMode,
+    oauthMode ? "" : "INSERT SUCCEEDED");
 
   // --- Phase 7: approvals, time off, groups ------------------------------
   const { data: group, error: groupErr } = await a.client

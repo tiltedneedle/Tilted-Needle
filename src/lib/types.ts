@@ -78,7 +78,8 @@ export type TimeEntry = {
 export type Platform = {
   slug: string;
   display_name: string;
-  auth_model: "none" | "oauth" | "oauth_review";
+  /** Owner-credential flows are retired; 'none' is the only live value. */
+  auth_model: "none";
   supports_public_read: boolean;
   view_semantics: string;
   available_metrics: string[];
@@ -92,8 +93,18 @@ export type Account = {
   client_id: string | null;
   platform_slug: string;
   handle: string;
+  /**
+   * 'manual' | 'api'. Near-vestigial: every account currently reads 'manual',
+   * including the ones syncing nightly, so it must NOT be used to decide
+   * whether an account refreshes itself. Ask the provider instead
+   * (PROVIDERS[slug].capability.canFetchMetrics).
+   */
   connection_mode: string;
   is_archived: boolean;
+  /** Selected by /accounts and /data; optional because lighter queries omit it. */
+  sync_enabled?: boolean;
+  last_synced_at?: string | null;
+  last_sync_error?: string | null;
   client?: Pick<Client, "id" | "name"> | null;
 };
 
