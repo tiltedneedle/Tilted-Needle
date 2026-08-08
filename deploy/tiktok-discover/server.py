@@ -137,10 +137,17 @@ def transcript():
         return jsonify({"error": "Unauthorised."}), 401
 
     video_id = (request.args.get("v") or "").strip()
-    if not video_id:
-        return jsonify({"error": "v query param is required."}), 400
+    url = (request.args.get("url") or "").strip()
+    if not video_id and not url:
+        return jsonify({"error": "v or url query param is required."}), 400
 
-    url = f"https://www.youtube.com/watch?v={video_id}"
+    # `v` stays supported for YouTube ids; `url` covers every other platform,
+    # because TikTok and Instagram have no id shape this service can assume.
+    if not url:
+        url = f"https://www.youtube.com/watch?v={video_id}"
+    if not url.startswith(("http://", "https://")):
+        return jsonify({"error": "url must be absolute."}), 400
+    video_id = video_id or url
     opts = {
         "quiet": True,
         "no_warnings": True,
@@ -149,7 +156,10 @@ def transcript():
         "writeautomaticsub": True,
         # json3 carries per-segment timings; the plain formats do not, and
         # timings are what make a transcript line clickable later.
-        "subtitlesformat": "json3",
+        # json3 for YouTube, vtt for TikTok. Asking for both and picking what
+        # arrives is what makes this endpoint platform-agnostic; a single
+        # format would work on exactly one platform.
+        "subtitlesformat": "json3/vtt/best",
     }
 
     started = time.time()
@@ -184,7 +194,7 @@ def transcript():
     except Exception as e:  # noqa: BLE001
         return jsonify({"error": f"Unexpected error: {e}"}), 500
 
-    segments = _segments_from_json3(raw)
+    segments = _segments_from_json3(raw) or _segments_from_vtt(raw)
     if not segments:
         return jsonify({
             "videoId": video_id, "available": False,
@@ -248,6 +258,76 @@ def _segments_from_json3(raw):
             "text": text,
         })
     return out
+
+
+def _segments_from_vtt(raw):
+    """
+    WebVTT -> the same segment shape json3 produces.
+
+    TikTok serves vtt, YouTube json3, and everything downstream should not have
+    to care which. Cue settings and positioning tags are dropped: this is a
+    transcript, not a rendering.
+    """
+    if "-->" not in raw:
+        return []
+    out = []
+    lines = raw.splitlines()
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        if "-->" in line:
+            start, _, rest = line.partition("-->")
+            end = rest.strip().split(" ")[0]
+            text_lines = []
+            i += 1
+            while i < len(lines) and lines[i].strip() and "-->" not in lines[i]:
+                text_lines.append(lines[i].strip())
+                i += 1
+            # Strip inline karaoke/positioning tags like <00:00:01.000><c>.
+            text = " ".join(text_lines)
+            text = _strip_tags(text)
+            text = " ".join(text.split())
+            if text:
+                s_ms = _vtt_ms(start.strip())
+                e_ms = _vtt_ms(end)
+                out.append({
+                    "startMs": s_ms,
+                    "durMs": max(0, e_ms - s_ms),
+                    "text": text,
+                })
+            continue
+        i += 1
+    return out
+
+
+def _strip_tags(text):
+    out = []
+    depth = 0
+    for ch in text:
+        if ch == "<":
+            depth += 1
+        elif ch == ">":
+            depth = max(0, depth - 1)
+        elif depth == 0:
+            out.append(ch)
+    return "".join(out)
+
+
+def _vtt_ms(stamp):
+    """'00:01:02.500' or '01:02.500' -> milliseconds."""
+    stamp = stamp.strip().replace(",", ".")
+    parts = stamp.split(":")
+    try:
+        parts = [float(p) for p in parts]
+    except ValueError:
+        return 0
+    if len(parts) == 3:
+        secs = parts[0] * 3600 + parts[1] * 60 + parts[2]
+    elif len(parts) == 2:
+        secs = parts[0] * 60 + parts[1]
+    else:
+        secs = parts[0]
+    return int(secs * 1000)
 
 
 def _iso_date(ts):

@@ -53,3 +53,52 @@ Commit identity is automatic — do NOT set `user.name`/`user.email` manually. A
 
 Never run `gh auth login`, never modify stored credentials, and never enter a password or token. If auth genuinely fails after the remote is confirmed correct, stop and report it — do not attempt workarounds.
 <!-- END:git-push-rules -->
+
+<!-- BEGIN:oracle-always-free -->
+# Oracle Cloud: Always Free only. This is a hard rule.
+
+The tenancy `tiltedneedletools` (`ap-singapore-1`) exists to run this project
+at **zero cost, permanently**. Nothing may be provisioned that is not Always
+Free eligible — not temporarily, not "just to test", not "we'll delete it
+after". The whole point of the platform is that the only recurring bill is the
+LLM API.
+
+**The ceilings, which are the whole rule:**
+
+| Resource | Always Free ceiling |
+|---|---|
+| Ampere A1 compute | **4 OCPU and 24 GB RAM in total**, across all A1 instances |
+| AMD compute | 2 × `VM.Standard.E2.1.Micro` (1 OCPU / 1 GB each) |
+| Block storage | 200 GB total, 2 volumes |
+| Outbound transfer | 10 TB / month |
+
+**The trap that makes this easy to get wrong.** The console and the limits API
+report far more than the ceiling — this tenancy shows **41 A1 OCPUs and 277 GB**
+because the 30-day trial quota is still in force. That headroom is not yours.
+Anything above the ceiling is reclaimed or **billed** when the trial converts.
+Never provision to what the quota says; provision to the table above.
+
+**Rules:**
+
+1. Only create shapes the console labels **"Always Free Eligible"**.
+2. Never upgrade to Pay As You Go. Upgrading is what makes ARM capacity
+   reliably available — and what makes an unexpected bill possible.
+3. Never raise the ceiling constants in `deploy/oracle/provision.py`. The
+   script refuses anything above 4 OCPU / 24 GB by design, with exit code 2.
+   That refusal is a feature; do not "fix" it.
+4. Never provision Autonomous Databases, Load Balancers, or anything else
+   "because it is also free" — free tiers change, and the only resources this
+   project needs are one compute instance and its boot volume.
+5. Before and after any provisioning work, run the audit:
+
+```bash
+python deploy/oracle/audit.py
+```
+
+It fails loudly if anything in the tenancy sits outside Always Free.
+
+**Capacity is not a reason to break this.** `ap-singapore-1` has a single
+availability domain and A1 capacity is frequently exhausted. The answer is
+`provision.py --watch`, which waits for capacity — never a paid shape, and
+never a bigger one.
+<!-- END:oracle-always-free -->

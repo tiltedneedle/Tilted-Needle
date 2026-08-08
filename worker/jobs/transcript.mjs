@@ -84,12 +84,17 @@ function pickTrack(tracks) {
  * one. The direct path below stays as a fallback for when the box is not
  * configured.
  */
-async function viaDiscoverBox(externalId, log) {
+async function viaDiscoverBox(externalId, postUrl, log) {
   const base = process.env.TIKTOK_DISCOVER_URL;
   const secret = process.env.TIKTOK_DISCOVER_SECRET;
   if (!base || !secret) return null;
 
-  const url = base.replace(/\/discover\/?$/, "") + `/transcript?v=${encodeURIComponent(externalId)}`;
+  const query = externalId
+    ? `v=${encodeURIComponent(externalId)}`
+    : `url=${encodeURIComponent(postUrl ?? "")}`;
+  if (!externalId && !postUrl) return null;
+
+  const url = base.replace(/\/discover\/?$/, "") + `/transcript?${query}`;
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${secret}` },
     signal: AbortSignal.timeout(90_000),
@@ -121,25 +126,48 @@ async function viaDiscoverBox(externalId, log) {
 export async function transcript({ db, job, log }) {
   const { data: posts, error } = await db
     .from("platform_posts")
-    .select("id, external_id, account:accounts(platform_slug)")
+    .select("id, external_id, url, account:accounts(platform_slug)")
     .eq("content_item_id", job.subject_id)
     .not("external_id", "is", null);
   if (error) throw new Error(`lookup failed: ${error.message}`);
 
-  const youtube = (posts ?? []).filter((p) => {
-    const a = Array.isArray(p.account) ? p.account[0] : p.account;
-    return a?.platform_slug === "youtube";
-  });
-  if (youtube.length === 0) {
-    // No YouTube cut means no transcript source. Terminal and normal: the
-    // content item is still fully usable, it just has no words attached.
-    return { unavailable: true, note: "no youtube post on this content item" };
+  /**
+   * Which platforms can yield a transcript at all, best first. Measured, not
+   * assumed:
+   *   youtube   -- always, via the box (auto-captions on everything checked)
+   *   tiktok    -- often; publishes eng-US vtt, though the extractor is
+   *                intermittent and slower (it solves a JS challenge)
+   *   instagram -- never; no caption track exists on any post sampled
+   *
+   * Ordered so a cross-posted edit is transcribed from its most reliable cut.
+   * One transcript per content item serves every platform's copy anyway,
+   * because the words are a property of the edit, not of where it was posted.
+   */
+  const RANK = { youtube: 0, tiktok: 1 };
+  const candidates = (posts ?? [])
+    .map((p) => ({ ...p, platform: (Array.isArray(p.account) ? p.account[0] : p.account)?.platform_slug }))
+    .filter((p) => p.platform in RANK)
+    .sort((a, b) => RANK[a.platform] - RANK[b.platform]);
+
+  if (candidates.length === 0) {
+    // Instagram-only content. Terminal and normal -- the item is still fully
+    // usable, it simply has no words attached and never will.
+    return {
+      unavailable: true,
+      note: "no platform on this item publishes captions (instagram has none)",
+    };
   }
 
-  const post = youtube[0];
+  const post = candidates[0];
 
-  // 1. The yt-dlp box first, when one is configured.
-  const boxed = await viaDiscoverBox(post.external_id, log);
+  // 1. The yt-dlp box first, when one is configured. YouTube goes by id;
+  //    everything else by URL, since no other platform has an id shape the
+  //    service could reconstruct a link from.
+  const boxed = await viaDiscoverBox(
+    post.platform === "youtube" ? post.external_id : null,
+    post.url,
+    log,
+  );
   if (boxed?.unavailable) return boxed;
   if (boxed) {
     const fullText = boxed.segments.map((s) => s.text).join(" ");
@@ -174,8 +202,21 @@ export async function transcript({ db, job, log }) {
     };
   }
 
-  // 2. Direct fallback. Kept because it costs nothing to try and works if
-  //    YouTube ever relaxes -- but it is expected to return an empty body.
+  // 2. Direct fallback -- YOUTUBE ONLY. It scrapes a watch page and reads
+  //    captionTracks out of the player response, neither of which exists on
+  //    any other platform. Without this guard a TikTok post would be turned
+  //    into a youtube.com/watch?v=<tiktok id> URL and fail as "no captions",
+  //    which is a lie about the video rather than about the route.
+  if (post.platform !== "youtube") {
+    return {
+      unavailable: true,
+      note: `no transcript available for this ${post.platform} post ` +
+        `(the extraction service is unavailable and there is no direct route)`,
+    };
+  }
+
+  //    Kept because it costs nothing to try and works if YouTube ever
+  //    relaxes -- but it is expected to return an empty body.
   const watch = await fetch(`https://www.youtube.com/watch?v=${post.external_id}`, {
     headers: { "User-Agent": UA, "Accept-Language": "en-US,en;q=0.9" },
   });
