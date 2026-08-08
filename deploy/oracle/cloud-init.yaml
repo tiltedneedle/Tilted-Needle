@@ -1,0 +1,88 @@
+#cloud-config
+# Host setup for the Tilted Needle ingest worker
+# (PRD-video-intelligence §15.3).
+#
+# The instance is cattle: everything here is reproducible from this file plus
+# provision.py, and all state lives in Supabase. If Oracle reclaims the box,
+# recovery is re-running the script -- not restoring anything.
+#
+# Note what is NOT here: no web server, no reverse proxy, no certificates, no
+# open ports. The worker polls outward and serves nothing (§4.2).
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - unattended-upgrades
+  - curl
+  - ca-certificates
+  - git
+
+write_files:
+  # Unattended security patches. The box runs unwatched for weeks at a time.
+  - path: /etc/apt/apt.conf.d/20auto-upgrades
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+
+  - path: /etc/systemd/system/tn-worker.service
+    content: |
+      [Unit]
+      Description=Tilted Needle ingest worker
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=simple
+      User=worker
+      WorkingDirectory=/opt/tn-worker
+      # Secrets are injected at deploy time, root-owned and 0600. They exist
+      # nowhere else: not in the repo, not in Vercel's environment, not in any
+      # client bundle (§4.7).
+      EnvironmentFile=/etc/tn-worker.env
+      ExecStart=/usr/bin/node /opt/tn-worker/worker/index.mjs
+      # A crash must not take the pipeline down until someone notices.
+      Restart=always
+      RestartSec=10
+      # journald with a cap: a chatty loop must never fill the boot volume.
+      StandardOutput=journal
+      StandardError=journal
+      SyslogIdentifier=tn-worker
+
+      [Install]
+      WantedBy=multi-user.target
+
+  - path: /etc/systemd/journald.conf.d/tn-worker.conf
+    content: |
+      [Journal]
+      SystemMaxUse=200M
+      MaxRetentionSec=2week
+
+runcmd:
+  # A dedicated non-root user owns the service. The worker needs no privilege
+  # beyond outbound network access.
+  - useradd --system --create-home --shell /usr/sbin/nologin worker || true
+
+  # Node 22 LTS from NodeSource; the ARM and x86 builds are both published, so
+  # this line is identical whichever shape capacity allowed (§14.4).
+  - curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+  - apt-get install -y nodejs
+
+  # 2 GB swap. Insurance rather than necessity at 24 GB, and genuinely load
+  # bearing if this ever lands on the 1 GB micro fallback.
+  - fallocate -l 2G /swapfile
+  - chmod 600 /swapfile
+  - mkswap /swapfile
+  - swapon /swapfile
+  - sh -c 'echo "/swapfile none swap sw 0 0" >> /etc/fstab'
+
+  - mkdir -p /opt/tn-worker
+  - chown -R worker:worker /opt/tn-worker
+
+  - systemctl daemon-reload
+  - systemctl restart systemd-journald
+  # Enabled but not started: the code and the secrets arrive by deploy, and a
+  # service that starts before either would just crash-loop on boot.
+  - systemctl enable tn-worker.service
+
+final_message: "tn-worker host ready after $UPTIME seconds. Deploy code to /opt/tn-worker, write /etc/tn-worker.env, then: systemctl start tn-worker"
