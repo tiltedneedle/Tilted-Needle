@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { updateSyncWindow } from "@/app/actions";
 import { useRouter } from "next/navigation";
 import { RefreshCw } from "lucide-react";
 import { syncNow } from "@/app/actions";
@@ -20,6 +21,8 @@ export type PanelAccount = {
    */
   isMetered: boolean;
   syncEnabled: boolean;
+  /** How far back discovery reaches for this account, in days. Null = all. */
+  syncWindowDays: number | null;
   lastSyncedAt: string | null;
   lastDiscoveredAt: string | null;
   lastError: string | null;
@@ -186,6 +189,10 @@ export default function DataPanel({
                               <span className="flex items-center gap-2">
                                 <span className="font-medium">@{a.handle.replace(/^@/, "")}</span>
                                 {!a.syncEnabled && <span className="pill pill-neutral">sync off</span>}
+                                <SyncWindowControl
+                                  accountId={a.id}
+                                  windowDays={a.syncWindowDays}
+                                />
                               </span>
                               {a.lastError && (
                                 <div
@@ -233,5 +240,65 @@ export default function DataPanel({
         })}
       </div>
     </>
+  );
+}
+
+
+/**
+ * How far back discovery reaches for one account.
+ *
+ * A short window is the difference between a nightly sync that costs three
+ * metered calls and one that walks a client's entire back catalogue every
+ * time. The control was written months ago, validation and all, and simply
+ * never rendered -- so the default was the only value anyone could ever have.
+ *
+ * "All time" is offered but deliberately not the default: on a metered
+ * platform it is the expensive answer, and it should be chosen rather than
+ * inherited.
+ */
+function SyncWindowControl({
+  accountId,
+  windowDays,
+}: {
+  accountId: string;
+  windowDays: number | null;
+}) {
+  const router = useRouter();
+  const toast = useToast();
+  const [, startTransition] = useTransition();
+  const [value, setValue] = useState(windowDays == null ? "all" : String(windowDays));
+  const [busy, setBusy] = useState(false);
+
+  return (
+    <select
+      className="cursor-pointer rounded bg-transparent text-xs text-[var(--muted)] transition-colors hover:text-[var(--fg)] focus:outline-none disabled:opacity-50"
+      value={value}
+      disabled={busy}
+      title="How far back discovery looks for this account"
+      aria-label={`Import window for this account`}
+      onChange={async (e) => {
+        const next = e.target.value;
+        setValue(next);
+        setBusy(true);
+        try {
+          const res = await updateSyncWindow(accountId, next === "all" ? null : Number(next));
+          if (res.error) {
+            toast("danger", res.error);
+            setValue(windowDays == null ? "all" : String(windowDays));
+            return;
+          }
+          toast("success", res.summary ?? "Import window updated.");
+          startTransition(() => router.refresh());
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <option value="7">7d window</option>
+      <option value="30">30d window</option>
+      <option value="90">90d window</option>
+      <option value="365">1y window</option>
+      <option value="all">all time</option>
+    </select>
   );
 }

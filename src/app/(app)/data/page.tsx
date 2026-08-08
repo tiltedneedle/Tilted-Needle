@@ -29,7 +29,7 @@ export default async function DataPage() {
     supabase
       .from("accounts")
       .select(
-        "id, platform_slug, handle, connection_mode, sync_enabled, last_synced_at, last_sync_error, last_discovered_at, client:clients(name)",
+        "id, platform_slug, handle, connection_mode, sync_enabled, sync_window_days, last_synced_at, last_sync_error, last_discovered_at, client:clients(name)",
       )
       .eq("workspace_id", ws)
       .eq("is_archived", false)
@@ -56,6 +56,7 @@ export default async function DataPage() {
     handle: string;
     connection_mode: string;
     sync_enabled: boolean;
+    sync_window_days: number | null;
     last_synced_at: string | null;
     last_sync_error: string | null;
     last_discovered_at: string | null;
@@ -68,6 +69,7 @@ export default async function DataPage() {
     clientName: one(a.client)?.name ?? null,
     isMetered: PROVIDERS[a.platform_slug]?.capability.isMetered ?? false,
     syncEnabled: a.sync_enabled,
+    syncWindowDays: a.sync_window_days,
     lastSyncedAt: a.last_synced_at,
     lastDiscoveredAt: a.last_discovered_at,
     lastError: a.last_sync_error,
