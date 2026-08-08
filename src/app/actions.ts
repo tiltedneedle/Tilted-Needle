@@ -2385,3 +2385,55 @@ export async function commitStudioImport(
   revalidatePath("/data");
   return { imported: rows.length };
 }
+
+/**
+ * Paste a transcript by hand.
+ *
+ * Not a fallback any more. YouTube's timedtext endpoint returns an empty body
+ * to plain server requests (proof-of-origin refusal, verified against this
+ * library), so for now this is the working route into the corpus -- and a
+ * pasted transcript feeds search, corpus analysis and briefs identically to a
+ * fetched one. Everything downstream reads video_transcripts, never the route
+ * that filled it.
+ */
+export async function saveTranscript(input: {
+  workspaceId: string;
+  contentItemId: string;
+  text: string;
+}): Promise<Result> {
+  const supabase = await createClient();
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth?.user) return { error: "Not signed in." };
+
+  const text = input.text.trim();
+  if (text.length < 20) return { error: "That is too short to be a transcript." };
+
+  // A pasted transcript has no timings. Storing an empty segment list is
+  // honest -- the lines cannot be made clickable, and inventing evenly spaced
+  // timestamps would put fabricated positions on a chart later.
+  const { error } = await supabase.from("video_transcripts").upsert(
+    {
+      workspace_id: input.workspaceId,
+      content_item_id: input.contentItemId,
+      source: "manual",
+      full_text: text,
+      segments: [],
+      is_generated: false,
+      fetched_at: new Date().toISOString(),
+    },
+    { onConflict: "content_item_id" },
+  );
+  if (error) return { error: error.message };
+
+  await logAudit(supabase, {
+    workspaceId: input.workspaceId,
+    actorId: auth.user.id,
+    action: "transcript.paste",
+    entityType: "content_items",
+    entityId: input.contentItemId,
+    detail: { chars: text.length },
+  });
+
+  revalidatePath("/content");
+  return {};
+}

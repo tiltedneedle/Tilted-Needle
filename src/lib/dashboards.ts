@@ -380,6 +380,24 @@ export async function loadContentOverview(
   }
 
 
+  // Content items whose transcript matches the search, resolved in one query
+  // and only when there is something to search for -- a blank box must not
+  // cost a full-text scan on every page load.
+  const transcriptMatches = new Set<string>();
+  if (filters.q?.trim()) {
+    const { data: hits } = await supabase
+      .from("video_transcripts")
+      .select("content_item_id")
+      .eq("workspace_id", ws)
+      .textSearch("search_vector", filters.q.trim(), {
+        type: "websearch",
+        config: "english",
+      });
+    for (const h of (hits ?? []) as { content_item_id: string }[]) {
+      transcriptMatches.add(h.content_item_id);
+    }
+  }
+
   const bestIndexByItem = new Map<string, number>();
   for (const [contentId, scored] of rankings.scoredByContent) {
     const relevant = filters.platform
@@ -462,7 +480,14 @@ export async function loadContentOverview(
 
   if (filters.q?.trim()) {
     const needle = filters.q.trim().toLowerCase();
-    videos = videos.filter((v) => v.title.toLowerCase().includes(needle));
+    // Title OR transcript. One search box answers both "what was this called"
+    // and "which video mentions LASIK aftercare" -- the second being the
+    // question a library of transcripts exists to answer (PRD §5.11a). The
+    // transcript half is a Postgres full-text match, so it stems and ignores
+    // stop words rather than demanding the exact substring.
+    videos = videos.filter(
+      (v) => v.title.toLowerCase().includes(needle) || transcriptMatches.has(v.id),
+    );
   }
 
   const clientRows = (clientsRes.data ?? []) as {
