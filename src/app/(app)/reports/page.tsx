@@ -221,6 +221,31 @@ async function InsightsReport() {
   const rankings = await cachedRankings(ws);
   const overview = await loadContentOverview(supabase, ws, rankings, {});
 
+  // The opening seconds of each transcript, which is what hook analysis reads.
+  // Sliced from the TIMED SEGMENTS rather than the flat text: "the first 15
+  // seconds" is a claim about time, and only the segments know when a line was
+  // spoken. Videos with no transcript map to null and are excluded from the
+  // hook splits entirely -- unobserved is not the same as "did not do it".
+  const { data: transcripts } = await supabase
+    .from("video_transcripts")
+    .select("content_item_id, segments")
+    .eq("workspace_id", ws);
+  const HOOK_MS = 15_000;
+  type TranscriptRow = {
+    content_item_id: string;
+    segments: { start_ms: number; text: string }[] | null;
+  };
+  const hookBy = new Map(
+    ((transcripts ?? []) as TranscriptRow[]).map((t) => [
+      t.content_item_id,
+      (t.segments ?? [])
+        .filter((sg) => (sg.start_ms ?? 0) < HOOK_MS)
+        .map((sg) => sg.text)
+        .join(" ")
+        .trim(),
+    ]),
+  );
+
   // Publish instants live on the posts; P2 began capturing them because the
   // date-only column can never answer a timing question.
   const { data: stamps } = await supabase
@@ -246,6 +271,7 @@ async function InsightsReport() {
       bestIndex: v.bestIndex,
       lengthSeconds: v.lengthSeconds,
       postedAtTs: tsBy.get(v.id) ?? null,
+      hookText: hookBy.get(v.id) ?? null,
       platforms: v.platforms.map((p) => ({ platform: p.platform, views: p.views })),
     });
   }

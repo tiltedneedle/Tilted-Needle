@@ -181,5 +181,51 @@ const v = (over = {}) => ({
   check("and shows the best single post beside it", p.includes("best single post"));
 }
 
+/* ---- Hook analysis: only videos we can actually hear ------------------- */
+// The payoff of gathering transcripts at all. The trap is treating a video
+// with NO transcript as one that "did not ask a question" -- that is
+// unobserved, not negative, and counting it would invent a finding out of
+// missing data.
+{
+  const withHook = (text, idx) => v({ hookText: text, bestIndex: idx });
+
+  const mixed = [
+    ...Array.from({ length: 4 }, () => withHook("What if I told you this changes everything", 3)),
+    ...Array.from({ length: 4 }, () => withHook("Welcome back to the channel guys", 1)),
+    // No transcript, and a wildly different score: must not land on either
+    // side of a hook split.
+    ...Array.from({ length: 20 }, () => v({ hookText: null, bestIndex: 9 })),
+  ];
+  const e = buildClientEvidence("acme", mixed);
+
+  const q = e.splits.find((s) => s.label.includes("asks a question"));
+  check("videos without a transcript are excluded from hook splits",
+    q && q.withN === 4 && q.withoutN === 4, `n=${q?.withN}/${q?.withoutN} out of 28 videos`);
+  check("and their scores do not leak into the hook medians",
+    q.withMedian === 3 && q.withoutMedian === 1,
+    `${q?.withMedian} vs ${q?.withoutMedian}; the 20 excluded sit at 9`);
+
+  const greet = e.splits.find((s) => s.label.includes("channel greeting"));
+  check("a channel-greeting opening is detected", greet?.withN === 4);
+  check("and reads as the weaker opening here", greet?.ratio < 1, `ratio ${greet?.ratio}`);
+
+  // Question marks are unreliable in ASR output, so the wording must match too.
+  const noMark = buildClientEvidence("acme", [
+    ...Array.from({ length: 4 }, () => withHook("why does nobody talk about this", 2)),
+    ...Array.from({ length: 4 }, () => withHook("today we visited the factory", 1)),
+  ]);
+  check("a spoken question with no question mark still counts",
+    noMark.splits.find((s) => s.label.includes("asks a question"))?.withN === 4);
+}
+
+/* ---- Nothing to hear yet ------------------------------------------------ */
+{
+  const none = buildClientEvidence("acme", Array.from({ length: 10 }, () => v({ hookText: null })));
+  check("with no transcripts, no opening split is reported",
+    !none.splits.some((s) => s.label.includes("Opening")));
+  check("and the gap is stated rather than left silent",
+    none.notes.some((n) => n.includes("No transcripts yet")));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

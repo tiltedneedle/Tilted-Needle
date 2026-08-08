@@ -29,6 +29,13 @@ export type EvidenceVideo = {
   lengthSeconds: number | null;
   /** Full publish instant, when captured. Date-only loses the hour. */
   postedAtTs: string | null;
+  /**
+   * What is actually said in the opening seconds, from the transcript.
+   * Null when no transcript exists -- and null must never be read as "said
+   * nothing", so every hook split drops these videos rather than counting
+   * them on the negative side.
+   */
+  hookText?: string | null;
   platforms: { platform: string; views: number }[];
 };
 
@@ -80,6 +87,45 @@ export type ClientEvidence = {
   lengthHint: { topMedian: number; restMedian: number; n: number } | null;
   notes: string[];
 };
+
+/** Question marks are unreliable in ASR output, so match the words too. */
+const QUESTION_OPEN = /(^|\s)(what|why|how|who|when|where|which|do you|did you|have you|ever)\b/i;
+/** "Welcome back to the channel" -- the classic slow open. */
+const GREETING_OPEN = /(welcome back|hey guys|what's up guys|hi everyone|welcome to (my|the) channel)/i;
+/** Speaking to the viewer rather than about the subject. */
+const DIRECT_ADDRESS = /\b(you|your|you're|yours)\b/i;
+
+function words(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+/**
+ * Splits over the opening seconds. Each needs both sides populated (splitBy
+ * enforces that), so a client whose videos all open the same way simply
+ * reports nothing rather than a ratio of one group against nobody.
+ */
+function hookSplits(withHook: EvidenceVideo[]): (Split | null)[] {
+  if (withHook.length < MIN_PER_SIDE * 2) return [];
+
+  const paces = withHook.map((v) => words(v.hookText ?? ""));
+  const medianPace = paces.length ? median(paces) : 0;
+
+  return [
+    splitBy(withHook, "Opening asks a question", (v) =>
+      (v.hookText ?? "").includes("?") || QUESTION_OPEN.test(v.hookText ?? "")),
+    splitBy(withHook, "Opening is a channel greeting", (v) =>
+      GREETING_OPEN.test(v.hookText ?? "")),
+    splitBy(withHook, "Opening speaks to the viewer directly", (v) =>
+      DIRECT_ADDRESS.test(v.hookText ?? "")),
+    medianPace > 0
+      ? splitBy(
+          withHook,
+          `Faster opening (over ${Math.round(medianPace)} words in 15s)`,
+          (v) => words(v.hookText ?? "") > medianPace,
+        )
+      : null,
+  ];
+}
 
 function median(xs: number[]): number {
   const s = [...xs].sort((a, b) => a - b);
@@ -185,6 +231,15 @@ export function buildClientEvidence(
         )
       : null,
 
+    // What the opening actually SAYS. This is the payoff of gathering
+    // transcripts at all: the hook is the one thing a team can change before
+    // the next shoot, and until now nothing in the system could see it.
+    //
+    // Only videos WITH a transcript take part. A video with no transcript has
+    // not "failed to ask a question" -- it is unobserved, and letting it sit
+    // on the negative side of a split would quietly invent a finding.
+    ...hookSplits(scored.filter((v) => (v.hookText ?? "").trim().length > 0)),
+
     // Timing. Needs posted_at_ts, which P2 started capturing -- the date-only
     // column cannot answer this and never could.
     splitBy(
@@ -198,6 +253,16 @@ export function buildClientEvidence(
       (v) => dubaiHour(v.postedAtTs!) < 12,
     ),
   ].filter((s): s is Split => s !== null);
+
+  const hooked = scored.filter((v) => (v.hookText ?? "").trim().length > 0).length;
+  if (hooked === 0) {
+    notes.push("No transcripts yet, so nothing can be said about openings.");
+  } else if (hooked < MIN_PER_SIDE * 2) {
+    notes.push(
+      `Opening patterns need transcripts; only ${hooked} of ${scored.length} scored ` +
+        `videos have one so far.`,
+    );
+  }
 
   const timed = scored.filter((v) => v.postedAtTs).length;
   if (timed < MIN_PER_SIDE * 2) {
