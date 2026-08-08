@@ -25,6 +25,10 @@ export async function loadPipelineStatus(db: Db, ws: string): Promise<PipelineSt
     db.from("post_analytics").select("platform_post_id").eq("workspace_id", ws),
   ]);
 
+  // Only workers seen in the last day are worth showing. Anything older is
+  // archaeology, and listing it buries the one signal this panel exists for:
+  // whether a worker that SHOULD be running has gone quiet.
+  const RECENT_S = 86_400;
   const workers = ((hb.data ?? []) as {
     worker_id: string; last_seen_at: string; detail: Record<string, unknown>;
   }[])
@@ -33,6 +37,7 @@ export async function loadPipelineStatus(db: Db, ws: string): Promise<PipelineSt
       secondsAgo: Math.max(0, (now - new Date(w.last_seen_at).getTime()) / 1000),
       detail: w.detail ?? {},
     }))
+    .filter((w) => w.secondsAgo <= RECENT_S)
     .sort((a, b) => a.secondsAgo - b.secondsAgo);
 
   const byKind = new Map<string, PipelineStatus["queue"][number]>();

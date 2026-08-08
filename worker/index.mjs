@@ -13,6 +13,7 @@
  *       node worker/index.mjs --once     (drain what is ready, then exit)
  */
 import { createClient } from "@supabase/supabase-js";
+import { hostname } from "node:os";
 import { handlers } from "./jobs/index.mjs";
 
 const ONCE = process.argv.includes("--once");
@@ -29,7 +30,19 @@ if (!SUPABASE_URL || !SERVICE_KEY) {
 
 const db = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
-const WORKER_ID = process.env.WORKER_ID ?? `worker-${process.pid}`;
+/**
+ * Stable per HOST, not per process.
+ *
+ * This was `worker-${process.pid}` and it was wrong in a way only visible on
+ * the health panel: every restart minted a new identity and left the old row
+ * behind forever, struck through as "silent". With systemd's Restart=always
+ * that is one dead ghost per crash, accumulating until the panel is unreadable
+ * and a genuinely dead worker is impossible to spot among the corpses.
+ *
+ * One row per host means a restart reuses its own row and the timestamp simply
+ * refreshes.
+ */
+const WORKER_ID = process.env.WORKER_ID ?? `worker-${hostname()}`;
 const POLL_MS = Number(process.env.POLL_MS ?? 30_000);
 const BATCH = Number(process.env.BATCH ?? 5);
 const LEASE_TIMEOUT = process.env.LEASE_TIMEOUT ?? "15 minutes";
@@ -141,6 +154,16 @@ async function finish(job, status, note) {
   }).eq("id", job.id);
 }
 
+/**
+ * Drop heartbeats nobody will ever look at again. A worker silent for a week
+ * is not a worker, and leaving the row makes real outages harder to see.
+ */
+async function pruneDeadWorkers() {
+  const cutoff = new Date(Date.now() - 7 * 86_400_000).toISOString();
+  const { error } = await db.from("worker_heartbeat").delete().lt("last_seen_at", cutoff);
+  if (error) log("warn", "prune_failed", { error: error.message });
+}
+
 async function heartbeat() {
   const { count: pending } = await db
     .from("ingest_jobs").select("id", { count: "exact", head: true }).eq("status", "pending");
@@ -197,6 +220,7 @@ for (const sig of ["SIGINT", "SIGTERM"]) {
 }
 
 log("info", "worker_started", { once: ONCE, pollMs: POLL_MS, batch: BATCH, handlers: Object.keys(handlers) });
+await pruneDeadWorkers();
 
 if (ONCE) {
   let total = 0, n;
