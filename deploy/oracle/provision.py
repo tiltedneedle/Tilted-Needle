@@ -18,6 +18,8 @@ effect; anything above 4 OCPU / 24 GB gets reclaimed or billed when the trial
 converts (§14.5). This script refuses to exceed it.
 """
 import argparse
+import random
+import time
 import sys
 
 import oci
@@ -44,7 +46,54 @@ def main() -> int:
     ap.add_argument("--ssh-key", required=False, help="path to the PUBLIC key to authorise")
     ap.add_argument("--ocpus", type=int, default=MAX_A1_OCPUS)
     ap.add_argument("--memory", type=int, default=MAX_A1_MEMORY_GB)
+    ap.add_argument(
+        "--watch",
+        action="store_true",
+        help="keep trying until capacity appears, then launch and exit",
+    )
+    ap.add_argument(
+        "--watch-hours", type=float, default=24.0,
+        help="give up after this long (default 24)",
+    )
     args = ap.parse_args()
+
+    # Capacity in a single-AD region comes and goes without warning, and the
+    # only way to catch it is to be asking when it does. Watch mode turns
+    # "check back later" -- which is a person's job -- into the script's job.
+    #
+    # Paced deliberately: Oracle rate-limits repeated launch attempts (it
+    # answered "Too many requests" after a handful of manual retries), and a
+    # tight loop would get the account throttled rather than served. Jittered
+    # so several waiting scripts never sync up.
+    if args.watch:
+        deadline = time.time() + args.watch_hours * 3600
+        attempt = 0
+        while time.time() < deadline:
+            attempt += 1
+            log(f"--- attempt {attempt} ---")
+            try:
+                if launch_once(args) == 0:
+                    return 0
+            except Exception as e:  # noqa: BLE001 -- a transient API error must not end the watch
+                log(f"attempt failed: {type(e).__name__}: {str(e)[:120]}")
+            # 5-15 minutes. Capacity that appears is usually taken in seconds,
+            # so this is a lottery ticket, not a guarantee -- but an unattended
+            # ticket bought every ten minutes for a day beats a person
+            # remembering to check.
+            wait = 300 + random.random() * 600
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                break
+            log(f"no capacity; next attempt in {wait / 60:.1f} min "
+                f"({remaining / 3600:.1f}h left in the watch)")
+            time.sleep(min(wait, remaining))
+        log("watch window expired without capacity")
+        return 1
+
+    return launch_once(args)
+
+
+def launch_once(args) -> int:
 
     if args.ocpus > MAX_A1_OCPUS or args.memory > MAX_A1_MEMORY_GB:
         print(
