@@ -1,6 +1,8 @@
 import PageHeader from "@/components/PageHeader";
 import DataPanel, { type PanelAccount } from "@/components/DataPanel";
 import AnalyticsImport from "@/components/AnalyticsImport";
+import PipelineHealth from "@/components/PipelineHealth";
+import { loadPipelineStatus } from "@/lib/pipelineStatus";
 import { Stat, StatGrid, SectionHeading } from "@/components/Stat";
 import { Database, RefreshCw, AlertTriangle, Wallet } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
@@ -168,6 +170,8 @@ export default async function DataPage() {
           }
         />
       </StatGrid>
+
+      <PipelineHealth status={await loadPipelineStatus(supabase, ws)} />
 
       {/* Owner-only figures arrive here, by export rather than by credential
           (PRD-video-intelligence §2). Placed above the platform panel because
