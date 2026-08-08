@@ -191,8 +191,19 @@ defensible. "This is where you lost them" is banned from the UI copy and from
 every prompt. Where a client export exists (Tier 3), that is the real retention
 and is labelled as such; the two are never plotted together or compared.
 
-**3.4 — Replay data is often absent.** YouTube publishes heat markers only above
-a view threshold. Absence is the normal case and is designed for.
+**3.4 — Replay data is absent ENTIRELY for this library. Measured, not
+assumed.** The original claim was that YouTube publishes heat markers above a
+view threshold, so absence would be common but not universal. Checking all 11
+YouTube videos found **zero** with published replay data — including four
+between 160,000 and 192,000 views. Whatever the threshold is, this client's
+library does not meet it, and view count is plainly not the only condition.
+
+**Consequence: the attention map (§5.12) has no data source and is retired.**
+Building its fetcher and chart would ship a panel that renders an empty state
+forever, and spend blockable requests discovering that on a schedule. If a
+future video does publish markers, the `replay` job kind and
+`video_replay_map` table are already in place; the fetcher is a day's work at
+that point. Nothing is lost by waiting for a reason to build it.
 
 **3.5 — The x-axis is percent of video**, ~100 buckets across the duration
 regardless of length — which is what makes videos of different lengths
@@ -437,7 +448,15 @@ YouTube cut's transcript describes the TikTok and Instagram posts of the same
 edit, and transcript-driven analysis covers all three platforms wherever a
 YouTube version exists.
 
-#### 5.12 The attention map, and what to cut next
+#### 5.12 The attention map — RETIRED, no data source (see §3.4)
+
+*Kept in this document as a record of why, not as a plan. Zero of 11 videos
+publish the replay markers this depends on. The short-form repurposing idea
+below was its most valuable output and is worth revisiting if that ever
+changes — the highest-replay window of a long video really is the best
+available candidate for a Short.*
+
+#### 5.12 (original) The attention map, and what to cut next
 
 **Question:** *Which moments did the audience replay — and which 30 seconds is
 our next Short?*
@@ -827,8 +846,11 @@ fragile.
 file fails with a row-level message rather than a stack trace, and re-importing
 the same file changes nothing.
 
-**P6 — Replay map.** Fetcher at 28-day maturity, the attention chart, tinted
-transcript strip, peak detection, cross-highlighting, empty states.
+**P6 — Replay map. NOT BUILT, and deliberately so.** Zero of 11 YouTube videos
+publish replay markers (§3.4), including several near 190k views, so this
+stage would ship a permanently empty panel and spend blockable requests
+proving it. The table and job kind exist; revisit only if a video ever
+publishes markers.
 *Accepts when:* a video with no replay data renders the explanatory empty state,
 and no UI string or prompt contains "retention" on a replay-sourced panel (§7.6).
 
