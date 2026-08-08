@@ -69,6 +69,22 @@ export type DiscoveredPost = {
    * genuinely metadata-only (YouTube's playlist listing carries no stats).
    */
   metrics?: { views: number | null; likes: number | null; comments: number | null };
+  /**
+   * Enrichment a provider can supply for free, because the call it already
+   * makes carries these fields. All optional: a provider that cannot see a
+   * given field must leave it undefined rather than guess, since `false` and
+   * "unknown" mean very different things to the transcript queue.
+   */
+  enrichment?: {
+    /** Does the platform say a caption track exists? Undefined = unknown. */
+    hasCaptions?: boolean;
+    /** Full publication instant. `postedAt` keeps the date-only form. */
+    postedAtTs?: string | null;
+    /** Description or caption body — free corpus text. */
+    description?: string | null;
+    /** Platform-assigned topic labels, already reduced to bare names. */
+    topicLabels?: string[];
+  };
 };
 
 /** A metrics reading for one post at one moment. */

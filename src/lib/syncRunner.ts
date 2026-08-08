@@ -11,7 +11,7 @@
  * safety net, so every query below is explicitly scoped by workspace_id.
  */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { providerFor } from "@/lib/providers";
+import { providerFor, type DiscoveredPost } from "@/lib/providers";
 import { fetchVideoDetails } from "@/lib/providers/youtube";
 import {
   claim,
@@ -135,7 +135,7 @@ export async function syncAccount(
   //    discovery failure is recorded and carried forward rather than
   //    returned early: the free, always-working metrics refresh in step 4
   //    must not go dark just because a discovery helper is unreachable.
-  let discoveredPosts: { externalId: string; title: string; url: string; postedAt: string | null }[] = [];
+  let discoveredPosts: DiscoveredPost[] = [];
   let discoveryError: string | null = null;
 
   if (provider.capability.canDiscover) {
@@ -181,6 +181,11 @@ export async function syncAccount(
     );
 
     for (const post of unseen) {
+      // Enrichment the discovery response already carried (PRD §3.2). All of
+      // it is optional: a provider that cannot see a field leaves it
+      // undefined, and undefined must stay NULL rather than become a value.
+      const e = post.enrichment;
+
       const { data: item, error: itemErr } = await db
         .from("content_items")
         .insert({
@@ -189,6 +194,8 @@ export async function syncAccount(
           title: post.title,
           produced_at: post.postedAt,
           length_seconds: lengthById.get(post.externalId) ?? null,
+          description: e?.description ?? null,
+          topic_labels: e?.topicLabels?.length ? e.topicLabels : null,
           notes: `Discovered automatically from ${account.platform_slug} @${account.handle}.`,
         })
         .select("id")
@@ -204,6 +211,10 @@ export async function syncAccount(
           external_id: post.externalId,
           url: post.url,
           posted_at: post.postedAt,
+          // The full instant, before posted_at's date cast throws the hour
+          // away for good. Nothing can recover this after the fact.
+          posted_at_ts: e?.postedAtTs ?? null,
+          has_captions: e?.hasCaptions ?? null,
           source: "api",
         })
         .select("id, external_id, content_item_id")

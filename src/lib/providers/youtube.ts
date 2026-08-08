@@ -186,11 +186,28 @@ type PlaylistItemsResponse = {
 type VideosResponse = {
   items?: {
     id: string;
-    snippet?: { title?: string; publishedAt?: string };
-    contentDetails?: { duration?: string };
+    snippet?: { title?: string; publishedAt?: string; description?: string };
+    /** `caption` is the string "true"/"false", not a boolean. */
+    contentDetails?: { duration?: string; caption?: string };
+    /** Wikipedia URLs, e.g. ".../wiki/Lifestyle_(sociology)". */
+    topicDetails?: { topicCategories?: string[] };
     statistics?: { viewCount?: string; likeCount?: string; commentCount?: string };
   }[];
 };
+
+/**
+ * YouTube reports topics as Wikipedia URLs. The last path segment is the
+ * usable label; underscores become spaces and any parenthetical disambiguator
+ * is dropped, so ".../wiki/Lifestyle_(sociology)" reads as "Lifestyle".
+ */
+function topicNames(urls: string[] | undefined): string[] {
+  if (!urls?.length) return [];
+  const names = urls
+    .map((u) => u.split("/").pop() ?? "")
+    .map((s) => decodeURIComponent(s).replace(/_\([^)]*\)$/, "").replace(/_/g, " ").trim())
+    .filter(Boolean);
+  return [...new Set(names)].sort();
+}
 
 /** Turns channels.list items into candidates the picker can render. */
 function toCandidates(
@@ -364,19 +381,39 @@ export const youtubeProvider: PublicProvider = {
     // Durations for everything found (1 quota unit per 50 videos): the
     // Shorts filter needs them, and discovered rows gain real lengths as a
     // side effect instead of the null playlistItems leaves behind.
+    //
+    // The same call carries snippet and topicDetails at NO extra quota --
+    // videos.list costs one unit however many parts it is asked for -- so
+    // everything in DiscoveredPost.enrichment rides along for free. The
+    // caption flag matters most: it is what stops the transcript queue from
+    // ever spending a blockable request on a video that has no captions.
     for (let i = 0; i < found.length; i += 50) {
       const batch = found.slice(i, i + 50);
       const det = await call<VideosResponse>("videos", {
-        part: "contentDetails",
+        part: "contentDetails,snippet,topicDetails",
         id: batch.map((p) => p.externalId).join(","),
       });
       if (det.ok) {
-        const byId = new Map(
-          (det.data.items ?? []).map((v) => [v.id, v.contentDetails?.duration]),
-        );
+        const byId = new Map((det.data.items ?? []).map((v) => [v.id, v]));
         for (const p of batch) {
-          const iso = byId.get(p.externalId);
-          p.lengthSeconds = iso ? parseIsoDuration(iso) : null;
+          const v = byId.get(p.externalId);
+          p.lengthSeconds = v?.contentDetails?.duration
+            ? parseIsoDuration(v.contentDetails.duration)
+            : null;
+          p.enrichment = {
+            // The API returns the string "true"/"false", not a boolean.
+            // Anything else (absent field, unexpected value) stays undefined
+            // so it reads as "unknown" rather than "definitely none".
+            hasCaptions:
+              v?.contentDetails?.caption === "true"
+                ? true
+                : v?.contentDetails?.caption === "false"
+                  ? false
+                  : undefined,
+            postedAtTs: v?.snippet?.publishedAt ?? null,
+            description: v?.snippet?.description ?? null,
+            topicLabels: topicNames(v?.topicDetails?.topicCategories),
+          };
         }
       }
     }

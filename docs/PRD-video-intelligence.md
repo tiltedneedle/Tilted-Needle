@@ -155,9 +155,19 @@ daily quota.
 **3.2 — Free enrichment we are not currently collecting.** All from calls the
 sync already makes:
 
-- **`contentDetails.caption`** — a boolean saying whether the video has captions
-  *at all*. Checking it before queueing a transcript fetch avoids a wasted
-  fragile request on every caption-less video. Directly reduces block exposure.
+- **`contentDetails.caption`** — ~~a pre-check that avoids a wasted fragile
+  request on every caption-less video~~. **Disproved in P2, and the correction
+  matters.** All 11 YouTube videos in the library report `caption: "false"`,
+  yet the first one probed carries a full auto-generated English track. The
+  field counts *manually uploaded* tracks only; ASR captions are not reflected
+  in it. Gating the queue on it would have skipped every video in the
+  workspace and left the corpus permanently empty — while every test passed,
+  because the flag was being stored faithfully.
+  It is still worth collecting, with a different job: `true` means a
+  human-written transcript, `false` means machine-generated. That is a
+  **quality** signal — ASR mangles names, brands and accents, which is exactly
+  the vocabulary a marketing corpus gets searched for — but it is **not** an
+  availability signal, and P4 must not gate on it.
 - **`topicDetails.topicCategories`** — YouTube's own topic labels, free, useful
   as a cross-check on model-derived topics.
 - **`snippet.description`** — fetched today and **discarded**. It is free corpus
@@ -796,13 +806,18 @@ anything fragile.
 worker mid-job returns that job to `pending` within the lease timeout, and
 comments land for a real video.
 
-**P4 — Transcripts and search.** Public fetcher behind the queue, gated on
-`has_captions`. **Version-pin the library and verify its call surface against the
-installed version** — its API changed shape across major versions and older
+**P4 — Transcripts and search.** Public fetcher behind the queue. **Do NOT gate
+on `has_captions`** — P2 proved it counts uploaded tracks only, so `false` is
+the normal case for videos that do have fetchable auto-captions (§3.2).
+**Version-pin the library and verify its call surface against the installed
+version** — its API changed shape across major versions and older
 static-method code will not run. Manual paste ships in the same stage. Then FTS
 in `/content` search. Must be valuable with the model switched off.
 *Accepts when:* a phrase spoken in a video is findable from `/content` search
-and links to its timestamp, and a caption-less video is never queued.
+and links to its timestamp; a fetch that genuinely returns nothing marks the
+post `unavailable` rather than retrying forever; and each transcript records
+whether it came from a human or an ASR track, so the corpus knows its own
+quality.
 
 **P5 — Client analytics import.** CSV importer on the existing `/import`
 infrastructure, per-client completeness tracking, and the §5.8 click-vs-stay
