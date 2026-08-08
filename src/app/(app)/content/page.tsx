@@ -232,6 +232,41 @@ export default async function ContentPage({
       overall: p.overall,
       rankable: p.platforms.some((pl) => pl.rankable),
     }));
+    // The transcript, and any screenshot drafts still awaiting confirmation.
+    // Drafts are deliberately loaded here rather than polled from the client:
+    // a page refresh is the natural moment to discover the worker has
+    // finished, and it needs no extra endpoint.
+    const [transcriptRes, draftsRes] = await Promise.all([
+      supabase
+        .from("video_transcripts")
+        .select("full_text, source, is_generated")
+        .eq("content_item_id", videoId)
+        .maybeSingle(),
+      supabase
+        .from("ai_analyses")
+        .select("subject_id, output, created_at")
+        .eq("workspace_id", ws)
+        .eq("kind", "vision_draft")
+        .order("created_at", { ascending: false }),
+    ]);
+
+    const transcriptForItem = transcriptRes.data
+      ? {
+          fullText: transcriptRes.data.full_text as string,
+          source: transcriptRes.data.source as string,
+          isGenerated: transcriptRes.data.is_generated as boolean | null,
+        }
+      : null;
+
+    const visionDrafts: Record<string, never> = {};
+    type DraftRow = { subject_id: string; output: Record<string, unknown> };
+    for (const d of (draftsRes.data ?? []) as DraftRow[]) {
+      // Newest first from the query, so the first draft seen for a post wins
+      // and older attempts are ignored rather than stacking up on screen.
+      if (d.subject_id in visionDrafts) continue;
+      (visionDrafts as Record<string, unknown>)[d.subject_id] = d.output;
+    }
+
     const boostByPlatform: Record<string, number> = {};
     for (const s of rankings.scoredByContent.get(videoId) ?? []) {
       boostByPlatform[s.platform] = Math.max(boostByPlatform[s.platform] ?? 0, s.index);
@@ -257,6 +292,8 @@ export default async function ContentPage({
           clients={allClients}
           creditScores={creditScores}
           boostByPlatform={boostByPlatform}
+          transcript={transcriptForItem}
+          visionDrafts={visionDrafts}
         />
       </Shell>
     );

@@ -18,6 +18,8 @@ import { formatDurationShort, parseDuration } from "@/lib/format";
 import { asMultiplier } from "@/lib/scoring";
 import VideoEmbed from "@/components/VideoEmbed";
 import Avatar from "@/components/Avatar";
+import ScreenshotImport from "@/components/ScreenshotImport";
+import TranscriptPanel from "@/components/TranscriptPanel";
 import { PLATFORM_COLORS, one } from "@/lib/types";
 import type {
   Account,
@@ -71,8 +73,17 @@ export default function ContentDetail({
   clients,
   creditScores = [],
   boostByPlatform = {},
+  transcript = null,
+  visionDrafts = {},
 }: {
   workspaceId: string;
+  /** Existing transcript, when one has been fetched or pasted. */
+  transcript?: { fullText: string; source: string; isGenerated: boolean | null } | null;
+  /** Vision drafts awaiting confirmation, keyed by platform post id. */
+  visionDrafts?: Record<
+    string,
+    { values: { name: string; rawText: string; value: number | null; confidence: "low" | "medium" | "high"; warning?: string }[]; storagePath: string; ownerOnlyCount: number }
+  >;
   item: ContentItem;
   posts: PlatformPost[];
   accounts: Account[];
@@ -543,6 +554,18 @@ export default function ContentDetail({
 
               {showHistory === p.id && <SnapshotHistory rows={forPost} />}
 
+              {/* Route B into the same table the form above writes
+                  (PRD-video-intelligence §2.1). Instagram has no export, so
+                  for reach, saves and shares a screenshot is the only route
+                  that exists. */}
+              <div className="mt-3">
+                <ScreenshotImport
+                  workspaceId={workspaceId}
+                  platformPostId={p.id}
+                  draft={visionDrafts[p.id] ?? null}
+                />
+              </div>
+
               <EnhancedMetrics
                 analytics={analytics.filter((a) => a.platform_post_id === p.id)}
                 editing={editingAnalytics === p.id}
@@ -576,6 +599,14 @@ export default function ContentDetail({
           </button>
         </div>
       )}
+
+      {/* The transcript sits above credits: it describes the video itself,
+          and it is what the whole corpus layer reads (PRD §5.11). */}
+      <TranscriptPanel
+        workspaceId={workspaceId}
+        contentItemId={item.id}
+        transcript={transcript}
+      />
 
       <div className="mb-2 flex items-baseline justify-between">
         <h2 className="text-sm font-semibold">Credits</h2>
