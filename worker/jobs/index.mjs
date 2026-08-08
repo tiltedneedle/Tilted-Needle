@@ -17,8 +17,10 @@
  */
 import { comments } from "./comments.mjs";
 import { transcript } from "./transcript.mjs";
+import { analyse } from "./analyse.mjs";
 
 export const handlers = {
   comments,
   transcript,
+  analyse,
 };

@@ -40,7 +40,7 @@ write_files:
       # nowhere else: not in the repo, not in Vercel's environment, not in any
       # client bundle (§4.7).
       EnvironmentFile=/etc/tn-worker.env
-      ExecStart=/usr/bin/node /opt/tn-worker/worker/index.mjs
+      ExecStart=/usr/bin/node --experimental-strip-types --import /opt/tn-worker/scripts/register-alias.mjs /opt/tn-worker/worker/index.mjs
       # A crash must not take the pipeline down until someone notices.
       Restart=always
       RestartSec=10
