@@ -366,6 +366,69 @@ async function mkUser(email) {
   check("accounts rejects connection_mode='oauth'", !!oauthMode,
     oauthMode ? "" : "INSERT SUCCEEDED");
 
+  // --- The ingest layer: transcripts, replay, comments, AI, the queue -----
+  // Transcripts and comments inherit the content item's client scoping, the
+  // same way analytics do. AI output is deliberately stricter: it compares
+  // clients to each other, so a client user must not read it even about
+  // their own work.
+  const { data: tItem } = await admin
+    .from("content_items").select("id, client_id").eq("id", item.id).single();
+
+  await admin.from("video_transcripts").insert({
+    workspace_id: wsA.id, content_item_id: tItem.id, source: "manual",
+    full_text: "rls probe transcript", is_generated: false,
+  });
+  await admin.from("post_comments").insert({
+    workspace_id: wsA.id, platform_post_id: post.id,
+    external_id: "rls-probe-1", text: "rls probe comment",
+  });
+  await admin.from("ai_analyses").insert({
+    workspace_id: wsA.id, subject_type: "content_item", subject_id: tItem.id,
+    kind: "comment_themes", prompt_version: 1, model: "probe",
+    input_digest: "rls-probe", output: { claims: [] },
+  });
+  await admin.from("ingest_jobs").insert({
+    workspace_id: wsA.id, kind: "comments", subject_id: tItem.id,
+  });
+
+  const { data: cTrans } = await cc.from("video_transcripts").select("*");
+  check("client sees the transcript of their own content",
+    (cTrans?.length ?? 0) > 0, `saw ${cTrans?.length ?? 0}`);
+
+  const { data: bTrans } = await b.client.from("video_transcripts").select("*");
+  check("tenant B cannot see tenant A's transcripts", (bTrans?.length ?? 0) === 0);
+
+  const { error: cTransWrite } = await cc.from("video_transcripts").insert({
+    workspace_id: wsA.id, content_item_id: tItem.id, source: "manual", full_text: "x",
+  });
+  check("client cannot write a transcript", !!cTransWrite,
+    cTransWrite ? "" : "INSERT SUCCEEDED");
+
+  const { data: bComments } = await b.client.from("post_comments").select("*");
+  check("tenant B cannot see tenant A's comments", (bComments?.length ?? 0) === 0);
+
+  const { data: cAi } = await cc.from("ai_analyses").select("*");
+  check("client cannot read AI analysis, even of their own content",
+    (cAi?.length ?? 0) === 0, `saw ${cAi?.length ?? 0}`);
+
+  const { data: bAi } = await b.client.from("ai_analyses").select("*");
+  check("tenant B cannot see tenant A's AI analysis", (bAi?.length ?? 0) === 0);
+
+  const { data: cJobs } = await cc.from("ingest_jobs").select("*");
+  check("client cannot see the ingest queue", (cJobs?.length ?? 0) === 0);
+
+  const { data: bJobs } = await b.client.from("ingest_jobs").select("*");
+  check("tenant B cannot see tenant A's ingest queue", (bJobs?.length ?? 0) === 0);
+
+  // Only the worker claims jobs, and it uses the service key.
+  const { error: cClaim } = await cc.rpc("claim_ingest_jobs", { p_worker: "x", p_limit: 1 });
+  check("client cannot claim ingest jobs", !!cClaim, cClaim ? "" : "RPC SUCCEEDED");
+  const { error: aClaim } = await a.client.rpc("claim_ingest_jobs", { p_worker: "x", p_limit: 1 });
+  check("no authenticated user can claim ingest jobs directly", !!aClaim,
+    aClaim ? "" : "RPC SUCCEEDED");
+
+  await admin.from("ingest_jobs").delete().eq("workspace_id", wsA.id);
+
   // --- Phase 7: approvals, time off, groups ------------------------------
   const { data: group, error: groupErr } = await a.client
     .from("user_groups")
