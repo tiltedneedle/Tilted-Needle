@@ -269,10 +269,24 @@ export async function callModel<T = unknown>({
       response_format: { type: "json_object" },
     });
     if (!res.ok) {
-      throw new LlmError(
+      const err = new LlmError(
         `provider returned ${res.status}: ${(res.text ?? "").slice(0, 200)}`,
         "transport",
       );
+      // A quota refusal is NOT a bad job -- it is the same job at the wrong
+      // moment. Gemini's free tier answers 429 once the daily allowance is
+      // spent, and that allowance resets. Without this flag the worker spent
+      // all four attempts inside one exhausted window and marked the job
+      // FAILED PERMANENTLY, so a transient limit silently became a hole in
+      // the corpus that nothing would ever refill.
+      //
+      // `blocked` is the signal the worker already understands: pause this
+      // kind, leave the job pending, spend no attempt. Exactly what the
+      // transcript path does when an IP is refused.
+      if (res.status === 429 || res.status === 503) {
+        (err as LlmError & { blocked?: boolean }).blocked = true;
+      }
+      throw err;
     }
     const body = res.json as
       | { choices?: { message?: { content?: string } }[]; usage?: Record<string, number> }
