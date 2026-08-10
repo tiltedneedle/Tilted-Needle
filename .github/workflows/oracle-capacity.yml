@@ -1,0 +1,76 @@
+# Hunt for Oracle Always Free capacity, indefinitely, without a human.
+#
+# The local watcher worked but died with its terminal session, so it could
+# never survive to the moment capacity actually appears. This does the same
+# search from a scheduler that does not sleep.
+#
+# ONE attempt per run, deliberately. Oracle rate-limits launch_instance to
+# roughly a single genuine check per burst: a 9-combination sweep produced one
+# real answer and eight "Too many requests". Sweeping does not sample more
+# inventory, it converts real checks into throttles. `--index` rotates through
+# 3 fault domains x 3 sizes using the run number, so consecutive runs walk the
+# whole matrix and every combination eventually gets a REAL answer.
+#
+# Why this is worth running now: Oracle halved Always Free A1 on 2026-06-15
+# and stated that instances above the new 2 OCPU / 12 GB limit are subject to
+# termination from 2026-08-18. Reclaimed instances return capacity to exactly
+# the pool this is waiting on. Being already in the queue when that happens
+# costs nothing.
+#
+# Nothing here can provision a billable shape: the probe skips any combination
+# above the Always Free ceiling rather than trusting its caller.
+
+name: oracle-capacity
+
+on:
+  schedule:
+    # Every 30 minutes. Capacity that appears is taken within seconds, so this
+    # is a lottery ticket bought often -- but not so often that Oracle starts
+    # answering with throttles instead of facts.
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: oracle-capacity
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install --quiet oci
+
+      - name: Probe for capacity
+        env:
+          OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
+          OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+          OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+          OCI_REGION: ${{ secrets.OCI_REGION }}
+          OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+          SSH_PUBLIC_KEY: ${{ secrets.WORKER_SSH_PUBLIC_KEY }}
+        run: |
+          echo "$SSH_PUBLIC_KEY" > /tmp/worker.pub
+          # Exit 1 means "no capacity this time", which is the expected result
+          # on almost every run. Only a genuine error should redden the run,
+          # so the exit code is swallowed and the log carries the outcome.
+          python deploy/oracle/probe_capacity.py \
+            --launch --ssh-key /tmp/worker.pub \
+            --index ${{ github.run_number }} || true
+
+      # A found instance must be impossible to miss. Every other run is quiet.
+      - name: Announce success
+        if: success()
+        run: |
+          if [ -f /tmp/launched ]; then
+            echo "### Oracle instance launched" >> "$GITHUB_STEP_SUMMARY"
+          fi

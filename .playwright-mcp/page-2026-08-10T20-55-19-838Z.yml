@@ -1,0 +1,290 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - navigation [ref=e3]:
+      - generic [ref=e4]:
+        - link [ref=e5] [cursor=pointer]:
+          - /url: /
+          - generic [ref=e6]:
+            - img "Tilted Needle" [ref=e7]
+            - text: Tilted Needle
+        - generic [ref=e8]:
+          - link [ref=e10] [cursor=pointer]:
+            - /url: /services
+          - link "Process" [ref=e15] [cursor=pointer]:
+            - /url: /#process
+          - link "Results" [ref=e16] [cursor=pointer]:
+            - /url: /#results
+          - link "Portfolio" [ref=e17] [cursor=pointer]:
+            - /url: /#portfolio
+          - link [ref=e18] [cursor=pointer]:
+            - /url: /careers
+          - link "Contact" [ref=e20] [cursor=pointer]:
+            - /url: /#contact
+        - link "Book a Demo →" [ref=e21] [cursor=pointer]:
+          - /url: /book-demo
+          - generic [ref=e22]:
+            - text: Book a Demo
+            - generic [ref=e23]: →
+  - main [ref=e24]:
+    - generic [ref=e30]:
+      - generic [ref=e31]:
+        - link "Home" [ref=e32] [cursor=pointer]:
+          - /url: /
+        - link "Services" [ref=e35] [cursor=pointer]:
+          - /url: /services
+        - generic [ref=e38]: Content Creation
+      - generic [ref=e39]:
+        - generic [ref=e41]:
+          - heading "Content Creation" [level=1] [ref=e46]
+          - paragraph [ref=e47]: Social-first content, engineered to perform.
+          - paragraph [ref=e48]: Short-form and long-form content built around a proven, data-driven formula. We've published and tested thousands of videos over the last 24 months, decoding exactly what drives virality across every major platform.
+          - generic [ref=e49]:
+            - link [ref=e50] [cursor=pointer]:
+              - /url: /book-demo
+            - link "All Services" [ref=e54] [cursor=pointer]:
+              - /url: /services
+        - img "Content Creation" [ref=e60]
+    - generic [ref=e65]:
+      - generic [ref=e66]:
+        - generic [ref=e67]: 2B+
+        - generic [ref=e68]: Organic Views
+      - generic [ref=e69]:
+        - generic [ref=e70]: 1000s
+        - generic [ref=e71]: Videos Tested
+      - generic [ref=e72]:
+        - generic [ref=e73]: 5+
+        - generic [ref=e74]: Platforms Managed
+    - generic [ref=e77]:
+      - paragraph [ref=e78]: The Deep Dive
+      - heading "Why it matters." [level=2] [ref=e79]
+      - paragraph [ref=e80]: "Content is the engine of modern growth, and we treat it like a science. Every concept is pulled from our extensive database of high-performing and viral content, then tailored to your niche, your goals, and the way you want to be perceived online. Our in-house team handles the entire pipeline end to end (strategy, scriptwriting, filming, on-camera coaching, editing, publishing, and analytics) so you can stay focused on your business while we build your presence. We produce two core formats: scroll-stopping short-form content for personal brands and commercial campaigns, and long-form YouTube content engineered for watch time, retention, and subscriber growth. Throughout, we maintain strict data-security protocols so your footage and content stay private, protected, and professionally managed."
+    - generic [ref=e83]:
+      - generic [ref=e84]:
+        - paragraph [ref=e85]: What's Included
+        - heading "Everything you need." [level=2] [ref=e86]
+      - generic [ref=e87]:
+        - generic [ref=e88]: Short-Form Content for Personal Brands
+        - generic [ref=e93]: Short-Form Content for Commercial Content
+        - generic [ref=e98]: Long-Form Content for YouTube
+        - generic [ref=e103]: Strategic, platform-optimized scriptwriting
+        - generic [ref=e108]: Filming & on-camera coaching
+        - generic [ref=e113]: In-house editing & post-production
+        - generic [ref=e118]: Publishing across Instagram, TikTok, YouTube, Facebook & X
+        - generic [ref=e123]: Monthly performance reviews & growth optimization
+    - generic [ref=e129]:
+      - generic [ref=e130]:
+        - paragraph [ref=e131]: Why Choose Us
+        - heading "The advantage." [level=2] [ref=e132]
+      - generic [ref=e133]:
+        - generic [ref=e135]:
+          - generic [ref=e136]: "01"
+          - generic [ref=e138]:
+            - heading "A Proven Viral Formula" [level=3] [ref=e139]
+            - paragraph [ref=e140]: Thousands of published and tested videos over the past 24 months have given us a deep, data-backed understanding of what actually drives reach, engagement, and shares.
+        - generic [ref=e142]:
+          - generic [ref=e143]: "02"
+          - generic [ref=e145]:
+            - heading "On-Camera Coaching" [level=3] [ref=e146]
+            - paragraph [ref=e147]: What sets us apart is our hands-on coaching. We train you to become confident and effective on camera, improving your delivery, communication, and personal brand presence over time.
+        - generic [ref=e149]:
+          - generic [ref=e150]: "03"
+          - generic [ref=e152]:
+            - heading "Fully Managed, End to End" [level=3] [ref=e153]
+            - paragraph [ref=e154]: From the first idea to the final post, we manage the entire process (ideation, scripting, filming, editing, publishing, and reporting) so you never have to touch the production line.
+        - generic [ref=e156]:
+          - generic [ref=e157]: "04"
+          - generic [ref=e159]:
+            - heading "Data Security by Default" [level=3] [ref=e160]
+            - paragraph [ref=e161]: We maintain strict data-security protocols throughout production, ensuring your content and raw footage remain private, protected, and professionally managed at all times.
+    - generic [ref=e164]:
+      - generic [ref=e165]:
+        - paragraph [ref=e166]: Our Process
+        - heading "How it works." [level=2] [ref=e167]
+      - generic [ref=e168]:
+        - generic [ref=e169]:
+          - generic [ref=e170]: "01"
+          - generic [ref=e172]:
+            - heading "Discovery & Onboarding" [level=3] [ref=e173]
+            - paragraph [ref=e174]: Every client is different. We begin with a detailed onboarding call to understand your brand, goals, target audience, and how you want to be perceived online, then build a content strategy aligned to your vision and business objectives.
+        - generic [ref=e175]:
+          - generic [ref=e176]: "02"
+          - generic [ref=e178]:
+            - heading "Content Ideation" [level=3] [ref=e179]
+            - paragraph [ref=e180]: Using insights from our extensive database of high-performing and viral content, our in-house creative team develops tailored concepts designed to maximize engagement, reach, and brand awareness, every idea crafted around your niche and goals.
+        - generic [ref=e181]:
+          - generic [ref=e182]: "03"
+          - generic [ref=e184]:
+            - heading "Strategic Scriptwriting" [level=3] [ref=e185]
+            - paragraph [ref=e186]: Once concepts are approved, our expert scriptwriters create platform-optimized scripts built specifically for social media, written to capture attention, increase watch time, and drive audience action.
+        - generic [ref=e187]:
+          - generic [ref=e188]: "04"
+          - generic [ref=e190]:
+            - heading "Filming & On-Camera Coaching" [level=3] [ref=e191]
+            - paragraph [ref=e192]: Our production team handles all filming and creative direction. We coach you hands-on to become confident and effective on camera, while our experienced videographers ensure every shoot meets the highest production standards.
+        - generic [ref=e193]:
+          - generic [ref=e194]: "05"
+          - generic [ref=e196]:
+            - heading "Post-Production & Editing" [level=3] [ref=e197]
+            - paragraph [ref=e198]: Our in-house editing team transforms raw footage into polished, high-performing content tailored for each platform, with strict data-security protocols keeping your footage private and protected throughout.
+        - generic [ref=e199]:
+          - generic [ref=e200]: "06"
+          - generic [ref=e202]:
+            - heading "Publishing & Distribution" [level=3] [ref=e203]
+            - paragraph [ref=e204]: We handle the entire publishing process, ensuring your content is optimized and posted across all relevant platforms (Instagram, TikTok, YouTube, Facebook, and X) so you can focus on your business while we manage your presence.
+        - generic [ref=e205]:
+          - generic [ref=e206]: "07"
+          - generic [ref=e208]:
+            - heading "Performance Analytics & Growth Optimization" [level=3] [ref=e209]
+            - paragraph [ref=e210]: At the end of each month we run a comprehensive performance review across all platforms, identify what's working, uncover growth opportunities, and double down on proven winners to compound results over time.
+    - generic [ref=e213]:
+      - generic [ref=e214]:
+        - paragraph [ref=e215]: Going Long
+        - heading "Our YouTube Growth Process" [level=2] [ref=e216]
+        - paragraph [ref=e217]: A dedicated 10-step system for long-form channel growth.
+      - generic [ref=e218]:
+        - generic [ref=e219]:
+          - generic [ref=e220]: "01"
+          - generic [ref=e222]:
+            - heading "Channel & Audience Analysis" [level=3] [ref=e223]
+            - paragraph [ref=e224]: We analyze your brand, target audience, competitors, and existing content to identify content opportunities, audience interests, and growth gaps within your niche.
+        - generic [ref=e225]:
+          - generic [ref=e226]: "02"
+          - generic [ref=e228]:
+            - heading "Content Strategy & Research" [level=3] [ref=e229]
+            - paragraph [ref=e230]: We research trending topics, proven video formats, and high-performing content in your industry, then develop a strategy built to maximize views, retention, and subscriber growth.
+        - generic [ref=e231]:
+          - generic [ref=e232]: "03"
+          - generic [ref=e234]:
+            - heading "Video Ideation" [level=3] [ref=e235]
+            - paragraph [ref=e236]: Using platform data and audience insights, we generate concepts built to perform, designed around what viewers are actively searching for and engaging with.
+        - generic [ref=e237]:
+          - generic [ref=e238]: "04"
+          - generic [ref=e240]:
+            - heading "Thumbnail & Title Planning" [level=3] [ref=e241]
+            - paragraph [ref=e242]: Before filming, we develop compelling titles and thumbnail concepts. The click is earned before the video is watched, which is why packaging is a critical part of our process.
+        - generic [ref=e243]:
+          - generic [ref=e244]: "05"
+          - generic [ref=e246]:
+            - heading "Scriptwriting & Story Structure" [level=3] [ref=e247]
+            - paragraph [ref=e248]: We create detailed scripts and outlines focused on retention by structuring videos with strong hooks, clear storytelling, and strategic pacing to keep viewers engaged throughout.
+        - generic [ref=e249]:
+          - generic [ref=e250]: "06"
+          - generic [ref=e252]:
+            - heading "Filming & On-Camera Coaching" [level=3] [ref=e253]
+            - paragraph [ref=e254]: We film and direct every video while coaching you on delivery, presentation, and communication, helping you become a stronger on-camera personality over time.
+        - generic [ref=e255]:
+          - generic [ref=e256]: "07"
+          - generic [ref=e258]:
+            - heading "Professional Editing" [level=3] [ref=e259]
+            - paragraph [ref=e260]: Our editors transform raw footage into engaging content using advanced storytelling, motion graphics, sound design, pacing, and visual enhancements that increase watch time and retention.
+        - generic [ref=e261]:
+          - generic [ref=e262]: "08"
+          - generic [ref=e264]:
+            - heading "YouTube Optimization" [level=3] [ref=e265]
+            - paragraph [ref=e266]: Every video is optimized with strategic titles, descriptions, keywords, chapters, end screens, and calls to action to maximize discoverability and channel growth.
+        - generic [ref=e267]:
+          - generic [ref=e268]: "09"
+          - generic [ref=e270]:
+            - heading "Publishing & Distribution" [level=3] [ref=e271]
+            - paragraph [ref=e272]: We publish on a consistent schedule and repurpose content into YouTube Shorts and clips for distribution across multiple platforms.
+        - generic [ref=e273]:
+          - generic [ref=e274]: "10"
+          - generic [ref=e276]:
+            - heading "Analytics & Continuous Improvement" [level=3] [ref=e277]
+            - paragraph [ref=e278]: We monitor CTR, average view duration, audience retention, watch time, subscriber growth, and conversion metrics, refining future content and doubling down on the formats that perform best.
+    - generic [ref=e280]:
+      - generic [ref=e281]:
+        - paragraph [ref=e282]: FAQ
+        - heading "Common questions." [level=2] [ref=e283]
+      - generic [ref=e284]:
+        - button [ref=e286]:
+          - heading "Do you offer a trial period?" [level=3] [ref=e288]
+          - paragraph [ref=e292]: We work on monthly retainers and onboard clients we're confident we can deliver outsized results for. Book a call and we'll talk through the best way to get started together.
+        - button [ref=e294]:
+          - heading "How many filming days do I get?" [level=3] [ref=e296]
+          - paragraph [ref=e300]: Filming days are tailored to your retainer tier and content volume. We design an efficient shoot schedule that captures weeks of content at a time, and our editors and admin team support the workflow seven days a week.
+        - button [ref=e302]:
+          - heading "Can you travel to film with me?" [level=3] [ref=e304]
+          - paragraph [ref=e308]: Yes. We're headquartered in London and Dubai and regularly travel globally for shoots, working with clients from Los Angeles to Hong Kong.
+        - button [ref=e310]:
+          - heading "How do revisions work?" [level=3] [ref=e312]
+          - paragraph [ref=e316]: Every edit goes through a structured review process. You'll have the opportunity to give feedback, and our team refines the content until it's polished and on-brand before anything is published.
+    - generic [ref=e319]:
+      - heading "Explore other services" [level=2] [ref=e321]
+      - generic [ref=e322]:
+        - link [ref=e324] [cursor=pointer]:
+          - /url: /services/influencer-marketing
+          - generic [ref=e325]:
+            - heading "Influencer Marketing" [level=3] [ref=e333]
+            - paragraph [ref=e334]: Reach through the world's most-watched voices.
+        - link [ref=e336] [cursor=pointer]:
+          - /url: /services/paid-advertising-performance
+          - generic [ref=e337]:
+            - heading "Paid & Performance" [level=3] [ref=e344]
+            - paragraph [ref=e345]: Every dollar engineered for return.
+        - link [ref=e347] [cursor=pointer]:
+          - /url: /services/app-web-development
+          - generic [ref=e348]:
+            - heading "App & Web Dev" [level=3] [ref=e355]
+            - paragraph [ref=e356]: Digital infrastructure built to scale.
+    - generic [ref=e362]:
+      - paragraph [ref=e363]: Ready to get started?
+      - heading "Let's grow your brand." [level=2] [ref=e364]
+      - paragraph [ref=e365]: Book a free strategy session and see how Content Creation can transform your business.
+      - link [ref=e366] [cursor=pointer]:
+        - /url: /book-demo
+  - contentinfo [ref=e370]:
+    - generic [ref=e372]:
+      - generic [ref=e373]:
+        - generic [ref=e374]:
+          - link [ref=e375] [cursor=pointer]:
+            - /url: /
+            - generic [ref=e376]:
+              - img "Tilted Needle" [ref=e377]
+              - text: Tilted Needle
+          - paragraph [ref=e378]: Short-form specialists with a full growth stack. Turning brands into cultural moments.
+          - generic [ref=e379]:
+            - link "Instagram" [ref=e380] [cursor=pointer]:
+              - /url: https://www.instagram.com/tiltedneedle/?hl=en
+            - link "TikTok" [ref=e383] [cursor=pointer]:
+              - /url: https://www.tiktok.com/@tiltedneedle
+            - link "LinkedIn" [ref=e386] [cursor=pointer]:
+              - /url: https://www.linkedin.com/company/tilted-needle
+            - link "YouTube" [ref=e389] [cursor=pointer]:
+              - /url: https://www.youtube.com/@tiltedneedle
+          - link [ref=e392] [cursor=pointer]:
+            - /url: /book-demo
+        - generic [ref=e396]:
+          - heading "Navigate" [level=3] [ref=e397]
+          - navigation [ref=e398]:
+            - link [ref=e399] [cursor=pointer]:
+              - /url: /services
+            - link [ref=e401] [cursor=pointer]:
+              - /url: /#process
+            - link [ref=e403] [cursor=pointer]:
+              - /url: /#results
+            - link [ref=e405] [cursor=pointer]:
+              - /url: /#portfolio
+            - link [ref=e407] [cursor=pointer]:
+              - /url: /careers
+            - link [ref=e409] [cursor=pointer]:
+              - /url: /#contact
+            - link [ref=e411] [cursor=pointer]:
+              - /url: /book-demo
+        - generic [ref=e413]:
+          - heading "Get in touch" [level=3] [ref=e414]
+          - generic [ref=e415]:
+            - link "info@tiltedneedle.com" [ref=e416] [cursor=pointer]:
+              - /url: mailto:info@tiltedneedle.com
+            - paragraph [ref=e417]: London · Dubai · Global
+      - generic [ref=e418]:
+        - paragraph [ref=e419]: © 2026 Tilted Needle. All rights reserved.
+        - generic [ref=e420]:
+          - link "Privacy Policy" [ref=e421] [cursor=pointer]:
+            - /url: /privacy
+          - link "Terms of Service" [ref=e422] [cursor=pointer]:
+            - /url: /terms
+      - button "↑ Back to top" [ref=e424]:
+        - generic [ref=e425]: ↑
+        - text: Back to top
+  - alert [ref=e426]

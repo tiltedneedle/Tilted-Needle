@@ -30,6 +30,40 @@ MICRO = "VM.Standard.E2.1.Micro"
 CEIL_OCPU, CEIL_MEM = 2, 12
 
 
+def load_config() -> dict:
+    """
+    Config from ~/.oci/config locally, or from environment variables on a CI
+    runner, which has no such file.
+
+    The key arrives as OCI_PRIVATE_KEY rather than a path because a GitHub
+    secret is a string. It is written to a 0600 file in the runner's temp
+    space -- the OCI SDK wants a path -- and that runner is destroyed at the
+    end of the job.
+    """
+    import os
+    import stat
+    import tempfile
+
+    if not os.environ.get("OCI_USER_OCID"):
+        return oci.config.from_file()
+
+    key = os.environ["OCI_PRIVATE_KEY"]
+    fd, path = tempfile.mkstemp(suffix=".pem")
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(key if key.endswith("\n") else key + "\n")
+    os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
+
+    cfg = {
+        "user": os.environ["OCI_USER_OCID"],
+        "fingerprint": os.environ["OCI_FINGERPRINT"],
+        "tenancy": os.environ["OCI_TENANCY_OCID"],
+        "region": os.environ.get("OCI_REGION", "ap-singapore-1"),
+        "key_file": path,
+    }
+    oci.config.validate_config(cfg)
+    return cfg
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--launch", action="store_true",
@@ -39,13 +73,16 @@ def main() -> int:
                     help="rotate ONE combination per interval, indefinitely")
     ap.add_argument("--interval", type=float, default=8.0,
                     help="minutes between attempts in watch mode (default 8)")
+    ap.add_argument("--index", type=int, default=None,
+                    help="try exactly ONE combination, chosen by this number "
+                         "modulo the combination count, then exit")
     args = ap.parse_args()
 
     if args.launch and not args.ssh_key:
         print("--ssh-key is required with --launch", file=sys.stderr)
         return 2
 
-    cfg = oci.config.from_file()
+    cfg = load_config()
     tenancy = cfg["tenancy"]
     idc = oci.identity.IdentityClient(cfg)
     compute = oci.core.ComputeClient(cfg)
@@ -105,6 +142,27 @@ def main() -> int:
         if "too many requests" in m:
             return "throttled"
         return f"{e.status}"
+
+    # ---- Single rotating attempt (CI) -------------------------------------
+    # One attempt per invocation, so a scheduled runner does exactly what the
+    # local watcher does -- ask ONE real question -- without holding a process
+    # open. The caller supplies a monotonically increasing number (the CI run
+    # number); modulo the combination count, consecutive runs walk every fault
+    # domain and size in turn.
+    if args.index is not None and args.launch:
+        shape, cfg_details, fd, label = combos[args.index % len(combos)]
+        tag = f"{shape.split('.')[-1]} {label} {fd}"
+        try:
+            inst = compute.launch_instance(build(shape, cfg_details, fd)).data
+            print(f"LAUNCHED {tag} -> {inst.id}", flush=True)
+            print("::notice::Oracle capacity found and instance launched", flush=True)
+            return 0
+        except oci.exceptions.ServiceError as e:
+            print(f"{classify(e)}  {tag}", flush=True)
+            return 1
+        except Exception as e:  # noqa: BLE001
+            print(f"network  {tag}  ({type(e).__name__})", flush=True)
+            return 1
 
     # ---- Watch mode -------------------------------------------------------
     # ONE attempt per interval, rotating through the combinations.
