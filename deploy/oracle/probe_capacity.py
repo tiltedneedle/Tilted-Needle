@@ -133,6 +133,16 @@ def main() -> int:
                 outcomes[kind] = outcomes.get(kind, 0) + 1
                 print(f"[{n}] {kind:<12} {tag}  "
                       f"(real checks so far: {outcomes.get('no-capacity', 0)})", flush=True)
+            except Exception as e:  # noqa: BLE001
+                # A watcher that runs for days MUST survive transient network
+                # faults. The first version caught only ServiceError, so a
+                # single ConnectTimeout to the Oracle endpoint killed the whole
+                # loop -- silently, hours before anyone would look. A timeout is
+                # not an answer about capacity, so it is not counted as one.
+                kind = "network"
+                outcomes[kind] = outcomes.get(kind, 0) + 1
+                print(f"[{n}] {kind:<12} {tag}  "
+                      f"({type(e).__name__}: {str(e)[:70]})", flush=True)
             # Longer pause after a throttle: the budget is already spent, so
             # asking again immediately guarantees another non-answer.
             wait = args.interval * 60 * (2.5 if kind == "throttled" else 1.0)
