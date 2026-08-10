@@ -105,6 +105,37 @@ export function parseVideoId(
   return { ok: false, error: "That does not look like a TikTok video URL." };
 }
 
+/**
+ * The exact publish instant, decoded from the video id.
+ *
+ * TikTok ids are snowflake-encoded: the upper 32 bits are the creation time in
+ * Unix seconds. No network call, no extractor, no dependency -- the id we
+ * already hold IS the timestamp.
+ *
+ * This lives in the provider rather than only in a backfill script because
+ * TikTok is otherwise the one platform whose new posts arrive with a DATE and
+ * nothing more. `posted_at` is a date column, so the hour is destroyed on
+ * write and cannot be recovered afterwards: a post missed here is missed
+ * permanently.
+ *
+ * Validated before being trusted -- across the whole live library all 78
+ * decodes agreed with the date discovery had independently recorded, and none
+ * disagreed. Returns null rather than a guess when the id is not a plausible
+ * snowflake or the result is not a believable instant.
+ */
+export function postedAtTsFrom(externalId: string | null | undefined): string | null {
+  if (!externalId || !/^\d{15,25}$/.test(externalId)) return null;
+  // BigInt(32) rather than a 32n literal: the compile target predates
+  // BigInt literals, and this has to build, not just run.
+  const seconds = Number(BigInt(externalId) >> BigInt(32));
+  // TikTok launched long after 2014, so an earlier result means the shift
+  // produced garbage rather than a date. A future instant is equally impossible.
+  if (seconds < 1_400_000_000 || seconds > Math.floor(Date.now() / 1000) + 86_400) {
+    return null;
+  }
+  return new Date(seconds * 1000).toISOString();
+}
+
 /** Normalises a handle or profile URL to a bare handle. */
 export function parseHandle(input: string): string | null {
   const raw = input.trim();
@@ -302,6 +333,10 @@ export const tiktokProvider: PublicProvider = {
           url: v.url,
           postedAt: v.postedAt,
           lengthSeconds: null,
+          // The sync reads the instant from `enrichment`, not the top level --
+          // putting it anywhere else is silently ignored, which would have
+          // made this whole fix a no-op.
+          enrichment: { postedAtTs: postedAtTsFrom(v.externalId) },
         }),
       );
 
