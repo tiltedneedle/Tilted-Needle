@@ -68,32 +68,73 @@ def main() -> int:
     if args.watch:
         deadline = time.time() + args.watch_hours * 3600
         attempt = 0
+        throttled_run = 0
+        asked = 0        # attempts that got a real capacity answer
+        throttled = 0    # attempts Oracle refused before answering
+
         while time.time() < deadline:
             attempt += 1
             log(f"--- attempt {attempt} ---")
+            outcome = "error"
             try:
-                if launch_once(args) == 0:
+                rc, outcome = launch_once(args, report=True)
+                if rc == 0:
+                    log(f"launched after {attempt} attempts "
+                        f"({asked} real capacity checks, {throttled} throttled)")
                     return 0
             except Exception as e:  # noqa: BLE001 -- a transient API error must not end the watch
                 log(f"attempt failed: {type(e).__name__}: {str(e)[:120]}")
-            # 5-15 minutes. Capacity that appears is usually taken in seconds,
-            # so this is a lottery ticket, not a guarantee -- but an unattended
-            # ticket bought every ten minutes for a day beats a person
-            # remembering to check.
-            wait = 300 + random.random() * 600
+
+            # ADAPTIVE PACING, and the reason it exists: a 12-hour run at a
+            # flat 5-15 minutes made 147 attempts, but only 61 of them got a
+            # real answer. The rest came back "Too many requests for the user"
+            # -- Oracle throttling the account, which means asking MORE often
+            # actively reduces the number of genuine capacity checks. Backing
+            # off hard when throttled buys more real lottery tickets, not
+            # fewer.
+            if outcome == "throttled":
+                throttled += 1
+                throttled_run += 1
+                base = min(1800 * (2 ** (throttled_run - 1)), 7200)  # 30m -> 2h cap
+                wait = base * (0.75 + random.random() * 0.5)
+                log(f"THROTTLED by Oracle ({throttled_run} in a row); backing off")
+            else:
+                if outcome == "no-capacity":
+                    asked += 1
+                throttled_run = 0
+                wait = 600 + random.random() * 600  # 10-20 min
+
             remaining = deadline - time.time()
             if remaining <= 0:
                 break
-            log(f"no capacity; next attempt in {wait / 60:.1f} min "
-                f"({remaining / 3600:.1f}h left in the watch)")
+            log(f"next attempt in {wait / 60:.1f} min "
+                f"({remaining / 3600:.1f}h left; {asked} real checks so far)")
             time.sleep(min(wait, remaining))
-        log("watch window expired without capacity")
+
+        log(f"watch window expired: {attempt} attempts, {asked} real capacity "
+            f"checks, {throttled} throttled")
         return 1
 
     return launch_once(args)
 
 
-def launch_once(args) -> int:
+def launch_once(args, report: bool = False):
+    """
+    Returns an exit code, or (code, outcome) when report=True.
+
+    outcome is one of:
+      "launched"    -- an instance is running
+      "no-capacity" -- Oracle answered, and there is none
+      "throttled"   -- Oracle refused to answer; this attempt asked nothing
+      "error"       -- anything else
+
+    The distinction matters: a throttled attempt is not evidence about
+    capacity, and treating it as one makes the watcher retry faster
+    exactly when it should slow down.
+    """
+    def out(code, outcome):
+        return (code, outcome) if report else code
+
 
     if args.ocpus > MAX_A1_OCPUS or args.memory > MAX_A1_MEMORY_GB:
         print(
@@ -103,7 +144,7 @@ def launch_once(args) -> int:
             "above the ceiling is reclaimed or billed at conversion (PRD §14.5).",
             file=sys.stderr,
         )
-        return 2
+        return out(2, "error")
 
     cfg = oci.config.from_file()
     oci.config.validate_config(cfg)
@@ -139,7 +180,7 @@ def launch_once(args) -> int:
         log("WOULD create: internet gateway, route table, subnet, instance")
         log(f"WOULD launch {A1_SHAPE} at {args.ocpus} OCPU / {args.memory} GB "
             f"(falling back to {MICRO_SHAPE} if capacity is unavailable)")
-        return 0
+        return out(0, "launched")
 
     # --- Internet gateway + default route ----------------------------------
     ig = next((g for g in net.list_internet_gateways(tenancy, vcn_id=vcn.id).data
@@ -193,11 +234,11 @@ def launch_once(args) -> int:
         i = existing[0]
         log(f"instance already running: {i.id} ({i.shape})")
         _print_ip(net, compute, tenancy, i.id)
-        return 0
+        return out(0, "launched")
 
     if not args.ssh_key:
         print("ERROR: --ssh-key is required to launch (path to a PUBLIC key).", file=sys.stderr)
-        return 2
+        return out(2, "error")
     with open(args.ssh_key, "r", encoding="utf-8") as fh:
         pubkey = fh.read().strip()
 
@@ -221,6 +262,7 @@ def launch_once(args) -> int:
         (MICRO_SHAPE, None),
     ]
 
+    throttled_any = False
     for shape, shape_cfg in attempts:
         if plan:
             log(f"WOULD launch {shape}")
@@ -246,9 +288,14 @@ def launch_once(args) -> int:
                            "lifecycle_state", "RUNNING", max_wait_seconds=900)
             log(f"instance RUNNING on {shape}")
             _print_ip(net, compute, tenancy, inst.id)
-            return 0
+            return out(0, "launched")
         except oci.exceptions.ServiceError as e:
-            if e.status in (500, 429) or "capacity" in str(e.message).lower():
+            msg = str(e.message).lower()
+            if "too many requests" in msg or e.status == 429:
+                log(f"{shape}: throttled ({e.message})")
+                throttled_any = True
+                continue
+            if e.status == 500 or "capacity" in msg:
                 log(f"{shape} unavailable ({e.message}) — trying the next shape")
                 continue
             raise
@@ -256,8 +303,8 @@ def launch_once(args) -> int:
     if not plan:
         print("Could not launch on any Always Free shape. Retry later: capacity "
               "in a single-AD region comes and goes (§14.3, §14.6).", file=sys.stderr)
-        return 1
-    return 0
+        return out(1, "throttled" if throttled_any else "no-capacity")
+    return out(0, "launched")
 
 
 def _print_ip(net, compute, tenancy, instance_id) -> None:
