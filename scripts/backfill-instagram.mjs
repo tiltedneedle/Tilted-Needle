@@ -49,12 +49,29 @@ function shortCodeOf(url) {
 /* ---- Find what is actually missing --------------------------------------- */
 const { data: posts, error } = await db
   .from("platform_posts")
-  .select("id, url, posted_at, posted_at_ts, content_item_id, account:accounts(platform_slug)")
+  .select("id, url, posted_at, posted_at_ts, workspace_id, content_item_id, account:accounts(platform_slug)")
   .not("url", "is", null);
 if (error) throw new Error(error.message);
 
 const { data: items } = await db.from("content_items").select("id, description");
 const descOf = new Map((items ?? []).map((i) => [i.id, i.description]));
+
+// Posts already asked about and found to have no caption. WITHOUT THIS the
+// script is a credit-burning loop: the candidate filter selects on "no
+// description", a post that genuinely has no caption never gets one, so it
+// stays eligible forever and every run pays to rediscover the same silence.
+// Measured the hard way -- one run spent 25 credits and wrote 0 fields, and
+// the next dry run selected the identical 25 posts.
+//
+// Recorded in ingest_jobs rather than a new column: that table already exists
+// to mean "we asked, and the answer was nothing available", which is exactly
+// this. `unavailable` is its terminal state.
+const { data: askedRows } = await db
+  .from("ingest_jobs")
+  .select("subject_id")
+  .eq("kind", "ig_caption")
+  .eq("status", "unavailable");
+const asked = new Set((askedRows ?? []).map((r) => r.subject_id));
 
 const candidates = (posts ?? [])
   .filter((p) => {
@@ -62,6 +79,7 @@ const candidates = (posts ?? [])
     return slug === "instagram";
   })
   .filter((p) => shortCodeOf(p.url))
+  .filter((p) => !asked.has(p.id))
   // Worth a credit only if something is genuinely absent.
   .filter((p) => !p.posted_at_ts || !descOf.get(p.content_item_id));
 
@@ -132,7 +150,8 @@ for (const r of rows) {
 }
 
 /* ---- Write back ---------------------------------------------------------- */
-let ts = 0, desc = 0, unmatched = 0;
+let ts = 0, desc = 0, unmatched = 0, noCaption = 0;
+const settle = [];
 for (const p of batch) {
   const row = byCode.get(shortCodeOf(p.url));
   if (!row) { unmatched++; continue; }
@@ -151,10 +170,38 @@ for (const p of batch) {
     const { error: e } = await db
       .from("content_items").update({ description: caption }).eq("id", p.content_item_id);
     if (!e) { desc++; descOf.set(p.content_item_id, caption); }
+  } else if (!caption) {
+    // Asked, and this post genuinely has none. Record it so no future run
+    // pays to learn the same thing (see `asked` above).
+    noCaption++;
+    settle.push({
+      workspace_id: p.workspace_id ?? null,
+      kind: "ig_caption",
+      subject_id: p.id,
+      status: "unavailable",
+      last_error: "instagram post has no caption text",
+    });
+  }
+}
+
+if (settle.length) {
+  const rows = settle.filter((r) => r.workspace_id);
+  if (rows.length) {
+    // CHECK the error. The first version of this ignored it, so a constraint
+    // rejecting the (then unknown) 'ig_caption' kind failed every insert
+    // silently while the script printed "26 settled" -- a success it had not
+    // achieved, and one that left the credit-burning loop wide open.
+    const { error: e } = await db.from("ingest_jobs").insert(rows);
+    if (e) {
+      console.error(`FAILED to record ${rows.length} no-caption markers: ${e.message}`);
+      console.error("Those posts WILL be re-fetched at cost until this is fixed.");
+      process.exitCode = 1;
+    }
   }
 }
 
 console.log(`posted_at_ts written : ${ts}`);
 console.log(`descriptions written : ${desc}`);
+if (noCaption) console.log(`no caption (settled, never re-asked): ${noCaption}`);
 if (unmatched) console.log(`unmatched (paid for, no usable row): ${unmatched}`);
 console.log(`remaining after this run: ${Math.max(0, candidates.length - batch.length)}`);
