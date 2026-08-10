@@ -2480,7 +2480,11 @@ export async function uploadScreenshot(input: {
       kind: "vision_extract",
       subject_id: input.platformPostId,
       priority: 10, // someone is waiting at a screen for this one
-      last_error: path, // carries the object path to the handler
+      // The handler's input goes in `payload`, NOT last_error. The worker
+      // overwrites last_error on every retry and cooldown -- that is what the
+      // column is for -- so a path parked there is destroyed by the first
+      // transient failure, and the screenshot is orphaned in the bucket.
+      payload: { path },
     })
     .select("id")
     .single();

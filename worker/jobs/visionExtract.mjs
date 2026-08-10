@@ -19,9 +19,13 @@ const PROMPT_VERSION = 1;
 const BUCKET = "analytics-screenshots";
 
 export async function visionExtract({ db, job, log }) {
-  // The enqueuer parks the object path on the job row; without it there is
-  // nothing to read and retrying will not conjure one.
-  const path = job.last_error;
+  // The object path lives in `payload`. It used to live in `last_error`,
+  // which the worker overwrites on every retry -- so one transient provider
+  // 429 replaced the path with an error string, the next attempt tried to
+  // download a file named "blocked: ...", and the job died terminally with
+  // the screenshot orphaned in the bucket. The fallback covers any row queued
+  // before the payload column existed.
+  const path = job.payload?.path ?? job.last_error;
   if (!path) return { unavailable: true, note: "no screenshot path on this job" };
 
   const { data: file, error: dlErr } = await db.storage.from(BUCKET).download(path);
