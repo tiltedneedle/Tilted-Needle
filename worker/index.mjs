@@ -220,8 +220,17 @@ async function pass() {
   });
   if (reclaimed > 0) log("warn", "leases_reclaimed", { count: reclaimed });
 
+  // p_kinds is the whole point of --kinds and was missing for three commits:
+  // the flag was parsed, logged, and then dropped on the floor. The RPC
+  // defaults p_kinds to NULL = "any kind", so it FAILED OPEN -- the scheduled
+  // GitHub runner claimed transcript jobs it cannot do, failed them from a
+  // datacenter IP, and settled them as terminally unavailable with a note
+  // claiming the video had no captions. Silent, automatic, and unrecoverable
+  // without manual SQL.
   const { data: jobs, error } = await db.rpc("claim_ingest_jobs", {
-    p_worker: WORKER_ID, p_limit: BATCH,
+    p_worker: WORKER_ID,
+    p_limit: BATCH,
+    p_kinds: KINDS,
   });
   if (error) {
     log("error", "claim_failed", { error: error.message });
