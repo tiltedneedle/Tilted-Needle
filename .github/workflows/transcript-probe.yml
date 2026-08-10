@@ -13,6 +13,17 @@
 #
 # Deliberately read-only: it fetches one public transcript and reports what
 # happened. It writes nothing to the database.
+#
+# RESULT (2026-08-10, run 31432973678): FAIL.
+#
+#   Sign in to confirm you're not a bot. Use --cookies-from-browser or --cookies
+#
+# YouTube refuses a GitHub runner outright -- not an empty body, an explicit
+# bot challenge. The safe/fragile split is therefore CORRECT and now rests on
+# evidence rather than inheritance: transcripts genuinely require a host whose
+# IP is not datacenter-flagged, which is exactly what the Oracle instance is
+# for. Kept so the question stays answered and nobody re-litigates it from
+# first principles.
 
 name: transcript-probe
 
