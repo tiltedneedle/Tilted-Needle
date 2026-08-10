@@ -35,7 +35,11 @@ SECRET = os.environ.get("DISCOVER_SECRET")
 # account's entire history." A generous default keeps a single request fast
 # and its yt-dlp process short-lived.
 DEFAULT_LIMIT = 12
-MAX_LIMIT = 30
+# Raised for backfill: this box is ours and the only cost is time. Full
+# extract_info is broken for TikTok upstream, so flat listing is the ONLY
+# working route to per-video metadata -- it has to be able to reach a whole
+# account's history, not just the recent page.
+MAX_LIMIT = 200
 
 
 def authorised(req) -> bool:
@@ -99,6 +103,12 @@ def discover():
                 # yt-dlp's flat extraction may omit some fields depending on
                 # version; missing means unknown, not zero.
                 "postedAt": _iso_date(e.get("timestamp")),
+                # The exact instant, not just the calendar date. Flat
+                # extraction has always carried it; the date-only field above
+                # was discarding it. Kept as raw epoch so the caller decides
+                # the timezone rather than inheriting this box's.
+                "timestampEpoch": e.get("timestamp"),
+                "description": (e.get("description") or "").strip() or None,
                 "views": e.get("view_count"),
                 "likes": e.get("like_count"),
                 "comments": e.get("comment_count"),
@@ -305,93 +315,6 @@ def _segments_from_json3(raw):
             "text": text,
         })
     return out
-
-
-@app.route("/meta", methods=["GET"])
-def meta():
-    """
-    Publish time, caption text and comments for one post, on any platform.
-
-    Exists because the official APIs cover exactly one platform. YouTube has a
-    free Data API for all three of these; TikTok and Instagram have none, and
-    the app was storing NO publish timestamps for TikTok (0 of 78) and caption
-    text for almost nothing.
-
-    Measured, so the caller knows what to expect rather than guessing:
-      timestamp    -- available on TikTok and Instagram
-      description  -- available on both (the caption text)
-      comments     -- Instagram yes; TikTok returns none even on a post with
-                      169 of them, so its extractor plainly does not support
-                      them. Reported as an empty list, never as a failure.
-
-    Comments are capped: a viral post has thousands, they are only ever read
-    in aggregate, and an unbounded fetch would run for minutes.
-    """
-    if not authorised(request):
-        return jsonify({"error": "Unauthorised."}), 401
-
-    url = (request.args.get("url") or "").strip()
-    if not url.startswith(("http://", "https://")):
-        return jsonify({"error": "url query param is required and must be absolute."}), 400
-
-    want_comments = request.args.get("comments", "1") != "0"
-    try:
-        limit = min(500, max(0, int(request.args.get("limit", 200))))
-    except ValueError:
-        limit = 200
-
-    opts = {
-        "quiet": True,
-        "no_warnings": True,
-        "skip_download": True,
-        "getcomments": want_comments,
-        "extractor_args": {
-            "youtube": {"max_comments": [str(limit)]},
-            "instagram": {"max_comments": [str(limit)]},
-            "tiktok": {"max_comments": [str(limit)]},
-        },
-    }
-
-    started = time.time()
-    try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(url, download=False) or {}
-    except yt_dlp.utils.DownloadError as e:
-        msg = str(e)
-        if "Private" in msg or "unavailable" in msg.lower() or "not exist" in msg.lower():
-            return jsonify({"url": url, "available": False, "reason": "post is private or gone"}), 200
-        return jsonify({"error": f"Extraction failed: {msg}"}), 502
-    except Exception as e:  # noqa: BLE001
-        return jsonify({"error": f"Unexpected error: {e}"}), 500
-
-    comments = []
-    for c in (info.get("comments") or [])[:limit]:
-        text = (c.get("text") or "").strip()
-        if not text:
-            continue
-        comments.append({
-            "id": str(c.get("id") or ""),
-            "author": c.get("author") or c.get("author_id"),
-            "text": text,
-            "likeCount": c.get("like_count"),
-            # yt-dlp gives a unix timestamp where the platform exposes one.
-            "publishedAt": _iso_datetime(c.get("timestamp")),
-        })
-
-    return jsonify({
-        "url": url,
-        "available": True,
-        "externalId": info.get("id"),
-        "timestamp": _iso_datetime(info.get("timestamp")),
-        "description": info.get("description"),
-        "title": info.get("title"),
-        "durationSeconds": info.get("duration"),
-        "viewCount": info.get("view_count"),
-        "likeCount": info.get("like_count"),
-        "commentCount": info.get("comment_count"),
-        "comments": comments,
-        "tookMs": round((time.time() - started) * 1000),
-    })
 
 
 def _iso_datetime(ts):
