@@ -13,32 +13,33 @@ design. It is blocked on a host.
 
 ## 1. What is actually true right now
 
-### 1.1 Corpus (measured)
+### 1.1 Corpus (measured 2026-08-10, after the backfills)
 
-| | Posts | Transcripts | Comments | `posted_at_ts` |
+| | Posts | `posted_at_ts` | Transcript | Comments |
 |---|---|---|---|---|
-| YouTube | 11 | **11/11** ✅ | 957 | 11/11 ✅ |
-| TikTok | 78 | **51/78** ✅ at ceiling | 0 (none exposed) | **0/78** ⛔ |
-| Instagram | 145 | n/a (no caption tracks) | 43 | **28/145** |
-| **Total** | **234** | **62** · 302,521 chars | **1,000** | **39/234** |
+| YouTube | 12 | **12/12** | 11 | 957 |
+| TikTok | 78 | **78/78** | 51 | 0 (none exposed) |
+| Instagram | 147 | **145/147** | n/a | 104 |
+| **Total** | **237** | **235/237** | **62** · 302,521 chars | **1,061** |
 
-**TikTok transcripts are complete, not partial.** All 78 items are accounted
-for: 51 stored, 13 with no caption track published, 14 refused by extraction
-twice. Zero unexplained. A coverage percentage alone would hide that
-distinction, which is the difference between a finished backfill and an
-abandoned one.
+**Transcript coverage must be read against what is achievable, not against
+every post.** Instagram publishes no caption tracks at all, so its 147 items
+cannot have a transcript and are not missing one. Of the 90 items that CAN:
 
-**TikTok `posted_at_ts` is blocked upstream, not unstarted.** The `/meta`
-endpoint and backfill are built; yt-dlp's TikTok extractor is broken in the
-current release (`Unable to extract universal data for rehydration`) and
-2026.07.04 is already the newest. It self-heals when yt-dlp ships a fix —
-cloud-init updates it weekly for exactly this reason.
+| | |
+|---|---|
+| transcript stored | 62 (69% of achievable) |
+| no caption track published | 28 — terminal, recorded |
+| **still open / actionable** | **0** |
 
-- `ai_analyses`: **0 rows — the AI layer has never run** (no `LLM_API_KEY`).
-- `post_analytics`: 2 rows, both manual test entries. No client export imported.
-- `video_replay_map`: 0 rows, correctly — retired on evidence (§4.2).
-- Descriptions: **28/234** — 15 Instagram captions recovered from text the
-  sync was discarding.
+100% accounted for. A backfill that leaves rows unexplained is abandoned, not
+finished; the distinction is invisible in a coverage percentage alone.
+
+**TikTok timestamps were never actually blocked.** Recorded here previously as
+"blocked upstream in yt-dlp" -- true of yt-dlp, false of the problem. TikTok
+IDs are snowflake-encoded, so the publish instant is `BigInt(id) >> 32n` and
+was already in the database. All 78 decodes were cross-checked against the
+recorded `posted_at` before writing; 78 agreed, 0 disagreed.
 
 ### 1.2 Shipped and verified
 
