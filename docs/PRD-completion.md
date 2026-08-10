@@ -47,7 +47,7 @@ design. It is blocked on a host.
 
 Tenancy `tiltedneedletools`, `ap-singapore-1`, **one** availability domain,
 zero instances, MFA on. A1 quota shows 41 OCPU / 277 GB — **trial quota, a
-trap; Always Free is 4/24** and the script refuses more.
+trap; Always Free is 2/12** and the script refuses more.
 
 **Capacity: not obtainable.** Two watch runs. The first made 147 attempts in
 12 h and only 61 got a real answer — the rest were `Too many requests`, i.e.
@@ -148,7 +148,7 @@ HTTP 200 and an empty body. The direct path is kept only as a fallback.
 ## 5. Constraints — the standing rules
 
 **Cost**
-1. **Oracle: Always Free only, forever.** 4 OCPU / 24 GB A1 ceiling, enforced
+1. **Oracle: Always Free only, forever.** 2 OCPU / 12 GB A1 ceiling, enforced
    in `provision.py` (exit 2). Never provision to the quota the console shows.
    Never upgrade to Pay As You Go.
 2. Supabase free: 500 MB. Current corpus ~2 MB — not a concern.

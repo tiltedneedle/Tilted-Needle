@@ -67,7 +67,7 @@ LLM API.
 
 | Resource | Always Free ceiling |
 |---|---|
-| Ampere A1 compute | **4 OCPU and 24 GB RAM in total**, across all A1 instances |
+| Ampere A1 compute | **2 OCPU and 12 GB RAM in total**, across all A1 instances |
 | AMD compute | 2 × `VM.Standard.E2.1.Micro` (1 OCPU / 1 GB each) |
 | Block storage | 200 GB total, 2 volumes |
 | Outbound transfer | 10 TB / month |
@@ -84,7 +84,7 @@ Never provision to what the quota says; provision to the table above.
 2. Never upgrade to Pay As You Go. Upgrading is what makes ARM capacity
    reliably available — and what makes an unexpected bill possible.
 3. Never raise the ceiling constants in `deploy/oracle/provision.py`. The
-   script refuses anything above 4 OCPU / 24 GB by design, with exit code 2.
+   script refuses anything above 2 OCPU / 12 GB by design, with exit code 2.
    That refusal is a feature; do not "fix" it.
 4. Never provision Autonomous Databases, Load Balancers, or anything else
    "because it is also free" — free tiers change, and the only resources this

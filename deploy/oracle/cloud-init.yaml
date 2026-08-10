@@ -99,7 +99,7 @@ runcmd:
   - curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
   - apt-get install -y nodejs
 
-  # 2 GB swap. Insurance rather than necessity at 24 GB, and genuinely load
+  # 2 GB swap. Insurance rather than necessity at 12 GB, and genuinely load
   # bearing if this ever lands on the 1 GB micro fallback.
   - fallocate -l 2G /swapfile
   - chmod 600 /swapfile

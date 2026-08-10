@@ -264,7 +264,7 @@ artifact.** Every Oracle quirk becomes a chore rather than an incident.
 **4.5 — Shape: take the A1.** Earlier revisions assumed Ampere capacity would be
 unobtainable and designed for the AMD micro. **A live query against the tenancy
 disproves that** (§14.4): `VM.Standard.A1.Flex` is offered in this region with
-zero cores used. Provision **4 OCPU / 24 GB — the Always Free ceiling, not the
+zero cores used. Provision **2 OCPU / 12 GB — the Always Free ceiling, not the
 quota the console currently shows** (§14.5, which is a trap).
 
 The workload does not need 24 GB. Two things might: the replay-map fetch may
@@ -940,7 +940,7 @@ Free allowance. Always Free is **4 OCPU and 24 GB total across all A1
 instances**. Provisioning anywhere near the displayed limit would create
 resources that are reclaimed — or billed — when the 30-day trial converts.
 
-**Provision 4 OCPU / 24 GB and not one core more.** The console will happily let
+**Provision 2 OCPU / 12 GB and not one core more.** The console will happily let
 you exceed it. Nothing in this system needs more.
 
 **14.6 — Quota is not capacity.** `available: 41` means quota headroom, not that

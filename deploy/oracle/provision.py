@@ -25,8 +25,8 @@ import sys
 import oci
 
 # --- Always Free ceilings. Do not raise these. ------------------------------
-MAX_A1_OCPUS = 4
-MAX_A1_MEMORY_GB = 24
+MAX_A1_OCPUS = 2
+MAX_A1_MEMORY_GB = 12
 
 NAME = "tn-worker"
 VCN_CIDR = "10.0.0.0/16"
