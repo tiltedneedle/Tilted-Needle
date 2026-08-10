@@ -188,19 +188,40 @@ async function planTranscript() {
 }
 
 /* ---- analyse -------------------------------------------------------------
-   Comment themes, per post, once its comments exist. Gated on the LLM being
-   configured: queueing analysis with no key just fills the queue with jobs
-   that fail four times each and then poison the failure metrics. */
+   Comment themes, keyed by CONTENT ITEM (worker/jobs/analyse.mjs resolves an
+   item to its posts, exactly as the comments handler does).
+
+   THE SUBJECT TYPE IS THE TRAP IN THIS FILE. Every handler here takes a
+   content_item_id, never a platform_post_id -- see SUBJECT_TYPE below. Getting
+   it wrong is silent and expensive: the handler looks up an item that does not
+   exist, reports "no platform posts on this content item", and settles as
+   UNAVAILABLE, which is terminal and never retried. It cost 25 posts on the
+   comments planner and another 10 here before the pattern was obvious -- both
+   times the tell was jobs "completing" in 400 ms, far too fast to have called
+   anything.
+
+   Gated on the LLM being configured: queueing analysis with no key fills the
+   queue with jobs that fail four times each and poison the failure metrics. */
 async function planAnalyse() {
   const kind = "analyse";
   const cap = CAP(kind, 10);
   if (!process.env.LLM_API_KEY) return { kind, count: 0, cap, skipped: "LLM_API_KEY not set" };
 
+  // Comments are stored per post; analysis runs per item. Resolve the join
+  // rather than passing post ids straight through.
   const { data: withComments } = await db
     .from("post_comments")
     .select("platform_post_id, workspace_id");
-  const subjects = new Map();
-  for (const c of withComments ?? []) subjects.set(c.platform_post_id, c.workspace_id);
+  const postIds = [...new Set((withComments ?? []).map((c) => c.platform_post_id))];
+  if (postIds.length === 0) return { kind, count: 0, cap };
+
+  const { data: posts } = await db
+    .from("platform_posts")
+    .select("id, content_item_id, workspace_id")
+    .in("id", postIds);
+
+  const subjects = new Map(); // content_item_id -> workspace_id
+  for (const p of posts ?? []) subjects.set(p.content_item_id, p.workspace_id);
 
   const { data: done } = await db
     .from("ai_analyses")
@@ -215,6 +236,18 @@ async function planAnalyse() {
 
   return { kind, count: await insert(kind, wanted, subjects), cap };
 }
+
+/**
+ * What `ingest_jobs.subject_id` means, per kind. Every value here is
+ * `content_item` — recorded explicitly because assuming otherwise has now
+ * caused the same silent write-off twice. A new planner must state its subject
+ * type here and match its handler before it ships.
+ */
+export const SUBJECT_TYPE = {
+  comments: "content_item",
+  transcript: "content_item",
+  analyse: "content_item",
+};
 
 const PLANNERS = { comments: planComments, transcript: planTranscript, analyse: planAnalyse };
 
