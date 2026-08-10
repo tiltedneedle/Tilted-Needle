@@ -65,10 +65,29 @@ const candidates = (posts ?? [])
   // Worth a credit only if something is genuinely absent.
   .filter((p) => !p.posted_at_ts || !descOf.get(p.content_item_id));
 
+// Deduplicate by URL before spending anything. The same Instagram post can be
+// tracked by more than one platform_posts row, and Apify rejects duplicate
+// directUrls outright ("items ## 24 and 12 are identical") -- so the first
+// version of this failed the whole batch on a 400 and charged nothing, which
+// was at least honest. Deduping is also cheaper than the naive fix: one credit
+// per URL, applied to every row that references it.
+const byUrl = new Map();
+for (const p of candidates) {
+  const code = shortCodeOf(p.url);
+  if (!byUrl.has(code)) byUrl.set(code, []);
+  byUrl.get(code).push(p);
+}
+const uniqueCodes = [...byUrl.keys()].slice(0, LIMIT);
+const batch = uniqueCodes.flatMap((c) => byUrl.get(c));
+const urls = uniqueCodes.map((c) => byUrl.get(c)[0].url);
+
 console.log(`instagram posts missing enrichment: ${candidates.length}`);
-const batch = candidates.slice(0, LIMIT);
-console.log(`this run will fetch: ${batch.length} (≈${batch.length} Apify credits)`);
-if (batch.length === 0) process.exit(0);
+console.log(`unique posts behind them: ${byUrl.size}`);
+console.log(
+  `this run will fetch: ${urls.length} URLs (≈${urls.length} Apify credits) `
+    + `covering ${batch.length} rows`,
+);
+if (urls.length === 0) process.exit(0);
 if (DRY) {
   console.log("--dry: nothing fetched, nothing charged.");
   process.exit(0);
@@ -83,9 +102,9 @@ const res = await fetch(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      directUrls: batch.map((p) => p.url),
+      directUrls: urls,
       resultsType: "posts",
-      resultsLimit: batch.length,
+      resultsLimit: urls.length,
       addParentData: false,
     }),
   },
