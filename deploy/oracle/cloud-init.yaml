@@ -52,6 +52,37 @@ write_files:
       [Install]
       WantedBy=multi-user.target
 
+  - path: /etc/systemd/system/tn-transcript.service
+    permissions: "0644"
+    content: |
+      [Unit]
+      # The yt-dlp transcript service. Transcripts are the one job that cannot
+      # run on a shared cloud runner -- YouTube's timedtext endpoint requires a
+      # proof-of-origin token and refuses datacenter ranges outright -- so it
+      # lives here, on the same host as the worker that calls it.
+      Description=Tilted Needle transcript service (yt-dlp)
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=simple
+      User=worker
+      WorkingDirectory=/opt/tn-transcript
+      EnvironmentFile=/etc/tn-worker.env
+      # Bound to loopback ON PURPOSE. The worker calls it from this same box,
+      # so binding a public interface would expose an unauthenticated-by-
+      # default scraper to the internet for no gain (S4.2: zero inbound).
+      ExecStart=/opt/tn-transcript/venv/bin/python /opt/tn-transcript/server.py
+      Environment=HOST=127.0.0.1
+      Restart=always
+      RestartSec=10
+      StandardOutput=journal
+      StandardError=journal
+      SyslogIdentifier=tn-transcript
+
+      [Install]
+      WantedBy=multi-user.target
+
   - path: /etc/systemd/journald.conf.d/tn-worker.conf
     content: |
       [Journal]
@@ -79,10 +110,26 @@ runcmd:
   - mkdir -p /opt/tn-worker
   - chown -R worker:worker /opt/tn-worker
 
+  # The transcript service. A venv rather than system pip: yt-dlp needs
+  # frequent updates to keep pace with YouTube, and upgrading it must never
+  # be able to disturb anything the OS depends on.
+  - apt-get install -y python3-venv python3-pip ffmpeg
+  - mkdir -p /opt/tn-transcript
+  - python3 -m venv /opt/tn-transcript/venv
+  - /opt/tn-transcript/venv/bin/pip install --quiet --upgrade pip
+  - /opt/tn-transcript/venv/bin/pip install --quiet flask yt-dlp
+  - chown -R worker:worker /opt/tn-transcript
+
   - systemctl daemon-reload
   - systemctl restart systemd-journald
   # Enabled but not started: the code and the secrets arrive by deploy, and a
   # service that starts before either would just crash-loop on boot.
   - systemctl enable tn-worker.service
+  - systemctl enable tn-transcript.service
 
-final_message: "tn-worker host ready after $UPTIME seconds. Deploy code to /opt/tn-worker, write /etc/tn-worker.env, then: systemctl start tn-worker"
+  # yt-dlp goes stale fast -- YouTube changes, yt-dlp adapts, and a pinned copy
+  # silently stops returning transcripts. Weekly self-update keeps the fragile
+  # path working without anyone remembering to maintain it.
+  - sh -c 'echo "0 4 * * 1 root /opt/tn-transcript/venv/bin/pip install --quiet --upgrade yt-dlp && systemctl restart tn-transcript" > /etc/cron.d/tn-ytdlp-update' 
+
+final_message: "tn host ready after $UPTIME seconds. Deploy worker to /opt/tn-worker and server.py to /opt/tn-transcript, write /etc/tn-worker.env, then: systemctl start tn-worker tn-transcript"

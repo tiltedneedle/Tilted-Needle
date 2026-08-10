@@ -447,4 +447,12 @@ def health():
 if __name__ == "__main__":
     if not SECRET:
         print("WARNING: DISCOVER_SECRET is not set. Every request will be rejected.")
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8787)))
+    # Loopback by DEFAULT. On the Oracle host the worker calls this from the
+    # same machine, and that box has a public IP -- binding every interface
+    # would put a scraping service on the open internet behind nothing but a
+    # shared secret. Set HOST=0.0.0.0 deliberately if it ever needs to be
+    # reachable from elsewhere.
+    app.run(
+        host=os.environ.get("HOST", "127.0.0.1"),
+        port=int(os.environ.get("PORT", 8787)),
+    )

@@ -47,6 +47,10 @@ def main() -> int:
     ap.add_argument("--ocpus", type=int, default=MAX_A1_OCPUS)
     ap.add_argument("--memory", type=int, default=MAX_A1_MEMORY_GB)
     ap.add_argument(
+        "--shape", choices=["a1", "micro", "both"], default="both",
+        help="which Always Free shape to try (default: both, A1 first)",
+    )
+    ap.add_argument(
         "--watch",
         action="store_true",
         help="keep trying until capacity appears, then launch and exit",
@@ -256,11 +260,17 @@ def launch_once(args, report: bool = False):
 
     # A1 first, micro as the documented fallback. Quota headroom is not host
     # capacity: only the launch attempt proves it (§14.6).
-    attempts = [
-        (A1_SHAPE, oci.core.models.LaunchInstanceShapeConfigDetails(
-            ocpus=args.ocpus, memory_in_gbs=args.memory)),
-        (MICRO_SHAPE, None),
-    ]
+    #
+    # --shape exists because of what the watch logs actually showed: A1 comes
+    # back with a genuine "Out of host capacity", and THEN the micro attempt
+    # comes back "Too many requests for the user". The rate limit is being
+    # spent on the shape that is refusing, before reaching the shape most
+    # likely to say yes. Asking for the micro alone gives it the whole budget.
+    a1 = (A1_SHAPE, oci.core.models.LaunchInstanceShapeConfigDetails(
+        ocpus=args.ocpus, memory_in_gbs=args.memory))
+    micro = (MICRO_SHAPE, None)
+    want = getattr(args, "shape", "both")
+    attempts = {"a1": [a1], "micro": [micro], "both": [a1, micro]}[want]
 
     throttled_any = False
     for shape, shape_cfg in attempts:
