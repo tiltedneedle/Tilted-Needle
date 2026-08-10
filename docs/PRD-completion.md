@@ -15,24 +15,37 @@ design. It is blocked on a host.
 
 ### 1.1 Corpus (measured)
 
-| | Posts | Transcripts | Comments | `posted_at_ts` | `has_captions` |
-|---|---|---|---|---|---|
-| YouTube | 11 | **11/11** | **957** | 11/11 | 11/11 |
-| TikTok | 78 | **32/78** | 0 (none exposed) | **0/78** | 0/78 |
-| Instagram | 145 | n/a (no caption tracks) | **43** | **3/145** | n/a |
-| **Total** | **234** | **43** · 285,990 chars | **1,000** | **14/234** | — |
+| | Posts | Transcripts | Comments | `posted_at_ts` |
+|---|---|---|---|---|
+| YouTube | 11 | **11/11** ✅ | 957 | 11/11 ✅ |
+| TikTok | 78 | **51/78** ✅ at ceiling | 0 (none exposed) | **0/78** ⛔ |
+| Instagram | 145 | n/a (no caption tracks) | 43 | **28/145** |
+| **Total** | **234** | **62** · 302,521 chars | **1,000** | **39/234** |
 
-- `ai_analyses`: **0 rows — the AI layer has never run.**
-- `post_analytics`: **2 rows**, both manual test entries. No client export imported.
-- `video_replay_map`: 0 rows, correctly — retired on evidence (§4.4).
-- `ingest_jobs`: 3 rows, all `done`.
+**TikTok transcripts are complete, not partial.** All 78 items are accounted
+for: 51 stored, 13 with no caption track published, 14 refused by extraction
+twice. Zero unexplained. A coverage percentage alone would hide that
+distinction, which is the difference between a finished backfill and an
+abandoned one.
+
+**TikTok `posted_at_ts` is blocked upstream, not unstarted.** The `/meta`
+endpoint and backfill are built; yt-dlp's TikTok extractor is broken in the
+current release (`Unable to extract universal data for rehydration`) and
+2026.07.04 is already the newest. It self-heals when yt-dlp ships a fix —
+cloud-init updates it weekly for exactly this reason.
+
+- `ai_analyses`: **0 rows — the AI layer has never run** (no `LLM_API_KEY`).
+- `post_analytics`: 2 rows, both manual test entries. No client export imported.
+- `video_replay_map`: 0 rows, correctly — retired on evidence (§4.2).
+- Descriptions: **28/234** — 15 Instagram captions recovered from text the
+  sync was discarding.
 
 ### 1.2 Shipped and verified
 
 | Capability | State | Evidence |
 |---|---|---|
 | OAuth fully removed | ✅ | 10/10 schema checks; `source='oauth'` rejected by DB |
-| Always Free ceiling enforced | ✅ | `provision.py` exits 2 above 4 OCPU/24 GB, both code paths |
+| Always Free ceiling enforced | ✅ | `provision.py` exits 2 above **2 OCPU / 12 GB**, verified both code paths |
 | Lifecycle (rising/evergreen/spike…) | ✅ | `lib/lifecycle.ts`, read-time — see §4.1 |
 | Ingest schema + job queue | ✅ | `ingest_jobs` with leasing, backoff, block cooldown |
 | Worker + 6 job handlers | ✅ | `worker/` — transcript, comments, analyse, weeklyRead, visionExtract |
@@ -41,7 +54,9 @@ design. It is blocked on a host.
 | Vision extraction (screenshot→draft→confirm) | ✅ | built, never used in anger |
 | Hook analysis | ✅ | built |
 | Pipeline health panel | ✅ | `/data` |
-| Free enrichment code | ✅ | code correct; **backfill not run** (§2.1) |
+| Free enrichment code | ✅ | YouTube complete; Instagram 28/145; TikTok blocked upstream |
+| Scheduled autonomy (safe half) | ⚠️ | workflow + enqueuer built and proven locally; **awaits Actions secrets** |
+| Oracle capacity search | ✅ | rotating one-per-interval probe; survives network faults |
 
 ### 1.3 Oracle tenancy (measured this session)
 
@@ -49,11 +64,31 @@ Tenancy `tiltedneedletools`, `ap-singapore-1`, **one** availability domain,
 zero instances, MFA on. A1 quota shows 41 OCPU / 277 GB — **trial quota, a
 trap; Always Free is 2/12** and the script refuses more.
 
-**Capacity: not obtainable.** Two watch runs. The first made 147 attempts in
-12 h and only 61 got a real answer — the rest were `Too many requests`, i.e.
-Oracle throttling the account, which means retrying faster buys *fewer* real
-checks. Pacing is now adaptive (10–20 min normally; 30 min→2 h backoff when
-throttled). Current run: still nothing.
+**Capacity: not obtainable — and most earlier measurements of it were noise.**
+
+Oracle rate-limits `launch_instance` to roughly **one genuine check per
+burst**. A 9-combination sweep produced *one* real answer and *eight* `Too
+many requests`. Every multi-shape attempt this project made was therefore
+measuring almost nothing, and "throttled" was being silently counted as
+evidence about capacity when it is the absence of evidence.
+
+Consequences, all now built in:
+
+- The probe rotates **one** combination per interval across 3 fault domains ×
+  3 sizes, so each eventually gets a real answer. Sweeping converts real
+  checks into throttles.
+- A throttle backs off 2.5× longer than a genuine refusal — the budget is
+  already spent, so asking again guarantees another non-answer.
+- Network faults are caught and counted separately. The first version caught
+  only `ServiceError`, so one `ConnectTimeout` killed a multi-day watcher
+  silently.
+
+**Two Oracle findings worth keeping:** Singapore has one AD but **three fault
+domains**, never previously specified (Oracle was picking, and a pick landing
+on a full domain is indistinguishable from an empty region). And Oracle
+**halved Always Free A1 on 2026-06-15** — 4 OCPU / 24 GB → 2 / 12 — with no
+announcement. Every prior launch attempt requested double the entitlement;
+had one succeeded it would have been terminated or billed.
 
 ---
 
