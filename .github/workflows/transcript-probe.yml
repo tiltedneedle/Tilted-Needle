@@ -1,81 +1,122 @@
-# Can a GitHub runner fetch transcripts at all?
+# Can a datacenter runner fetch a YouTube transcript?
 #
-# This tests an ASSUMPTION, not a feature. The whole architecture splits jobs
-# into "safe" and "fragile" on the premise that yt-dlp is refused from
-# datacenter IP ranges, which is why transcripts wait on an Oracle host that
-# has never had capacity. That premise was never tested from a runner -- it was
-# inherited from how YouTube's timedtext endpoint behaves for plain HTTP.
+# This decides whether the project needs a host at all. Transcripts are the ONLY
+# job that cannot run on GitHub Actions, and that single fact is what makes an
+# Oracle instance necessary — an instance Singapore has refused across every
+# fault domain and size for days.
 #
-# yt-dlp is a different client with different handling, so the premise may
-# simply be wrong. If it is, the fragile half stops being fragile, transcripts
-# become autonomous today, and Oracle turns into an optimisation rather than a
-# blocker.
+# RESULT 1 (2026-08-10, run 31432973678): FAIL with yt-dlp defaults.
+#   "Sign in to confirm you're not a bot."
+#   That established the safe/fragile split was correct — but it tested only
+#   the DEFAULT client, which is the configuration YouTube blocks hardest. It
+#   did not test the actual countermeasure.
 #
-# Deliberately read-only: it fetches one public transcript and reports what
-# happened. It writes nothing to the database.
+# RESULT 2 (this run): three strategies, because "a datacenter IP is refused"
+# and "yt-dlp's default client is refused from a datacenter IP" are different
+# claims, and only the second was ever demonstrated:
 #
-# RESULT (2026-08-10, run 31432973678): FAIL.
+#   A  default            the known-failing baseline, kept as a control
+#   B  alternate clients  android/ios/tv_embedded speak different endpoints,
+#                         several of which do not demand a proof-of-origin
+#                         token at all
+#   C  PO token provider  bgutil generates the token the web client requires;
+#                         this is the documented countermeasure and has never
+#                         been tried here
 #
-#   Sign in to confirm you're not a bot. Use --cookies-from-browser or --cookies
-#
-# YouTube refuses a GitHub runner outright -- not an empty body, an explicit
-# bot challenge. The safe/fragile split is therefore CORRECT and now rests on
-# evidence rather than inheritance: transcripts genuinely require a host whose
-# IP is not datacenter-flagged, which is exactly what the Oracle instance is
-# for. Kept so the question stays answered and nobody re-litigates it from
-# first principles.
+# If B or C succeeds, transcripts move to Actions and the Oracle dependency
+# disappears entirely rather than being waited on.
 
 name: transcript-probe
 
 on:
   workflow_dispatch:
 
-permissions:
-  contents: read
-
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - run: pip install --quiet yt-dlp
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
 
-      - name: Try a YouTube transcript from this runner
+      - run: pip install --quiet --upgrade yt-dlp
+
+      - name: A — default client (control, expected to fail)
+        continue-on-error: true
         run: |
           python - <<'PY'
           import yt_dlp
-
-          # A well-known public video with auto-captions. Nothing about the
-          # result depends on this workspace's data.
-          VIDEO = "https://www.youtube.com/watch?v=OcT01xFp8wM"
-
-          opts = {
-              "quiet": True, "no_warnings": True, "skip_download": True,
-              "writesubtitles": True, "writeautomaticsub": True,
-              "subtitlesformat": "json3",
-          }
+          V = "OcT01xFp8wM"
           try:
-              with yt_dlp.YoutubeDL(opts) as ydl:
-                  info = ydl.extract_info(VIDEO, download=False) or {}
-                  auto = info.get("automatic_captions") or {}
-                  manual = info.get("subtitles") or {}
-                  tracks = list(manual) or list(auto)
-                  print(f"caption languages offered: {len(tracks)}")
-                  if not tracks:
-                      print("RESULT: no tracks -- runner appears refused or video has none")
-                      raise SystemExit(0)
-
-                  src = (manual or auto)[tracks[0]]
-                  j3 = next((e for e in src if e.get("ext") == "json3"), src[0])
-                  body = ydl.urlopen(j3["url"]).read()
-                  print(f"RESULT: fetched {len(body)} bytes of caption data")
-                  print("VERDICT: PASS -- a datacenter runner CAN fetch transcripts"
-                        if len(body) > 500 else
-                        "VERDICT: EMPTY -- refused (proof-of-origin), as assumed")
+              with yt_dlp.YoutubeDL({"quiet": True, "skip_download": True,
+                                     "writeautomaticsub": True}) as y:
+                  i = y.extract_info(f"https://www.youtube.com/watch?v={V}", download=False) or {}
+              n = len(i.get("automatic_captions") or {}) + len(i.get("subtitles") or {})
+              print(f"A RESULT: {'PASS' if n else 'FAIL'} — {n} caption languages")
           except Exception as e:
-              print(f"VERDICT: FAIL -- {type(e).__name__}: {str(e)[:200]}")
+              print(f"A RESULT: FAIL — {str(e)[:160]}")
+          PY
+
+      - name: B — alternate player clients
+        continue-on-error: true
+        run: |
+          python - <<'PY'
+          import yt_dlp
+          V = "OcT01xFp8wM"
+          # Each client is a different endpoint with its own bot-check posture.
+          for client in ["android", "ios", "tv_embedded", "web_safari", "mweb"]:
+              try:
+                  opts = {"quiet": True, "no_warnings": True, "skip_download": True,
+                          "writeautomaticsub": True,
+                          "extractor_args": {"youtube": {"player_client": [client]}}}
+                  with yt_dlp.YoutubeDL(opts) as y:
+                      i = y.extract_info(f"https://www.youtube.com/watch?v={V}", download=False) or {}
+                  auto, man = i.get("automatic_captions") or {}, i.get("subtitles") or {}
+                  n = len(auto) + len(man)
+                  if n:
+                      # A listing is not a transcript. Fetch the actual text.
+                      tracks = (man or auto)
+                      lang = next((l for l in tracks if l.startswith("en")), next(iter(tracks)))
+                      url = next((t["url"] for t in tracks[lang] if t.get("ext") == "json3"),
+                                 tracks[lang][0]["url"])
+                      with yt_dlp.YoutubeDL(opts) as y:
+                          body = y.urlopen(url).read().decode("utf-8", "replace")
+                      print(f"B[{client}]: PASS — {n} langs, body {len(body)} bytes"
+                            f" {'(EMPTY — PoToken refusal)' if len(body) < 50 else '(REAL TRANSCRIPT)'}")
+                  else:
+                      print(f"B[{client}]: no caption tracks")
+              except Exception as e:
+                  print(f"B[{client}]: FAIL — {str(e)[:110]}")
+          PY
+
+      - name: C — with a PO token provider
+        continue-on-error: true
+        run: |
+          pip install --quiet bgutil-ytdlp-pot-provider || echo "plugin install failed"
+          python - <<'PY'
+          import yt_dlp
+          V = "OcT01xFp8wM"
+          try:
+              opts = {"quiet": True, "no_warnings": True, "skip_download": True,
+                      "writeautomaticsub": True}
+              with yt_dlp.YoutubeDL(opts) as y:
+                  i = y.extract_info(f"https://www.youtube.com/watch?v={V}", download=False) or {}
+              tracks = i.get("subtitles") or i.get("automatic_captions") or {}
+              if not tracks:
+                  print("C RESULT: FAIL — no caption tracks")
+              else:
+                  lang = next((l for l in tracks if l.startswith("en")), next(iter(tracks)))
+                  url = next((t["url"] for t in tracks[lang] if t.get("ext") == "json3"),
+                             tracks[lang][0]["url"])
+                  with yt_dlp.YoutubeDL(opts) as y:
+                      body = y.urlopen(url).read().decode("utf-8", "replace")
+                  print(f"C RESULT: body {len(body)} bytes"
+                        f" {'(EMPTY — still refused)' if len(body) < 50 else '(REAL TRANSCRIPT — Oracle not needed)'}")
+          except Exception as e:
+              print(f"C RESULT: FAIL — {str(e)[:200]}")
           PY
