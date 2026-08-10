@@ -15,6 +15,21 @@
 # and "yt-dlp's default client is refused from a datacenter IP" are different
 # claims, and only the second was ever demonstrated:
 #
+# RESULT 2 (2026-08-10, run 31444004222): ALL SEVEN STRATEGIES FAIL.
+#   A default            "Sign in to confirm you're not a bot"
+#   B android             same
+#   B ios                 same
+#   B tv_embedded         same
+#   B web_safari          same
+#   B mweb                same
+#   C PO token provider   no caption tracks reached at all
+#
+# The refusal happens at the IP LEVEL, before client selection or token
+# generation can matter -- every client got the identical challenge. This is
+# now settled rather than assumed: transcripts CANNOT run on GitHub Actions,
+# and the safe/fragile split is load-bearing, not a precaution. A host with a
+# non-datacenter IP is genuinely required.
+#
 #   A  default            the known-failing baseline, kept as a control
 #   B  alternate clients  android/ios/tv_embedded speak different endpoints,
 #                         several of which do not demand a proof-of-origin
