@@ -1,0 +1,98 @@
+# The autonomous pipeline.
+#
+# Why GitHub Actions and not the Oracle box: the box does not exist yet.
+# Oracle's single Singapore availability domain has refused every capacity
+# request across two multi-hour watch runs, and the project should not stay
+# manual until that changes. This repository is public, so Actions minutes are
+# unlimited and free -- a real scheduler, already authenticated, at no cost.
+#
+# What runs here is deliberately only the SAFE half of the pipeline:
+#
+#   comments      official APIs (YouTube Data API, Apify)   -- IP-agnostic
+#   analyse       the LLM                                    -- IP-agnostic
+#   weekly_read   the LLM                                    -- IP-agnostic
+#
+# Transcripts are NOT claimed here. They route through yt-dlp, which is
+# refused outright from datacenter ranges, and an Actions runner is about as
+# datacenter as an address gets. The worker enforces this in the CLAIM itself
+# (--kinds), so a transcript job is never leased and never burns an attempt.
+#
+# Enqueueing, however, covers every kind including transcripts. Work that
+# cannot run here still gets identified and queued, so the moment a capable
+# host exists there is a ready backlog rather than a cold start. Pending
+# transcript jobs accumulating is not a fault -- it is the queue accurately
+# reporting work that is waiting for a host.
+
+name: pipeline
+
+on:
+  schedule:
+    # Every six hours. Comments arrive for weeks after a post; nothing here is
+    # urgent, and a slower cadence keeps well inside every free ceiling.
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      kinds:
+        description: "Job kinds to drain (default: the IP-agnostic set)"
+        required: false
+        default: "comments,analyse,weekly_read"
+      enqueue_only:
+        description: "Enqueue work but drain nothing"
+        type: boolean
+        required: false
+        default: false
+
+# One pipeline run at a time. Two concurrent runs would not corrupt anything --
+# jobs are leased with SKIP LOCKED -- but they would double the request rate
+# against metered providers, which is the one thing pacing exists to prevent.
+concurrency:
+  group: pipeline
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm ci --omit=dev --ignore-scripts
+
+      - name: Enqueue work
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+        run: node worker/enqueue.mjs
+
+      - name: Drain the safe queue
+        if: ${{ !inputs.enqueue_only }}
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
+          LLM_MODEL: ${{ secrets.LLM_MODEL }}
+          WORKER_ID: gha-${{ github.run_id }}
+          BATCH: "5"
+        run: |
+          node --experimental-strip-types --import ./scripts/register-alias.mjs \
+            worker/index.mjs --once \
+            --kinds=${{ inputs.kinds || 'comments,analyse,weekly_read' }}
+
+      # Runs even when draining failed: a run that dies mid-queue is exactly
+      # when the depth matters, and a summary only written on success is a
+      # summary you cannot trust.
+      - name: Report queue depth
+        if: always()
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: node worker/queue-status.mjs >> "$GITHUB_STEP_SUMMARY"

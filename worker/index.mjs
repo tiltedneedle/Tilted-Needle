@@ -18,6 +18,28 @@ import { handlers } from "./jobs/index.mjs";
 
 const ONCE = process.argv.includes("--once");
 
+/**
+ * Restrict this worker to certain job kinds: --kinds=comments,analyse
+ *
+ * The split is by IP reputation, not tidiness. Comments, enrichment, analysis
+ * and weekly reads run against official APIs and the LLM, and do not care what
+ * address they come from. Transcripts route through yt-dlp and are refused
+ * outright from datacenter ranges. A scheduled runner on shared cloud
+ * infrastructure can therefore do the safe work unattended while the fragile
+ * work waits for a host with an IP worth using.
+ *
+ * The filter is applied IN THE CLAIM (see claim_ingest_jobs). Filtering after
+ * claiming would be worse than useless: the row is already leased and its
+ * attempt already spent, so the queue would drain itself into permanent
+ * failure while looking busy.
+ */
+const KINDS = (() => {
+  const arg = process.argv.find((a) => a.startsWith("--kinds="));
+  if (!arg) return null;
+  const list = arg.slice("--kinds=".length).split(",").map((s) => s.trim()).filter(Boolean);
+  return list.length ? list : null;
+})();
+
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SECRET_KEY;
 if (!SUPABASE_URL || !SERVICE_KEY) {
@@ -219,7 +241,7 @@ for (const sig of ["SIGINT", "SIGTERM"]) {
   });
 }
 
-log("info", "worker_started", { once: ONCE, pollMs: POLL_MS, batch: BATCH, handlers: Object.keys(handlers) });
+log("info", "worker_started", { once: ONCE, pollMs: POLL_MS, batch: BATCH, kinds: KINDS ?? "all", handlers: Object.keys(handlers) });
 await pruneDeadWorkers();
 
 if (ONCE) {
