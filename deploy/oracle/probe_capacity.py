@@ -1,0 +1,194 @@
+"""
+Systematically probe where Always Free capacity actually exists.
+
+The watcher asks one question repeatedly: "any capacity?" This asks a better
+one: "capacity for WHICH shape, at WHICH size, in WHICH fault domain?" Those
+are different inventories, and a blanket "Out of host capacity" hides which of
+them was actually consulted.
+
+Two things had never been varied before this script:
+
+  FAULT DOMAIN  Singapore has one availability domain but THREE fault domains.
+                Leaving it unset lets Oracle choose, and a choice that lands on
+                a full domain looks identical to the region being empty.
+  SIZE          A1 is a flex shape. 1 OCPU / 6 GB is a materially easier ask
+                than 2 OCPU / 12 GB, and capacity is allocated in chunks.
+
+Every attempt stays inside the Always Free ceiling (2 OCPU / 12 GB since
+2026-06-15). Nothing here can provision a billable shape.
+
+    python deploy/oracle/probe_capacity.py            # report only
+    python deploy/oracle/probe_capacity.py --launch --ssh-key ~/.ssh/key.pub
+"""
+import argparse
+import sys
+
+import oci
+
+A1 = "VM.Standard.A1.Flex"
+MICRO = "VM.Standard.E2.1.Micro"
+CEIL_OCPU, CEIL_MEM = 2, 12
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--launch", action="store_true",
+                    help="actually launch on the first combination that works")
+    ap.add_argument("--ssh-key", help="public key path (required with --launch)")
+    ap.add_argument("--watch", action="store_true",
+                    help="rotate ONE combination per interval, indefinitely")
+    ap.add_argument("--interval", type=float, default=8.0,
+                    help="minutes between attempts in watch mode (default 8)")
+    args = ap.parse_args()
+
+    if args.launch and not args.ssh_key:
+        print("--ssh-key is required with --launch", file=sys.stderr)
+        return 2
+
+    cfg = oci.config.from_file()
+    tenancy = cfg["tenancy"]
+    idc = oci.identity.IdentityClient(cfg)
+    compute = oci.core.ComputeClient(cfg)
+    net = oci.core.VirtualNetworkClient(cfg)
+
+    ad = idc.list_availability_domains(tenancy).data[0].name
+    fds = [f.name for f in idc.list_fault_domains(
+        compartment_id=tenancy, availability_domain=ad).data]
+
+    subnets = net.list_subnets(compartment_id=tenancy).data
+    if not subnets:
+        print("No subnet found. Run provision.py once to build the network.", file=sys.stderr)
+        return 2
+    subnet_id = subnets[0].id
+
+    def image_for(shape: str) -> str:
+        imgs = compute.list_images(
+            compartment_id=tenancy, operating_system="Canonical Ubuntu",
+            shape=shape, sort_by="TIMECREATED", sort_order="DESC").data
+        lts = [i for i in imgs if "24.04" in i.display_name]
+        return (lts or imgs)[0].id
+
+    pubkey = None
+    if args.launch:
+        with open(args.ssh_key, "r", encoding="utf-8") as fh:
+            pubkey = fh.read().strip()
+
+    # Smallest first: an easier ask is likelier to land, and a 1-OCPU A1 still
+    # runs this workload comfortably.
+    sizes = [(1, 6), (2, 12)]
+    combos = []
+    for fd in fds:
+        for o, m in sizes:
+            combos.append((A1, oci.core.models.LaunchInstanceShapeConfigDetails(
+                ocpus=o, memory_in_gbs=m), fd, f"{o} OCPU / {m} GB"))
+        combos.append((MICRO, None, fd, "1 OCPU / 1 GB"))
+
+    print(f"AD {ad}  |  {len(fds)} fault domains  |  {len(combos)} combinations\n")
+    outcomes = {}
+
+    def build(shape, cfg_details, fd):
+        d = oci.core.models.LaunchInstanceDetails(
+            availability_domain=ad, fault_domain=fd, compartment_id=tenancy,
+            shape=shape, display_name="tn-worker", shape_config=cfg_details,
+            create_vnic_details=oci.core.models.CreateVnicDetails(
+                subnet_id=subnet_id, assign_public_ip=True),
+            source_details=oci.core.models.InstanceSourceViaImageDetails(
+                image_id=image_for(shape)))
+        if pubkey:
+            d.metadata = {"ssh_authorized_keys": pubkey}
+        return d
+
+    def classify(e):
+        m = (e.message or "").lower()
+        if "out of host capacity" in m:
+            return "no-capacity"
+        if "too many requests" in m:
+            return "throttled"
+        return f"{e.status}"
+
+    # ---- Watch mode -------------------------------------------------------
+    # ONE attempt per interval, rotating through the combinations.
+    #
+    # This shape is dictated by measurement, not preference. A single pass over
+    # 9 combinations produced ONE real capacity answer and EIGHT "Too many
+    # requests": Oracle rate-limits launch_instance to roughly one genuine
+    # check per burst. Asking about more combinations at once therefore does
+    # not sample more inventory -- it converts real checks into throttles, and
+    # every throttle is a question that was never actually asked.
+    #
+    # Rotating one at a time means each combination eventually gets a REAL
+    # answer, and the rate limit is spent on signal rather than noise.
+    if args.watch and args.launch:
+        import itertools
+        import random
+        import time
+        for n, (shape, cfg_details, fd, label) in enumerate(itertools.cycle(combos), 1):
+            tag = f"{shape.split('.')[-1]} {label} {fd}"
+            try:
+                inst = compute.launch_instance(build(shape, cfg_details, fd)).data
+                print(f"[{n}] LAUNCHED {tag} -> {inst.id}", flush=True)
+                return 0
+            except oci.exceptions.ServiceError as e:
+                kind = classify(e)
+                outcomes[kind] = outcomes.get(kind, 0) + 1
+                print(f"[{n}] {kind:<12} {tag}  "
+                      f"(real checks so far: {outcomes.get('no-capacity', 0)})", flush=True)
+            # Longer pause after a throttle: the budget is already spent, so
+            # asking again immediately guarantees another non-answer.
+            wait = args.interval * 60 * (2.5 if kind == "throttled" else 1.0)
+            time.sleep(wait * (0.8 + random.random() * 0.4))
+
+    for shape, cfg_details, fd, label in combos:
+        if cfg_details and (cfg_details.ocpus > CEIL_OCPU
+                            or cfg_details.memory_in_gbs > CEIL_MEM):
+            print(f"  SKIP  {shape} {label} — above the Always Free ceiling")
+            continue
+
+        details = oci.core.models.LaunchInstanceDetails(
+            availability_domain=ad,
+            fault_domain=fd,
+            compartment_id=tenancy,
+            shape=shape,
+            display_name="tn-worker",
+            shape_config=cfg_details,
+            create_vnic_details=oci.core.models.CreateVnicDetails(
+                subnet_id=subnet_id, assign_public_ip=True),
+            source_details=oci.core.models.InstanceSourceViaImageDetails(
+                image_id=image_for(shape)),
+        )
+        if pubkey:
+            details.metadata = {"ssh_authorized_keys": pubkey}
+
+        tag = f"{shape.split('.')[-1]:<9} {label:<14} {fd}"
+        if not args.launch:
+            # Dry probe: ask the API to validate without creating anything.
+            print(f"  ...   {tag}  (report-only; use --launch to attempt)")
+            continue
+
+        try:
+            inst = compute.launch_instance(details).data
+            print(f"  LAUNCHED  {tag}  -> {inst.id}")
+            return 0
+        except oci.exceptions.ServiceError as e:
+            msg = (e.message or "").lower()
+            if "out of host capacity" in msg:
+                kind = "no-capacity"
+            elif "too many requests" in msg:
+                kind = "throttled"
+            elif "limit" in msg or "quota" in msg:
+                kind = "limit"
+            else:
+                kind = f"{e.status}: {(e.message or '')[:60]}"
+            outcomes[kind] = outcomes.get(kind, 0) + 1
+            print(f"  {kind:<12} {tag}")
+
+    if outcomes:
+        print("\nsummary:", ", ".join(f"{v}x {k}" for k, v in outcomes.items()))
+        if set(outcomes) == {"no-capacity"}:
+            print("Every fault domain and size refused for capacity — the region "
+                  "is genuinely empty, not a placement artefact.")
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
