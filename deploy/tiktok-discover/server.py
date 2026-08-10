@@ -114,6 +114,53 @@ def discover():
     )
 
 
+@app.route("/meta", methods=["GET"])
+def meta():
+    """
+    Publish timestamp and description for one post, by URL.
+
+    Exists because the sync stores only a DATE (posted_at) while yt-dlp knows
+    the exact instant, and because TikTok's only text is its caption -- which
+    the discovery path keeps just the first line of, as a title, and discards.
+    Both are free here: one extract_info call, no metered provider, no API
+    quota. TikTok sits at 0/78 timestamps purely because nothing ever asked.
+
+    Metadata only: extract_flat is not used because the flat listing omits the
+    description, which is half the point.
+    """
+    if not authorised(request):
+        return jsonify({"error": "Unauthorised."}), 401
+
+    url = (request.args.get("url") or "").strip()
+    if not url:
+        return jsonify({"error": "url query param is required."}), 400
+
+    opts = {"quiet": True, "no_warnings": True, "skip_download": True}
+    started = time.time()
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=False) or {}
+    except yt_dlp.utils.DownloadError as e:
+        msg = str(e)
+        if "private" in msg.lower() or "unavailable" in msg.lower():
+            return jsonify({"url": url, "available": False,
+                            "reason": "post is private or unavailable"}), 200
+        return jsonify({"error": f"Extraction failed: {msg}"}), 502
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"error": f"Unexpected error: {e}"}), 500
+
+    return jsonify({
+        "url": url,
+        "available": True,
+        # Epoch seconds; the caller converts. Null rather than a guess when
+        # the extractor did not report one.
+        "timestamp": info.get("timestamp"),
+        "description": (info.get("description") or "").strip() or None,
+        "durationSeconds": info.get("duration"),
+        "tookMs": round((time.time() - started) * 1000),
+    })
+
+
 @app.route("/transcript", methods=["GET"])
 def transcript():
     """
