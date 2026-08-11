@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Select from "@/components/ui/Select";
 import { createAccount, setArchived, updateAccountClient } from "@/app/actions";
 import { useToast } from "@/components/ui/Toast";
 import { PLATFORM_COLORS } from "@/lib/types";
@@ -69,17 +70,16 @@ export default function AccountsManager({
         <div className="card mb-4 flex flex-wrap items-end gap-2 p-3">
           <label className="text-xs text-[var(--muted)]">
             Platform
-            <select
-              className="input mt-1 min-w-[140px]"
+            {/* An account always HAS a platform, so an empty value is
+                ignored rather than written. */}
+            <Select
+              className="mt-1 min-w-[140px]"
               value={platformSlug}
-              onChange={(e) => setPlatformSlug(e.target.value)}
-            >
-              {platforms.map((p) => (
-                <option key={p.slug} value={p.slug}>
-                  {p.display_name}
-                </option>
-              ))}
-            </select>
+              onChange={(v) => v && setPlatformSlug(v)}
+              placeholder={platforms[0]?.display_name ?? "Platform"}
+              ariaLabel="Platform"
+              options={platforms.map((p) => ({ value: p.slug, label: p.display_name }))}
+            />
           </label>
           <label className="text-xs text-[var(--muted)]">
             Handle
@@ -93,20 +93,18 @@ export default function AccountsManager({
           </label>
           <label className="text-xs text-[var(--muted)]">
             Client
-            <select
-              className="input mt-1 min-w-[150px]"
+            {/* "No client" is a real state for an account, so Select's
+                clear row means exactly what it says. */}
+            <Select
+              className="mt-1 min-w-[150px]"
               value={clientId}
-              onChange={(e) => setClientId(e.target.value)}
-            >
-              <option value="">No client</option>
-              {clients
+              onChange={setClientId}
+              placeholder="No client"
+              ariaLabel="Client"
+              options={clients
                 .filter((c) => !c.is_archived)
-                .map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-            </select>
+                .map((c) => ({ value: c.id, label: c.name }))}
+            />
           </label>
           <button className="btn-primary" onClick={create}>
             Add account
@@ -163,29 +161,25 @@ export default function AccountsManager({
                         // The account->client link was fixed forever at
                         // creation; every client dashboard pivots on it, so
                         // it has to be correctable in place.
-                        <select
-                          className="max-w-[160px] cursor-pointer truncate rounded bg-transparent text-xs text-[var(--muted)] transition-colors hover:text-[var(--fg)] focus:outline-none"
+                        <Select
+                          className="min-w-[150px] max-w-[190px]"
                           value={a.client_id ?? ""}
-                          onChange={async (e) => {
-                            const res = await updateAccountClient(
-                              a.id,
-                              e.target.value || null,
-                            );
+                          onChange={async (v) => {
+                            const res = await updateAccountClient(a.id, v || null);
                             if (res.error) toast("danger", res.error);
                             else toast("success", "Client updated.");
                             startTransition(() => router.refresh());
                           }}
-                          aria-label={`Client for ${a.handle}`}
-                        >
-                          <option value="">No client</option>
-                          {clients
+                          placeholder="No client"
+                          ariaLabel={`Client for ${a.handle}`}
+                          // An archived client stays listed ONLY while it is
+                          // this account's current one -- otherwise the row
+                          // would show a blank and reassigning would be the
+                          // only way out of a state you did not choose.
+                          options={clients
                             .filter((c) => !c.is_archived || c.id === a.client_id)
-                            .map((c) => (
-                              <option key={c.id} value={c.id}>
-                                {c.name}
-                              </option>
-                            ))}
-                        </select>
+                            .map((c) => ({ value: c.id, label: c.name }))}
+                        />
                       ) : (
                         a.client?.name && (
                           <span className="text-xs text-[var(--muted)]">

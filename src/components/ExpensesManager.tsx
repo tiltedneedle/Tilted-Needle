@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Select from "@/components/ui/Select";
 import { createExpense, deleteExpense } from "@/app/actions";
 import { formatMoney } from "@/lib/billing";
 import { dayKey } from "@/lib/format";
@@ -109,18 +110,17 @@ export default function ExpensesManager({
           </label>
           <label className="text-xs text-[var(--muted)]">
             Project
-            <select
-              className="input mt-1 w-44"
+            {/* "No project" IS a real state for an expense, so the clear row
+                Select offers is exactly right here -- unlike the import
+                window, where every account must have one. */}
+            <Select
+              className="mt-1 w-44"
               value={projectId}
-              onChange={(e) => setProjectId(e.target.value)}
-            >
-              <option value="">No project</option>
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
+              onChange={setProjectId}
+              placeholder="No project"
+              ariaLabel="Project"
+              options={projects.map((p) => ({ value: p.id, label: p.name }))}
+            />
           </label>
           <label className="text-xs text-[var(--muted)]">
             Category

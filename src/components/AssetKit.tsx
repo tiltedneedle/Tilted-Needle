@@ -9,6 +9,7 @@ import {
   deleteAsset,
   type AssetInput,
 } from "@/app/(app)/guidelines/actions";
+import Select from "@/components/ui/Select";
 import { ASSET_KINDS, ASSET_GROUPS, GROUP_COLOR, kindLabel, kindGroup } from "@/lib/assetKinds";
 import type { ClientAsset } from "@/lib/guidelines";
 
@@ -253,13 +254,16 @@ function AssetForm({
   return (
     <div className="mb-3 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--panel)] p-3">
       <div className="mb-2 grid gap-2 sm:grid-cols-[150px_1fr]">
-        <select value={kind} onChange={(e) => setKind(e.target.value)} className={field}>
-          {ASSET_KINDS.map((k) => (
-            <option key={k.slug} value={k.slug}>
-              {k.label}
-            </option>
-          ))}
-        </select>
+        {/* An asset always HAS a kind, so an empty value is ignored rather
+            than written -- the clear row Select offers has no meaning here. */}
+        <Select
+          className="min-w-[150px]"
+          value={kind}
+          onChange={(v) => v && setKind(v)}
+          placeholder={ASSET_KINDS[0]?.label ?? "Kind"}
+          ariaLabel="Asset kind"
+          options={ASSET_KINDS.map((k) => ({ value: k.slug, label: k.label }))}
+        />
         <input
           autoFocus
           value={label}

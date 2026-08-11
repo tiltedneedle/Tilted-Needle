@@ -11,6 +11,7 @@ import {
   resolveImportRow,
   startClockifyImport,
 } from "@/app/actions";
+import Select from "@/components/ui/Select";
 import { formatDurationShort } from "@/lib/format";
 
 type Batch = {
@@ -167,28 +168,26 @@ export default function ImportManager({
                           </span>
                         )}
                       </span>
-                      <select
-                        className="input max-w-[180px] py-1"
+                      {/* The old empty <option> was `disabled`: unmapping is
+                          not a real state, a row must resolve to somebody. So
+                          the clear row is ignored rather than written. */}
+                      <Select
+                        className="max-w-[180px]"
                         value={m.resolved_user_id ?? ""}
-                        onChange={async (e) => {
+                        onChange={async (v) => {
+                          if (!v) return;
                           const res = await mapImportMember(
                             activeBatch.id,
                             m.clockify_name,
-                            e.target.value,
+                            v,
                           );
                           if (res.error) return setError(res.error);
                           refresh();
                         }}
-                      >
-                        <option value="" disabled>
-                          Choose a person…
-                        </option>
-                        {members.map((mem) => (
-                          <option key={mem.userId} value={mem.userId}>
-                            {mem.name}
-                          </option>
-                        ))}
-                      </select>
+                        placeholder="Choose a person…"
+                        ariaLabel={`Map ${m.clockify_name}`}
+                        options={members.map((mem) => ({ value: mem.userId, label: mem.name }))}
+                      />
                     </div>
                   ))}
                 </div>
@@ -330,18 +329,14 @@ function StartImport({
         <div className="animate-rise mt-3 flex flex-wrap items-end gap-2 border-t border-[var(--border)] pt-3">
           <label className="text-xs text-[var(--muted)]">
             Clockify workspace
-            <select
-              className="input mt-1 min-w-[200px]"
+            <Select
+              className="mt-1 min-w-[200px]"
               value={clockifyWorkspaceId}
-              onChange={(e) => setClockifyWorkspaceId(e.target.value)}
-            >
-              <option value="">Choose…</option>
-              {workspaces.map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.name}
-                </option>
-              ))}
-            </select>
+              onChange={setClockifyWorkspaceId}
+              placeholder="Choose…"
+              ariaLabel="Clockify workspace"
+              options={workspaces.map((w) => ({ value: w.id, label: w.name }))}
+            />
           </label>
           <button
             className="btn-primary"
@@ -411,25 +406,23 @@ function ImportRowView({
         <span className={`tabular text-xs ${confidenceClass}`}>{confidence}% match</span>
       )}
 
-      <select
-        className="input max-w-[200px] py-1 text-xs"
+      {/* "No content link" is a real, choosable state, so the clear row
+          means what it says and its empty value is written through. */}
+      <Select
+        className="max-w-[200px]"
         value={row.resolved_content_item_id ?? row.suggested_content_item_id ?? ""}
-        onChange={async (e) => {
+        onChange={async (v) => {
           const res = await resolveImportRow(row.id, {
             status: row.status === "pending" ? "approved" : row.status as "approved" | "skipped" | "rejected",
-            contentItemId: e.target.value || null,
+            contentItemId: v || null,
           });
           if (res.error) return onError(res.error);
           refresh();
         }}
-      >
-        <option value="">No content link</option>
-        {contentItems.map((c) => (
-          <option key={c.id} value={c.id}>
-            {c.title}
-          </option>
-        ))}
-      </select>
+        placeholder="No content link"
+        ariaLabel="Link to content"
+        options={contentItems.map((c) => ({ value: c.id, label: c.title }))}
+      />
       {contentTitle && !row.resolved_content_item_id && (
         <span className="text-xs text-[var(--muted)]">suggested: {contentTitle}</span>
       )}
