@@ -43,7 +43,12 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={push}>
       {children}
-      <div className="pointer-events-none fixed bottom-4 right-4 z-[60] flex flex-col gap-2">
+      {/* Above dropdowns on purpose: a toast reports on what just happened,
+          and a panel that hides it makes the app look like it did nothing. */}
+      <div
+        className="pointer-events-none fixed bottom-4 right-4 flex flex-col gap-2"
+        style={{ zIndex: "var(--z-toast)" }}
+      >
         {items.map((t) => (
           <div
             key={t.id}

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useCallback, useRef, useState, useTransition } from "react";
 import {
   BarChart3,
   BookOpen,
@@ -31,6 +31,7 @@ import {
   Upload,
   Users,
 } from "lucide-react";
+import Popover from "@/components/ui/Popover";
 import type { ComponentType } from "react";
 import { switchWorkspace, signOut } from "@/app/actions";
 import ThemeToggle from "@/components/ui/ThemeToggle";
@@ -156,6 +157,11 @@ export default function Sidebar({
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [, startTransition] = useTransition();
+  // Anchored to the BUTTON, not its wrapper: the wrapper carries p-3, so
+  // measuring it would render the panel flush to the sidebar edges instead of
+  // inset by 12px the way the original left-3/right-3 panel was.
+  const switcherRef = useRef<HTMLButtonElement>(null);
+  const closeSwitcher = useCallback(() => setOpen(false), []);
 
   return (
     <aside
@@ -166,6 +172,7 @@ export default function Sidebar({
           high-frequency control, not a settings-page afterthought (PRD 7.1). */}
       <div className="relative p-3">
         <button
+          ref={switcherRef}
           onClick={() => setOpen((v) => !v)}
           className="flex w-full items-center gap-2 rounded-[var(--radius-sm)] px-2 py-2 text-left transition-colors hover:bg-white/5"
           aria-expanded={open}
@@ -188,17 +195,16 @@ export default function Sidebar({
         </button>
 
         {open && (
-          <>
-            <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-            <div
-              role="listbox"
-              className="animate-pop absolute left-3 right-3 top-14 z-20 overflow-hidden py-1"
-              style={{
-                borderRadius: "var(--radius-sm)",
-                background: "var(--panel)",
-                boxShadow: "var(--shadow-card-hover)",
-              }}
-            >
+          // The invisible full-screen backdrop that used to catch outside
+          // clicks is gone: Popover handles that, and the backdrop sat at
+          // z-10 where a portalled panel would have been above it anyway.
+          <Popover
+            anchorRef={switcherRef}
+            onClose={closeSwitcher}
+            matchWidth
+            ariaLabel="Switch workspace"
+            style={{ background: "var(--panel)" }}
+          >
               {workspaces.map((w) => (
                 <button
                   key={w.id}
@@ -224,8 +230,7 @@ export default function Sidebar({
               >
                 New workspace
               </Link>
-            </div>
-          </>
+          </Popover>
         )}
       </div>
 

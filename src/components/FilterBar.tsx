@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronDown, Check } from "lucide-react";
 import Select from "@/components/ui/Select";
+import Popover from "@/components/ui/Popover";
 import {
   presetForRange,
   rangeForPreset,
@@ -372,21 +373,10 @@ function MultiSelect({
   const wrapRef = useRef<HTMLDivElement>(null);
   const count = def.values?.length ?? 0;
 
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: PointerEvent) => {
-      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("pointerdown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("pointerdown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
+  // This panel must survive a click on one of its own options -- ticking a
+  // box is not "done choosing". Popover owns outside-detection precisely so
+  // that a portalled option click is not mistaken for a click outside.
+  const close = useCallback(() => setOpen(false), []);
 
   return (
     <div ref={wrapRef} className="relative">
@@ -415,16 +405,12 @@ function MultiSelect({
       </button>
 
       {open && (
-        <div
-          role="listbox"
-          aria-multiselectable="true"
-          className="animate-pop absolute left-0 top-full z-30 mt-1 max-h-64 w-60 overflow-y-auto py-1"
-          style={{
-            borderRadius: "var(--radius-sm)",
-            background: "var(--bg-elevated)",
-            boxShadow: "var(--shadow-card-hover)",
-            border: "1px solid var(--border)",
-          }}
+        <Popover
+          anchorRef={wrapRef}
+          onClose={close}
+          ariaMultiselectable
+          ariaLabel={def.label}
+          width={240}
         >
           {def.options.length === 0 && (
             <div className="px-3 py-2 text-xs text-[var(--muted)]">Nothing to pick yet.</div>
@@ -454,7 +440,7 @@ function MultiSelect({
               </button>
             );
           })}
-        </div>
+        </Popover>
       )}
     </div>
   );

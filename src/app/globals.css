@@ -85,6 +85,30 @@
   --shadow-card-hover: 0 8px 24px rgb(27 36 49 / 0.08);
   --shadow-coral: 0 4px 14px rgb(240 112 74 / 0.28);
 
+  /* Layer scale. One place, so "what sits above what" is a decision rather
+     than whatever number the last person happened to type.
+
+     The ORDER is the whole point, and it is not the obvious one:
+
+       sticky    the TimerBar and the mobile header. Page furniture.
+       modal     the mobile sidebar drawer.
+       dropdown  ABOVE modal, deliberately. The workspace switcher lives
+                 INSIDE the sidebar, so on mobile a dropdown is opened FROM
+                 the drawer -- rank it below and the panel renders under the
+                 surface that spawned it. A popover must always outrank its
+                 opener.
+       toast     above everything a page can open, because it reports on
+                 what just happened to it.
+       skip      the keyboard skip-link. It is only ever visible while
+                 focused, and if it can be covered it is useless.
+
+     Gaps of 100 leave room to slot something in without renumbering. */
+  --z-sticky: 700;
+  --z-modal: 800;
+  --z-dropdown: 900;
+  --z-toast: 1000;
+  --z-skip: 1100;
+
   --font-sans: "Plus Jakarta Sans", Inter, ui-sans-serif, system-ui, sans-serif;
 }
 

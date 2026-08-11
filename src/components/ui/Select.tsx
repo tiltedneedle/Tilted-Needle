@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Check, ChevronDown } from "lucide-react";
+import Popover from "@/components/ui/Popover";
 
 /**
  * A dropdown that actually obeys the theme.
@@ -51,21 +52,10 @@ export default function Select({
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: PointerEvent) => {
-      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("pointerdown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("pointerdown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
+  // Outside-click and Escape now belong to Popover, which can see both the
+  // anchor and the portalled panel. Doing it here would treat a click on an
+  // option as "outside" and close before the option registered.
+  const close = useCallback(() => setOpen(false), []);
 
   const selected = options.find((o) => o.value === value);
 
@@ -100,15 +90,12 @@ export default function Select({
       </button>
 
       {open && (
-        <div
-          role="listbox"
-          className="animate-pop absolute left-0 top-full z-30 mt-1 max-h-64 w-full min-w-[180px] overflow-y-auto py-1"
-          style={{
-            borderRadius: "var(--radius-sm)",
-            background: "var(--bg-elevated)",
-            boxShadow: "var(--shadow-card-hover)",
-            border: "1px solid var(--border)",
-          }}
+        <Popover
+          anchorRef={wrapRef}
+          onClose={close}
+          matchWidth
+          minWidth={180}
+          ariaLabel={ariaLabel}
         >
           {/* The clear row. A native select needs an empty <option> for this
               and it reads as a blank line; naming it says what it does. */}
@@ -158,7 +145,7 @@ export default function Select({
               </button>
             );
           })}
-        </div>
+        </Popover>
       )}
     </div>
   );

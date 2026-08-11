@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Eye, Heart, MessageCircle, Plus } from "lucide-react";
 import Avatar from "@/components/Avatar";
+import Popover from "@/components/ui/Popover";
 import { assignRole, unassignRole } from "@/app/actions";
 import { formatCount, formatDurationShort } from "@/lib/format";
 import { PLATFORM_COLORS } from "@/lib/types";
@@ -139,24 +140,16 @@ export function RoleCredits({
   const [pending, startTransition] = useTransition();
   const router = useRouter();
   const wrapRef = useRef<HTMLDivElement>(null);
+  // Points at whichever role's cell currently owns the open menu. Only one
+  // can be open, so a single ref attached conditionally is enough -- and the
+  // menu must be positioned from THAT cell, not from the whole stack, or it
+  // would open under the first role no matter which one was clicked.
+  const anchorRef = useRef<HTMLDivElement>(null);
 
-  // Click-outside and Escape both close the menu. Without this the popover
-  // survives navigation-by-click and hangs over the next row.
-  useEffect(() => {
-    if (!openRole) return;
-    function onDown(e: PointerEvent) {
-      if (!wrapRef.current?.contains(e.target as Node)) setOpenRole(null);
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpenRole(null);
-    }
-    document.addEventListener("pointerdown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("pointerdown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [openRole]);
+  // Outside-click and Escape moved into Popover. They cannot live here any
+  // more: the menu is portalled to <body>, so wrapRef.contains() reports a
+  // click on a menu item as OUTSIDE and would close before the click landed.
+  const closeMenu = useCallback(() => setOpenRole(null), []);
 
   function run(fn: () => Promise<{ error?: string }>) {
     startTransition(async () => {
@@ -188,6 +181,7 @@ export function RoleCredits({
         return (
           <div
             key={role.id}
+            ref={isOpen ? anchorRef : undefined}
             className={`relative transition-[margin] duration-200 ${
               expanded ? "ml-0" : "-ml-[17px] first:ml-0"
             } group-focus-within/stack:ml-0 group-hover/stack:ml-0`}
@@ -248,9 +242,24 @@ export function RoleCredits({
             </button>
 
             {/* Anchored right: the credit row sits at the tile's right edge,
-                so a left-anchored menu would hang off the page. */}
+                so a left-anchored menu would hang off the page.
+
+                This is the menu that was CLIPPED rather than merely painted
+                under. The list it lives in is a `card ... overflow-hidden`,
+                which is what rounds the divided card's corners -- so on the
+                last row the menu was cut off with no z-index that could help.
+                Portalled, it is not inside that card any more. */}
             {isOpen && canManage && (
-              <div className="absolute right-0 top-full z-20 mt-1 w-52 overflow-hidden rounded-[12px] border border-[var(--border)] bg-[var(--bg-elevated)] shadow-[var(--shadow-card-hover)]">
+              <Popover
+                anchorRef={anchorRef}
+                onClose={closeMenu}
+                align="right"
+                role="menu"
+                ariaLabel={`${role.name} credits`}
+                width={208}
+                maxHeight={340}
+                className="!py-0"
+              >
                 <div className="border-b border-[var(--border)] px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
                   {role.name}
                 </div>
@@ -308,7 +317,7 @@ export function RoleCredits({
                     </div>
                   )}
                 </div>
-              </div>
+              </Popover>
             )}
           </div>
         );

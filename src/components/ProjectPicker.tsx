@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
+import Popover from "@/components/ui/Popover";
 import type { Project, Task } from "@/lib/types";
 
 export type Selection = { projectId: string | null; taskId: string | null };
@@ -22,21 +23,9 @@ export default function ProjectPicker({
   const [query, setQuery] = useState("");
   const ref = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    function onDown(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
+  // Owned by Popover now: the panel is portalled, so a ref.contains() check
+  // here would read a click on a project as a click outside.
+  const close = useCallback(() => setOpen(false), []);
 
   const selectedProject = projects.find((p) => p.id === value.projectId) ?? null;
   const selectedTask = tasks.find((t) => t.id === value.taskId) ?? null;
@@ -74,7 +63,14 @@ export default function ProjectPicker({
       </button>
 
       {open && (
-        <div className="animate-pop panel-shadow absolute left-0 top-full z-30 mt-1 w-72 overflow-hidden rounded-md border border-[var(--border)] bg-[var(--panel)]">
+        <Popover
+          anchorRef={ref}
+          onClose={close}
+          width={288}
+          maxHeight={400}
+          className="!py-0"
+          ariaLabel="Project"
+        >
           <div className="border-b border-[var(--border)] p-2">
             <input
               autoFocus
@@ -146,7 +142,7 @@ export default function ProjectPicker({
               );
             })}
           </div>
-        </div>
+        </Popover>
       )}
     </div>
   );

@@ -99,7 +99,7 @@ export default function TimerBar({
   const isRunning = !!running;
 
   return (
-    <div className="card sticky top-0 z-20 mb-6 p-2">
+    <div className="card sticky top-0 mb-6 p-2" style={{ zIndex: "var(--z-sticky)" }}>
       <div className="flex flex-wrap items-center gap-2">
         <input
           className="input min-w-[200px] flex-1 border-transparent bg-transparent focus:border-[var(--border)]"
