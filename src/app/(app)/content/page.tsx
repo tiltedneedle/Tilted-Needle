@@ -2,18 +2,18 @@ import PageHeader from "@/components/PageHeader";
 import NewContentForm from "@/components/NewContentForm";
 import ContentOverview from "@/components/ContentOverview";
 import ContentDetail, { type AnalyticsRow, type SnapshotRow } from "@/components/ContentDetail";
-import ClientDetail from "@/components/ClientDetail";
 import PeopleInView from "@/components/PeopleInView";
 import { personStats, type PersonStats } from "@/lib/reports";
 import { secondsByUserOnVideos } from "@/lib/reportData";
 import FilterBar from "@/components/FilterBar";
 import PlatformReach from "@/components/PlatformReach";
 import { Stat, StatGrid, SectionHeading } from "@/components/Stat";
-import { Clapperboard, Layers, TrendingUp, Timer } from "lucide-react";
+import { Clapperboard, Eye, Layers, TrendingUp, Timer } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { requireSession } from "@/lib/workspace";
 import { canManage, one } from "@/lib/types";
-import { formatDurationShort } from "@/lib/format";
+import { formatCount, formatDurationShort } from "@/lib/format";
+import { hoursPerThousandViews } from "@/lib/rollup";
 import { cachedRankings } from "@/lib/cachedRankings";
 import { parseFilters } from "@/lib/contentFilters";
 import { selectAll } from "@/lib/selectAll";
@@ -196,6 +196,9 @@ export default async function ContentPage({
       range={{ from: f.from, to: f.to }}
       rangeClears={["video"]}
       primaryCount={3}
+      // Sort is not a filter. "Clear all" clears what you filtered BY; it has
+      // no business silently reordering the list you are looking at.
+      preserveOnClear={["sort"]}
       filters={[
         // Multi-select: within a dimension is OR, across dimensions is AND
         // (PRD v0.5 §2.1). Options come from the unfiltered lists, so no
@@ -354,55 +357,59 @@ export default async function ContentPage({
     );
   }
 
-  /* ---- Single client ------------------------------------------------------
-     Kept as the deep client view only when EXACTLY one client and no people
-     are selected; any wider combination falls through to the overview,
-     where the summary strips describe the intersection (PRD v0.5 §3). */
   // Every branch from here down renders the overview, and only the video
   // branch above (which already returned) skips loading it.
   if (!overview) throw new Error("unreachable: overview is loaded for non-video views");
-  if (soloClientId) {
-    const named = allClients.find((c) => c.id === soloClientId);
-    if (!named) {
-      return (
-        <Shell title="Client" subtitle="Not found.">
-          {filters}
-          <div className="card p-8 text-sm text-[var(--muted)]">
-            That client was not found in this workspace.
-          </div>
-        </Shell>
-      );
-    }
-    // The derived summary only exists when some content survived the other
-    // filters; an empty one still needs a real name and zeroed totals rather
-    // than a "not found", which would misreport an over-narrow filter.
-    const client = overview.clients.find((c) => c.id === soloClientId) ?? {
-      id: soloClientId,
-      name: named.name,
-      videoCount: 0,
-      postCount: 0,
-      totals: [],
-      trackedSeconds: 0,
-      recentGain: 0,
-    };
-    const mine = overview.videos.filter((v) => v.clientId === soloClientId);
-    return (
-      <Shell
-        title={client.name}
-        subtitle="What has been delivered for this client, kept separate by platform."
-      >
-        {filters}
-        <ClientDetail
-          client={client}
-          videos={mine}
-          workspaceId={ws}
-          roles={workspaceRoles}
-          members={members}
-          canManage={manages}
-        />
-      </Shell>
-    );
-  }
+
+  /* ---- Single client ------------------------------------------------------
+     There used to be a whole separate branch here: exactly one client and no
+     people selected returned <ClientDetail> instead of the overview. That is
+     what made the sort controls vanish -- ClientDetail owns no sort UI, and
+     ContentOverview, which owns all of it, was simply never reached. It also
+     explained the shape of the complaint: pick TWO clients and the sorts came
+     back, because the condition stopped matching.
+
+     Patching it by mounting a second sort bar inside ClientDetail would have
+     left two sort implementations to keep in step, and the "Reach" sort is
+     exactly where that goes wrong -- it ranks on PEAK single-platform views,
+     never a sum, and a well-meaning second copy that added views together
+     would break the hardest rule in the product while looking fine.
+
+     So the branch is gone. One page, one sort, and the bug is not fixed so
+     much as made unrepeatable. What was genuinely client-facing about that
+     view -- the hours-per-1k-views strip and the most-viewed figure -- moves
+     into the overview and appears when a single client is in view. */
+  const soloClient = soloClientId
+    ? (overview.clients.find((c) => c.id === soloClientId) ??
+      (() => {
+        const named = allClients.find((c) => c.id === soloClientId);
+        // A client that survived no other filter still needs a real name and
+        // zeroed totals; "not found" would misreport an over-narrow filter as
+        // a missing record.
+        return named
+          ? {
+              id: soloClientId,
+              name: named.name,
+              videoCount: 0,
+              postCount: 0,
+              totals: [],
+              trackedSeconds: 0,
+              recentGain: 0,
+            }
+          : null;
+      })())
+    : null;
+
+  // Ranked on actual reach: peak single-platform views, because a view is a
+  // different event on each platform and pooling them ranks nothing.
+  const bestVideo =
+    [...overview.videos]
+      .filter((v) => v.postCount > 0)
+      .sort(
+        (a, b) =>
+          b.platforms.reduce((s, p) => Math.max(s, p.views), 0) -
+          a.platforms.reduce((s, p) => Math.max(s, p.views), 0),
+      )[0] ?? null;
 
   /* ---- Everything ------------------------------------------------------- */
   const t = overview.totals;
@@ -463,6 +470,20 @@ export default async function ContentPage({
           value={t.trackedSeconds ? formatDurationShort(t.trackedSeconds) : "—"}
           hint="tracked against content"
         />
+        {/* The last figure the deleted client view had that this one did not.
+            Peak single-platform views, never a sum across platforms -- and
+            shown only for a single client, because "the most viewed video"
+            across a mixed set answers a question nobody asked. */}
+        {soloClient && bestVideo && (
+          <Stat
+            icon={Eye}
+            label="Most viewed"
+            value={formatCount(
+              bestVideo.platforms.reduce((s, p) => Math.max(s, p.views), 0),
+            )}
+            hint={bestVideo.title.slice(0, 40)}
+          />
+        )}
       </StatGrid>
 
       <PeopleInView people={peopleInView} />
@@ -473,6 +494,25 @@ export default async function ContentPage({
           note="Each platform counts a view differently — never summed"
         />
         <PlatformReach totals={overview.platformTotals} />
+        {/* Carried over from the deleted ClientDetail branch. It only means
+            anything for ONE client -- hours of work per 1,000 views is a
+            ratio, and pooling several clients' hours against several clients'
+            views would produce a number that describes nobody. */}
+        {soloClient && soloClient.trackedSeconds > 0 && soloClient.totals.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs text-[var(--muted)]">
+            {soloClient.totals.map((t) => {
+              const hpk = hoursPerThousandViews(soloClient.trackedSeconds, t.views);
+              if (hpk == null) return null;
+              return (
+                <span key={t.platform} title="Hours of tracked work per 1,000 views">
+                  <span className="capitalize">{t.platform}</span>{" "}
+                  <span className="tabular text-[var(--fg)]">{hpk.toFixed(2)}</span> h / 1k
+                  views
+                </span>
+              );
+            })}
+          </div>
+        )}
       </section>
 
       <NewContentForm workspaceId={ws} clients={allClients} />

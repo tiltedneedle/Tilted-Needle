@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { formatDurationShort } from "@/lib/format";
 import { engagementRate } from "@/lib/rollup";
 import { datedName, downloadCsv, toCsv } from "@/lib/exportCsv";
@@ -91,7 +92,43 @@ export default function ContentOverview({
   members: TileMember[];
   canManage?: boolean;
 }) {
-  const [sort, setSort] = useState<SortKey>("recent");
+  /**
+   * Sort lives in the URL so it survives a refresh and travels in a shared
+   * link -- which is what this page already promises about its filters, and
+   * what "they should stay on the videos all time" asks for.
+   *
+   * Written with history.replaceState rather than router.push: Next documents
+   * this exactly (app/guides/single-page-applications, "Shallow routing on
+   * the client") and its own example is a ?sort= param. pushState and
+   * replaceState integrate with the router and sync into useSearchParams, so
+   * the URL updates with NO server round-trip. That matters here -- this page
+   * re-queries five tables, and paying for that on every click of a purely
+   * presentational control would make sorting feel broken.
+   *
+   * replaceState, not pushState: sorting is not a place you navigated to, and
+   * pushState would make Back walk through every sort you tried instead of
+   * leaving the page.
+   */
+  const searchParams = useSearchParams();
+  const urlSort = searchParams.get("sort");
+  // Unknown values degrade to the default rather than throwing, matching how
+  // every other filter param is parsed -- a mangled shared link opens the
+  // page, it does not break it.
+  const sort: SortKey = SORTS.some((s) => s.key === urlSort)
+    ? (urlSort as SortKey)
+    : "recent";
+
+  const setSort = useCallback(
+    (key: SortKey) => {
+      const next = new URLSearchParams(searchParams.toString());
+      if (key === "recent") next.delete("sort");
+      else next.set("sort", key);
+      const qs = next.toString();
+      window.history.replaceState(null, "", qs ? `?${qs}` : window.location.pathname);
+    },
+    [searchParams],
+  );
+
   const [clientSort, setClientSort] = useState<ClientSortKey>("videos");
 
   // Clients are ranked on peak single-platform reach rather than a sum, for
