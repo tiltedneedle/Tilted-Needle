@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronDown, Check } from "lucide-react";
+import Select from "@/components/ui/Select";
 import {
   presetForRange,
   rangeForPreset,
@@ -145,25 +146,20 @@ export default function FilterBar({
   const hiddenActiveCount = rest.filter(hasValue).length;
 
   function renderSingle(f: FilterDef) {
+    // Was a native <select>, whose option list the OS renders and no
+    // stylesheet can reach -- in dark mode that meant a white panel with
+    // unreadable text over a dark app. Select renders the list in our own
+    // surface tokens, and matches the multi-select sitting beside it.
     return (
-      <label key={f.key} className="relative">
-        <span className="sr-only">{f.label}</span>
-        <select
-          className={`input min-w-[150px] max-w-[230px] cursor-pointer py-1.5 pr-7 text-sm transition-colors ${
-            f.value ? "border-[var(--accent)]/50 font-medium" : ""
-          }`}
-          value={f.value ?? ""}
-          onChange={(e) => set(f.key, e.target.value, f.clears)}
-          aria-label={f.label}
-        >
-          <option value="">{f.allLabel}</option>
-          {f.options.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-      </label>
+      <Select
+        key={f.key}
+        className="min-w-[150px] max-w-[230px]"
+        value={f.value ?? ""}
+        onChange={(v) => set(f.key, v, f.clears)}
+        options={f.options}
+        placeholder={f.allLabel}
+        ariaLabel={f.label}
+      />
     );
   }
 
@@ -179,32 +175,28 @@ export default function FilterBar({
 
         {range && (
           <>
-            <label className="relative">
-              <span className="sr-only">Time range</span>
-              <select
-                className={`input min-w-[130px] cursor-pointer py-1.5 pr-7 text-sm transition-colors ${
-                  rangeActive ? "border-[var(--accent)]/50 font-medium" : ""
-                }`}
-                value={customOpen || preset === "custom" ? "custom" : preset}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  if (v === "custom") {
-                    setCustomOpen(true);
-                    return;
-                  }
-                  setCustomOpen(false);
-                  setRange(rangeForPreset(v as RangePreset));
-                }}
-                aria-label="Time range"
-              >
-                {PRESET_LABELS.map((p) => (
-                  <option key={p.value} value={p.value}>
-                    {p.label}
-                  </option>
-                ))}
-                <option value="custom">Custom…</option>
-              </select>
-            </label>
+            {/* The range picker is a styled Select too, so the row does not
+                mix one OS-drawn list with two of ours. "All time" is the
+                resting state rather than a clear row, so it is passed as a
+                real option and the placeholder never shows. */}
+            <Select
+              className="min-w-[140px]"
+              value={customOpen || preset === "custom" ? "custom" : preset}
+              onChange={(v) => {
+                if (!v || v === "custom") {
+                  setCustomOpen(true);
+                  return;
+                }
+                setCustomOpen(false);
+                setRange(rangeForPreset(v as RangePreset));
+              }}
+              options={[
+                ...PRESET_LABELS.map((p) => ({ value: p.value, label: p.label })),
+                { value: "custom", label: "Custom…" },
+              ]}
+              placeholder="All time"
+              ariaLabel="Time range"
+            />
             {(customOpen || preset === "custom") && (
               <span className="animate-rise flex items-center gap-1.5 text-xs text-[var(--muted)]">
                 <input

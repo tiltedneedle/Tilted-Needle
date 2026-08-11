@@ -34,10 +34,15 @@ export default function ClientInsights({
 
   return (
     <>
+      {/* The baseline framing ("1.0x means typical for them") is gone with
+          the rest of the multiplier model. What each comparison ranks is
+          unchanged -- which formats and platforms did better FOR THIS CLIENT
+          -- but it is now described in plain terms rather than as a ratio
+          against a median that moves as the account grows. */}
       <p className="mb-4 text-xs text-[var(--muted)]">
-        Median performance against each account&rsquo;s own baseline, so 1.0×
-        means &ldquo;typical for them&rdquo;. Comparisons are associations over a
-        small library, never causes — the sample size sits beside every one.
+        What tended to do better for each client, ranked within their own
+        library. These are associations over a small number of videos, never
+        causes — the sample size sits beside every one.
       </p>
 
       <div className="space-y-6">

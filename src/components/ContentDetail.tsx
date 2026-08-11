@@ -15,6 +15,8 @@ import {
   updatePlatformPost,
 } from "@/app/actions";
 import { formatDurationShort, parseDuration } from "@/lib/format";
+import { ChevronDown } from "lucide-react";
+import Select from "@/components/ui/Select";
 import VideoEmbed from "@/components/VideoEmbed";
 import Avatar from "@/components/Avatar";
 import ScreenshotImport from "@/components/ScreenshotImport";
@@ -116,6 +118,8 @@ export default function ContentDetail({
     retention30: "",
     retention60: "",
   });
+  const [advanced, setAdvanced] = useState<string | null>(null);
+  const [showAttach, setShowAttach] = useState(false);
   const [editMeta, setEditMeta] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [meta, setMeta] = useState({
@@ -554,49 +558,86 @@ export default function ContentDetail({
                 <ScrapeNowButton platformPostId={p.id} allowance={scrapeAllowance} compact />
               </div>
 
-              {/* Route B into the same table the form above writes
-                  (PRD-video-intelligence §2.1). Instagram has no export, so
-                  for reach, saves and shares a screenshot is the only route
-                  that exists. */}
-              <div className="mt-3">
-                <ScreenshotImport
-                  workspaceId={workspaceId}
-                  platformPostId={p.id}
-                  draft={visionDrafts[p.id] ?? null}
+              {/* The screenshot reader and the owner-only metrics panel are
+                  both occasional, deliberate acts -- you go looking for them
+                  when a client sends an export, not while reading how a video
+                  did. Open by default they pushed the actual numbers off the
+                  screen and made every post look like a data-entry form. */}
+              <button
+                className="mt-3 flex items-center gap-1 text-xs text-[var(--muted)] transition-colors hover:text-[var(--fg)]"
+                onClick={() => setAdvanced(advanced === p.id ? null : p.id)}
+                aria-expanded={advanced === p.id}
+              >
+                {advanced === p.id ? "Hide advanced options" : "View advanced options"}
+                <ChevronDown
+                  size={12}
+                  className={`transition-transform duration-150 ${
+                    advanced === p.id ? "rotate-180" : ""
+                  }`}
                 />
-              </div>
+              </button>
 
-              <EnhancedMetrics
-                analytics={analytics.filter((a) => a.platform_post_id === p.id)}
-                editing={editingAnalytics === p.id}
-                draft={analyticsDraft}
-                setDraft={setAnalyticsDraft}
-                onEdit={() => setEditingAnalytics(p.id)}
-                onCancel={() => setEditingAnalytics(null)}
-                onSave={() => void saveAnalytics(p.id)}
-              />
+              {advanced === p.id && (
+                <div className="animate-rise mt-2 space-y-3 border-t border-[var(--border)] pt-3">
+                  {/* Route B into the same table the form above writes
+                      (PRD-video-intelligence §2.1). Instagram has no export,
+                      so for reach, saves and shares a screenshot is the only
+                      route that exists. */}
+                  <ScreenshotImport
+                    workspaceId={workspaceId}
+                    platformPostId={p.id}
+                    draft={visionDrafts[p.id] ?? null}
+                  />
+
+                  <EnhancedMetrics
+                    analytics={analytics.filter((a) => a.platform_post_id === p.id)}
+                    editing={editingAnalytics === p.id}
+                    draft={analyticsDraft}
+                    setDraft={setAnalyticsDraft}
+                    onEdit={() => setEditingAnalytics(p.id)}
+                    onCancel={() => setEditingAnalytics(null)}
+                    onSave={() => void saveAnalytics(p.id)}
+                  />
+                </div>
+              )}
             </div>
           );
         })}
       </div>
 
+      {/* Attaching a platform is rare -- it happens once, when a video is
+          cross-posted -- so it sits behind the same disclosure rather than
+          occupying the page every time anyone opens a video. */}
       {unusedAccounts.length > 0 && (
-        <div className="mb-6 flex items-center gap-2">
-          <select
-            className="input max-w-[240px]"
-            value={addAccountId}
-            onChange={(e) => setAddAccountId(e.target.value)}
+        <div className="mb-6">
+          <button
+            className="flex items-center gap-1 text-xs text-[var(--muted)] transition-colors hover:text-[var(--fg)]"
+            onClick={() => setShowAttach((v) => !v)}
+            aria-expanded={showAttach}
           >
-            <option value="">Add to a platform…</option>
-            {unusedAccounts.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.platform_slug} — {a.handle}
-              </option>
-            ))}
-          </select>
-          <button className="btn" onClick={attach} disabled={!addAccountId}>
-            Attach
+            {showAttach ? "Hide" : "Add this video to another platform"}
+            <ChevronDown
+              size={12}
+              className={`transition-transform duration-150 ${showAttach ? "rotate-180" : ""}`}
+            />
           </button>
+          {showAttach && (
+            <div className="animate-rise mt-2 flex items-center gap-2">
+              <Select
+                className="max-w-[240px]"
+                value={addAccountId}
+                onChange={setAddAccountId}
+                placeholder="Add to a platform…"
+                options={unusedAccounts.map((a) => ({
+                  value: a.id,
+                  label: `${a.platform_slug} — ${a.handle}`,
+                }))}
+              />
+              <button className="btn" onClick={attach} disabled={!addAccountId}>
+                Attach
+              </button>
+            </div>
+          )}
         </div>
       )}
 

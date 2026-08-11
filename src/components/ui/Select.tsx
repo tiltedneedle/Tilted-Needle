@@ -1,0 +1,152 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { Check, ChevronDown } from "lucide-react";
+
+/**
+ * A dropdown that actually obeys the theme.
+ *
+ * A native <select> renders its option list through the OPERATING SYSTEM, not
+ * the page. No CSS reaches inside it -- not our variables, not our fonts, not
+ * our radii. In dark mode that produced the bug in the screenshots: a white
+ * panel with near-invisible grey text floating over a dark app, unfixable from
+ * the stylesheet because the panel was never ours to style.
+ *
+ * So the list is rendered here instead, in the app's own surface tokens, using
+ * the same anatomy as the multi-select in FilterBar: a button that states the
+ * current value, a panel that closes on outside-click and Escape, and a check
+ * beside what is chosen.
+ *
+ * Deliberately keeps the native element's INTERFACE -- value in, string out --
+ * so swapping one in is a two-line change at each call site and nothing has to
+ * learn a new state shape.
+ */
+export default function Select({
+  value,
+  onChange,
+  options,
+  placeholder = "Select…",
+  className = "",
+  ariaLabel,
+  disabled = false,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  options: { value: string; label: string }[];
+  /** Shown when nothing is chosen; also the "clear" row when clearable. */
+  placeholder?: string;
+  className?: string;
+  ariaLabel?: string;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: PointerEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const selected = options.find((o) => o.value === value);
+
+  return (
+    <div ref={wrapRef} className={`relative ${className}`}>
+      <button
+        type="button"
+        className={`input flex w-full cursor-pointer items-center gap-1.5 py-1.5 text-left text-sm transition-colors ${
+          value ? "border-[var(--accent)]/50 font-medium" : ""
+        } ${disabled ? "cursor-not-allowed opacity-50" : ""}`}
+        onClick={() => !disabled && setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        aria-label={ariaLabel}
+        disabled={disabled}
+      >
+        <span
+          className={`min-w-0 flex-1 truncate ${selected ? "" : "text-[var(--muted)]"}`}
+        >
+          {selected?.label ?? placeholder}
+        </span>
+        <ChevronDown
+          size={13}
+          className={`shrink-0 text-[var(--muted)] transition-transform duration-150 ${
+            open ? "rotate-180" : ""
+          }`}
+        />
+      </button>
+
+      {open && (
+        <div
+          role="listbox"
+          className="animate-pop absolute left-0 top-full z-30 mt-1 max-h-64 w-full min-w-[180px] overflow-y-auto py-1"
+          style={{
+            borderRadius: "var(--radius-sm)",
+            background: "var(--bg-elevated)",
+            boxShadow: "var(--shadow-card-hover)",
+            border: "1px solid var(--border)",
+          }}
+        >
+          {/* The clear row. A native select needs an empty <option> for this
+              and it reads as a blank line; naming it says what it does. */}
+          <button
+            type="button"
+            role="option"
+            aria-selected={!value}
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-[var(--muted)] transition-colors hover:bg-[var(--bg-subtle)]"
+            onClick={() => {
+              onChange("");
+              setOpen(false);
+            }}
+          >
+            <span className="grid size-4 shrink-0 place-items-center">
+              {!value && <Check size={11} strokeWidth={3} />}
+            </span>
+            <span className="min-w-0 flex-1 truncate">{placeholder}</span>
+          </button>
+
+          {options.length === 0 && (
+            <div className="px-3 py-2 text-xs text-[var(--muted)]">
+              Nothing to pick yet.
+            </div>
+          )}
+
+          {options.map((o) => {
+            const isSel = o.value === value;
+            return (
+              <button
+                key={o.value}
+                type="button"
+                role="option"
+                aria-selected={isSel}
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors hover:bg-[var(--bg-subtle)]"
+                onClick={() => {
+                  onChange(o.value);
+                  setOpen(false);
+                }}
+              >
+                <span
+                  className="grid size-4 shrink-0 place-items-center rounded transition-colors"
+                  style={{ color: "var(--accent)" }}
+                >
+                  {isSel && <Check size={11} strokeWidth={3} />}
+                </span>
+                <span className="min-w-0 flex-1 truncate">{o.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
