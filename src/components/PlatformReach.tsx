@@ -1,4 +1,5 @@
-import { PLATFORM_COLORS } from "@/lib/types";
+import { PLATFORM_COLORS, PLATFORM_LABEL } from "@/lib/types";
+import PlatformIcon from "@/components/PlatformIcon";
 import { engagementRate, type PlatformTotals } from "@/lib/rollup";
 
 /**
@@ -30,12 +31,18 @@ export default function PlatformReach({
         const color = PLATFORM_COLORS[t.platform] ?? "var(--muted)";
         return (
           <div key={t.platform} className="px-3 py-2.5">
+            {/* items-baseline stays: the big view count and the small labels
+                beside it are aligned on their baselines, and centring them
+                instead would drift the row. The icon opts out with self-center,
+                since an SVG's baseline is its bottom edge. */}
             <div className="flex flex-wrap items-baseline gap-2">
-              <span
-                className="size-2.5 shrink-0 rounded-full"
-                style={{ background: color }}
-              />
-              <span className="text-sm font-medium capitalize">{t.platform}</span>
+              <PlatformIcon platform={t.platform} size={17} className="self-center" />
+              {/* PLATFORM_LABEL rather than capitalize: "youtube_shorts"
+                  title-cases into "Youtube_shorts", and "TikTok" has a capital
+                  in the middle that no CSS transform will find. */}
+              <span className="text-sm font-medium">
+                {PLATFORM_LABEL[t.platform] ?? t.platform}
+              </span>
               <span className="tabular text-lg font-semibold">
                 {t.views.toLocaleString()}
               </span>
@@ -96,12 +103,11 @@ export function PlatformChips({
         <span
           key={p.platform}
           className="flex items-center gap-1 rounded bg-[var(--bg-subtle)] px-1.5 py-0.5 text-xs"
-          title={`${p.platform}: ${p.views.toLocaleString()} views`}
+          title={`${PLATFORM_LABEL[p.platform] ?? p.platform}: ${p.views.toLocaleString()} views`}
         >
-          <span
-            className="size-1.5 rounded-full"
-            style={{ background: PLATFORM_COLORS[p.platform] ?? "var(--muted)" }}
-          />
+          {/* Smaller here than in the reach table: a chip sits inside a dense
+              table row, and the mark is identification, not decoration. */}
+          <PlatformIcon platform={p.platform} size={12} />
           <span className="tabular">{p.views.toLocaleString()}</span>
         </span>
       ))}

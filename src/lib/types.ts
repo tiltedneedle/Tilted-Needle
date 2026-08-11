@@ -184,12 +184,17 @@ export const PLATFORM_COLORS: Record<string, string> = {
   instagram: "#e1306c",
   tiktok: "#00f2ea",
   youtube: "#ff0000",
+  // Shorts is YouTube, so it keeps the family colour rather than inventing a
+  // new one; the ICON carries the distinction (portrait frame), because two
+  // near-identical reds in a legend read as a rendering bug.
+  youtube_shorts: "#ff0000",
   facebook: "#1877f2",
 };
 
 /** Display names for platform slugs -- was copy-pasted in three pages. */
 export const PLATFORM_LABEL: Record<string, string> = {
   youtube: "YouTube",
+  youtube_shorts: "YouTube Shorts",
   instagram: "Instagram",
   tiktok: "TikTok",
   facebook: "Facebook",
