@@ -8,7 +8,10 @@ import { ACTIVE_WORKSPACE_COOKIE } from "@/lib/workspace";
 import { logAudit } from "@/lib/audit";
 import { dispatchWebhook } from "@/lib/webhooks";
 import { youtubeIdFrom } from "@/lib/videoEmbed";
-import { MANAGER_ROLES, type WorkspaceRole } from "@/lib/types";
+import { parseContentUrl, tiktokPostedAtTs } from "@/lib/contentUrl";
+import { fetchVideoDetails } from "@/lib/providers/youtube";
+import { verifyVideo as tiktokVerifyVideo } from "@/lib/providers/tiktok";
+import { MANAGER_ROLES, one, type WorkspaceRole } from "@/lib/types";
 
 type Result = { error?: string };
 
@@ -356,6 +359,212 @@ export async function createContentItem(input: {
   revalidatePath("/content");
   revalidateTeam();
   return {};
+}
+
+/**
+ * What a pasted link turns out to be, BEFORE anything is written.
+ *
+ * The lookup and the write are deliberately two steps. The expensive mistake
+ * here is not a bad parse -- it is creating a second content item for a video
+ * the sync already tracks, which splits one video's metrics across two rows
+ * that each look complete and which nothing downstream would flag. So the
+ * duplicate check happens first, its result is shown, and the user confirms
+ * what they are about to create.
+ */
+export type UrlLookup = {
+  platform: string;
+  externalId: string;
+  canonicalUrl: string;
+  /** Set when this post is already tracked; the caller should open it. */
+  existingContentItemId: string | null;
+  existingTitle: string | null;
+  /** Accounts on this platform that the post could belong to. */
+  accounts: { id: string; handle: string; clientId: string | null }[];
+  /** Pre-selected when the link named the creator, or only one account fits. */
+  suggestedAccountId: string | null;
+  /** Free metadata, when the platform gives it away. Null costs nothing. */
+  title: string | null;
+  postedAt: string | null;
+  lengthSeconds: number | null;
+  /** Said out loud when we chose not to spend the client's money. */
+  note: string | null;
+};
+
+export async function lookupContentUrl(input: {
+  workspaceId: string;
+  url: string;
+}): Promise<{ error: string } | { data: UrlLookup }> {
+  const parsed = parseContentUrl(input.url);
+  if (!parsed.ok) return { error: parsed.error };
+  const { platform, externalId, handle, canonicalUrl } = parsed.data;
+
+  const supabase = await createClient();
+
+  // Every account on this platform, and whether this post is already one of
+  // theirs. Both come from the same join so they cannot disagree.
+  const [{ data: accountRows }, { data: postRows }] = await Promise.all([
+    supabase
+      .from("accounts")
+      .select("id, handle, client_id, platform_slug, is_archived")
+      .eq("workspace_id", input.workspaceId)
+      .eq("platform_slug", platform)
+      .eq("is_archived", false),
+    supabase
+      .from("platform_posts")
+      .select("content_item_id, account:accounts!inner(platform_slug), item:content_items(title)")
+      .eq("workspace_id", input.workspaceId)
+      .eq("external_id", externalId),
+  ]);
+
+  const dupe = ((postRows ?? []) as unknown as {
+    content_item_id: string;
+    account: { platform_slug: string } | { platform_slug: string }[] | null;
+    item: { title: string } | { title: string }[] | null;
+  }[]).find((r) => one(r.account)?.platform_slug === platform);
+
+  const accounts = ((accountRows ?? []) as {
+    id: string;
+    handle: string;
+    client_id: string | null;
+  }[]).map((a) => ({ id: a.id, handle: a.handle, clientId: a.client_id }));
+
+  // A TikTok link names its creator in the path, so the account is known
+  // rather than guessed. YouTube and Instagram links do not carry it, so the
+  // only safe suggestion is the sole account when there IS only one -- and
+  // even then it is shown in a picker to be confirmed, never applied
+  // silently. Attaching someone else's video to your own account would
+  // poison that account's baseline with numbers nobody on the team produced.
+  const norm = (h: string) => h.trim().replace(/^@/, "").toLowerCase();
+  const byHandle = handle ? accounts.find((a) => norm(a.handle) === norm(handle)) : undefined;
+  const suggestedAccountId =
+    byHandle?.id ?? (accounts.length === 1 ? accounts[0].id : null);
+
+  let title: string | null = null;
+  let postedAt: string | null = null;
+  let lengthSeconds: number | null = null;
+  let note: string | null = null;
+
+  if (!dupe) {
+    if (platform === "youtube") {
+      // Free quota, already wired for the sync.
+      const res = await fetchVideoDetails([externalId]).catch(() => null);
+      const hit = res?.ok ? res.data[0] : undefined;
+      if (hit) {
+        title = hit.title;
+        postedAt = hit.postedAt;
+        lengthSeconds = hit.lengthSeconds;
+      } else {
+        note = "YouTube did not return details for that id — check the link, or fill the title in by hand.";
+      }
+    } else if (platform === "tiktok") {
+      // oEmbed: free, no key. The publish instant comes from the id itself,
+      // with no network call at all.
+      const res = await tiktokVerifyVideo(canonicalUrl).catch(() => null);
+      if (res?.ok) title = res.data.title;
+      postedAt = tiktokPostedAtTs(externalId)?.slice(0, 10) ?? null;
+      if (!title) note = "TikTok did not return a caption for that link — add a title by hand.";
+    } else {
+      // Instagram reads cost Apify credit, which is the client's money.
+      // Spending it to pre-fill one text box, unasked, is not a trade worth
+      // making -- the sync will fill everything in on its next run anyway.
+      note =
+        "Instagram details are not fetched here, because reading a post spends metered credit. Add a title now; the sync fills in the rest.";
+    }
+  }
+
+  return {
+    data: {
+      platform,
+      externalId,
+      canonicalUrl,
+      existingContentItemId: dupe?.content_item_id ?? null,
+      existingTitle: dupe ? (one(dupe.item)?.title ?? null) : null,
+      accounts,
+      suggestedAccountId,
+      title,
+      postedAt,
+      lengthSeconds,
+      note,
+    },
+  };
+}
+
+/**
+ * Creates the content item and attaches the platform post in one go.
+ *
+ * Re-parses and re-checks for a duplicate rather than trusting the lookup it
+ * was handed. The two calls are separated by however long someone left the
+ * form open, and a sync running in that gap is exactly when the post it is
+ * about to duplicate comes into existence.
+ */
+export async function createContentFromUrl(input: {
+  workspaceId: string;
+  url: string;
+  accountId: string;
+  clientId: string | null;
+  title: string;
+  producedAt: string | null;
+  lengthSeconds: number | null;
+}): Promise<{ error: string } | { contentItemId: string; duplicateOf?: string }> {
+  const parsed = parseContentUrl(input.url);
+  if (!parsed.ok) return { error: parsed.error };
+  if (!input.title.trim()) return { error: "Title is required." };
+  if (!input.accountId) return { error: "Choose which account this was posted from." };
+
+  const supabase = await createClient();
+
+  const { data: existing } = await supabase
+    .from("platform_posts")
+    .select("content_item_id")
+    .eq("workspace_id", input.workspaceId)
+    .eq("external_id", parsed.data.externalId)
+    .eq("account_id", input.accountId)
+    .maybeSingle();
+  if (existing) {
+    return {
+      contentItemId: (existing as { content_item_id: string }).content_item_id,
+      duplicateOf: parsed.data.canonicalUrl,
+    };
+  }
+
+  const { data: item, error: itemErr } = await supabase
+    .from("content_items")
+    .insert({
+      workspace_id: input.workspaceId,
+      client_id: input.clientId,
+      title: input.title.trim(),
+      produced_at: input.producedAt,
+      length_seconds: input.lengthSeconds,
+      notes: `Added from a link: ${parsed.data.canonicalUrl}`,
+    })
+    .select("id")
+    .single();
+  if (itemErr || !item) return { error: itemErr?.message ?? "Could not create the content item." };
+
+  const { error: postErr } = await supabase.from("platform_posts").insert({
+    workspace_id: input.workspaceId,
+    content_item_id: item.id,
+    account_id: input.accountId,
+    external_id: parsed.data.externalId,
+    url: parsed.data.canonicalUrl,
+    posted_at: input.producedAt,
+    // Free and exact for TikTok, whose posts otherwise arrive with a date and
+    // nothing more -- posted_at is a date column, so the hour is destroyed on
+    // write and cannot be recovered afterwards.
+    posted_at_ts:
+      parsed.data.platform === "tiktok" ? tiktokPostedAtTs(parsed.data.externalId) : null,
+    source: "manual",
+  });
+  if (postErr) {
+    // The item without its post is a half-made record that looks legitimate.
+    // Roll it back rather than leave one behind.
+    await supabase.from("content_items").delete().eq("id", item.id);
+    return { error: postErr.message };
+  }
+
+  revalidatePath("/content");
+  revalidateTeam();
+  return { contentItemId: item.id };
 }
 
 export async function updateContentItem(

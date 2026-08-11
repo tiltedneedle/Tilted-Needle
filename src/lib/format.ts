@@ -82,7 +82,63 @@ export function addDays(d: Date, n: number): Date {
   return date;
 }
 
-/** Accepts "1:30", "1.5", "90m", "1h30m" -> seconds. */
+/**
+ * Video lengths, which are M:SS -- NOT the timesheet's H:MM.
+ *
+ * These exist because parseDuration was doing this job and getting it wrong
+ * in three different ways. It is a TIMESHEET parser: "1:30" means an hour and
+ * a half, which is correct for a work block and 60x too large for a video.
+ * The content forms fed it "0:38" from a placeholder promising exactly that
+ * shape, and stored a 38-second clip as 38 minutes. The edit form was worse
+ * still: it seeded the field as M:SS from stored seconds, so merely opening
+ * it and pressing save multiplied the length by 60 -- silently, repeatably,
+ * on every video anyone touched.
+ *
+ * The other two formats its own error message advertised, "38s" and "1m30s",
+ * were rejected outright, because parseDuration has no seconds unit at all.
+ *
+ * Length is not decorative here: YouTube Shorts detection turns on a
+ * threshold in seconds, and the client evidence report medians it. A wrong
+ * length does not look wrong, it just quietly changes those answers.
+ */
+export function parseVideoLength(input: string): number | null {
+  const t = input.trim().toLowerCase();
+  if (!t) return null;
+
+  // Seconds are bounded to 0-59 so "1:75" is refused rather than accepted as
+  // some third interpretation of a value that cannot mean anything.
+  const hms = t.match(/^(\d{1,3}):([0-5]?\d):([0-5]?\d)$/);
+  if (hms) return +hms[1] * 3600 + +hms[2] * 60 + +hms[3];
+
+  const ms = t.match(/^(\d{1,4}):([0-5]?\d)$/);
+  if (ms) return +ms[1] * 60 + +ms[2];
+
+  const unit = t.match(/^(?:(\d+)h)?\s*(?:(\d+)m)?\s*(?:(\d+)s)?$/);
+  if (unit && (unit[1] || unit[2] || unit[3]))
+    return +(unit[1] ?? 0) * 3600 + +(unit[2] ?? 0) * 60 + +(unit[3] ?? 0);
+
+  // A bare number is SECONDS for a video. parseDuration reads it as hours,
+  // which is right for a timesheet and absurd for a clip.
+  if (/^\d+$/.test(t)) return +t;
+
+  return null;
+}
+
+/** Inverse of parseVideoLength: 38 -> "0:38", 3725 -> "1:02:05". */
+export function formatVideoLength(totalSeconds: number): string {
+  const s = Math.max(0, Math.floor(totalSeconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = String(s % 60).padStart(2, "0");
+  return h ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
+}
+
+/**
+ * Accepts "1:30", "1.5", "90m", "1h30m" -> seconds.
+ *
+ * TIMESHEET durations: "1:30" is an hour and a half. For video lengths use
+ * parseVideoLength, where the same string means ninety seconds.
+ */
 export function parseDuration(input: string): number | null {
   const t = input.trim().toLowerCase();
   if (!t) return null;

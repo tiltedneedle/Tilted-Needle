@@ -14,7 +14,7 @@ import {
   updateContentItem,
   updatePlatformPost,
 } from "@/app/actions";
-import { formatDurationShort, parseDuration } from "@/lib/format";
+import { formatDurationShort, formatVideoLength, parseVideoLength } from "@/lib/format";
 import { ChevronDown } from "lucide-react";
 import Select from "@/components/ui/Select";
 import VideoEmbed from "@/components/VideoEmbed";
@@ -114,9 +114,10 @@ export default function ContentDetail({
     subject: item.subject ?? "",
     hook: item.hook ?? "",
     musicUsed: item.music_used ?? "",
-    length: item.length_seconds
-      ? `${Math.floor(item.length_seconds / 60)}:${String(item.length_seconds % 60).padStart(2, "0")}`
-      : "",
+    // Seeded and parsed by the same pair, so opening this form and saving it
+    // untouched is a no-op. It used to seed M:SS and parse H:MM, which meant
+    // that round trip multiplied every video's length by sixty.
+    length: item.length_seconds ? formatVideoLength(item.length_seconds) : "",
     producedAt: item.produced_at ?? "",
     notes: item.notes ?? "",
   });
@@ -188,7 +189,7 @@ export default function ContentDetail({
   }
 
   async function saveMeta() {
-    const secs = meta.length.trim() ? parseDuration(meta.length) : null;
+    const secs = meta.length.trim() ? parseVideoLength(meta.length) : null;
     if (meta.length.trim() && secs == null)
       return setError("Length must look like 0:38, 38s, or 1m30s.");
     if (!meta.title.trim()) return setError("Title is required.");
