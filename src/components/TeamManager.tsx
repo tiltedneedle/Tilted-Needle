@@ -98,8 +98,15 @@ export default function TeamManager({
           {canManage && (
             <AddMemberRow workspaceId={workspaceId} onError={setError} refresh={refresh} />
           )}
+          {/* The card clips to its own rounded corners, so a table placed
+              straight inside it gets clipped too -- with no way to reach what
+              was cut. On a 375px phone this table measured 466px wide in a
+              316px box: "Capacity / wk" was not merely cramped, it was
+              unreachable. Every other table in the app already sits in a
+              scroll wrapper; this was the one that missed it. */}
           <div className="card overflow-hidden">
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[560px] text-sm">
             <thead>
               <tr className="border-b border-[var(--border)] text-left text-xs uppercase tracking-wide text-[var(--muted)]">
                 <th className="px-3 py-2 font-medium">Name</th>
@@ -205,6 +212,7 @@ export default function TeamManager({
               )}
             </tbody>
           </table>
+          </div>
           </div>
         </>
       )}
