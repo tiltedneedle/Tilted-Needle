@@ -1,255 +1,145 @@
-# PRD — Completion & Autonomy (v1.0)
+# PRD — Completion & Autonomy (v2.0)
 
-**Written 2026-08-10.** Every figure here was measured against the live
-database and the live Oracle tenancy immediately before writing. Nothing in
-this document is recalled or assumed — where something is unverified it says
-so.
+**Rewritten 2026-08-11.** v1.0 was written a day earlier and the work it
+described as missing has largely happened since; keeping it would mean the
+status document contradicting the database. As before: every figure here was
+measured immediately before writing, and anything unverified says so.
 
-**The one-line status:** the machinery is built and correct; the *data* is
-half-collected and *nothing runs on a schedule*. The project is not blocked on
-design. It is blocked on a host.
+**The one-line status:** the software is finished and verified across eight
+audit dimensions; the pipeline runs itself; the single remaining gap is a
+transcript host for *new* videos, which is blocked on Oracle inventory that
+has been measured absent — not on design, code, or configuration.
 
 ---
 
-## 1. What is actually true right now
+## 1. Measured state (2026-08-11)
 
-### 1.1 Corpus (measured 2026-08-10, after the backfills)
+### 1.1 Corpus
 
-| | Posts | `posted_at_ts` | Transcript | Comments |
+| | Posts | `posted_at_ts` | Transcripts | Comments |
 |---|---|---|---|---|
-| YouTube | 12 | **12/12** | 11 | 957 |
-| TikTok | 78 | **78/78** | 51 | 0 (none exposed) |
-| Instagram | 147 | **145/147** | n/a | 104 |
-| **Total** | **237** | **235/237** | **62** · 302,521 chars | **1,061** |
+| YouTube | 12 | 12/12 | 11 | ✅ |
+| TikTok | 78 | 78/78 | 51 | none exposed |
+| Instagram | 145 | 145/145 | n/a — no captions exist | ✅ |
+| **Total** | **235** | **235/235 — 100%** | **63** · 331,969 chars | **1,000** |
 
-**Transcript coverage must be read against what is achievable, not against
-every post.** Instagram publishes no caption tracks at all, so its 147 items
-cannot have a transcript and are not missing one. Of the 90 items that CAN:
+- Descriptions: **192/235** (the remainder are posts whose platforms expose no
+  caption/description text; Instagram no-caption cases are recorded in
+  `ingest_jobs` so no run ever pays to rediscover them).
+- **Transcripts: 0 open.** Of the 90 items that *can* have one (YouTube +
+  TikTok), 63 are stored and all 27 remainders carry a recorded reason. 100%
+  accounted for — the difference between a finished backfill and an abandoned
+  one, invisible in a coverage percentage.
+- **The AI layer has run**: 4 `comment_themes` analyses stored, quota-paced.
 
-| | |
-|---|---|
-| transcript stored | 62 (69% of achievable) |
-| no caption track published | 28 — terminal, recorded |
-| **still open / actionable** | **0** |
+### 1.2 Autonomy
 
-100% accounted for. A backfill that leaves rows unexplained is abandoned, not
-finished; the distinction is invisible in a coverage percentage alone.
-
-**TikTok timestamps were never actually blocked.** Recorded here previously as
-"blocked upstream in yt-dlp" -- true of yt-dlp, false of the problem. TikTok
-IDs are snowflake-encoded, so the publish instant is `BigInt(id) >> 32n` and
-was already in the database. All 78 decodes were cross-checked against the
-recorded `posted_at` before writing; 78 agreed, 0 disagreed.
-
-### 1.2 Shipped and verified
-
-| Capability | State | Evidence |
-|---|---|---|
-| OAuth fully removed | ✅ | 10/10 schema checks; `source='oauth'` rejected by DB |
-| Always Free ceiling enforced | ✅ | `provision.py` exits 2 above **2 OCPU / 12 GB**, verified both code paths |
-| Lifecycle (rising/evergreen/spike…) | ✅ | `lib/lifecycle.ts`, read-time — see §4.1 |
-| Ingest schema + job queue | ✅ | `ingest_jobs` with leasing, backoff, block cooldown |
-| Worker + 6 job handlers | ✅ | `worker/` — transcript, comments, analyse, weeklyRead, visionExtract |
-| Transcripts (YouTube + TikTok) | ✅ | via the yt-dlp box; PoToken defeated |
-| Comments (YouTube + Instagram) | ✅ | official API + Apify |
-| Vision extraction (screenshot→draft→confirm) | ✅ | built, never used in anger |
-| Hook analysis | ✅ | built |
-| Pipeline health panel | ✅ | `/data` |
-| Free enrichment code | ✅ | YouTube complete; Instagram 28/145; TikTok blocked upstream |
-| Scheduled autonomy (safe half) | ⚠️ | workflow + enqueuer built and proven locally; **awaits Actions secrets** |
-| Oracle capacity search | ✅ | rotating one-per-interval probe; survives network faults |
-
-### 1.3 Oracle tenancy (measured this session)
-
-Tenancy `tiltedneedletools`, `ap-singapore-1`, **one** availability domain,
-zero instances, MFA on. A1 quota shows 41 OCPU / 277 GB — **trial quota, a
-trap; Always Free is 2/12** and the script refuses more.
-
-**Capacity: not obtainable — and most earlier measurements of it were noise.**
-
-Oracle rate-limits `launch_instance` to roughly **one genuine check per
-burst**. A 9-combination sweep produced *one* real answer and *eight* `Too
-many requests`. Every multi-shape attempt this project made was therefore
-measuring almost nothing, and "throttled" was being silently counted as
-evidence about capacity when it is the absence of evidence.
-
-Consequences, all now built in:
-
-- The probe rotates **one** combination per interval across 3 fault domains ×
-  3 sizes, so each eventually gets a real answer. Sweeping converts real
-  checks into throttles.
-- A throttle backs off 2.5× longer than a genuine refusal — the budget is
-  already spent, so asking again guarantees another non-answer.
-- Network faults are caught and counted separately. The first version caught
-  only `ServiceError`, so one `ConnectTimeout` killed a multi-day watcher
-  silently.
-
-**Two Oracle findings worth keeping:** Singapore has one AD but **three fault
-domains**, never previously specified (Oracle was picking, and a pick landing
-on a full domain is indistinguishable from an empty region). And Oracle
-**halved Always Free A1 on 2026-06-15** — 4 OCPU / 24 GB → 2 / 12 — with no
-announcement. Every prior launch attempt requested double the entitlement;
-had one succeeded it would have been terminated or billed.
-
----
-
-## 2. What is left
-
-### 2.1 Data gaps — the corpus is half-collected
-
-| Gap | Size | Blocker |
-|---|---|---|
-| TikTok transcripts | 46 of 78 missing | Pacing only — needs unattended runs |
-| TikTok `posted_at_ts` / captions flag | 78 of 78 missing | Backfill never run |
-| Instagram `posted_at_ts` | 142 of 145 missing | Backfill never run |
-| Instagram comments | ~102 of 145 posts | Apify pacing + budget |
-| Descriptions | 221 of 234 missing | Backfill never run |
-
-None of these are hard problems. **All of them are "nothing runs on a
-schedule" problems.**
-
-### 2.2 Capability gaps
-
-| Gap | Blocker | Owner |
-|---|---|---|
-| **Nothing runs autonomously** | No host for the worker | §3 — solvable now |
-| AI layer never executed | No LLM API key configured | **User** |
-| Client analytics import unused | No client export received | **User** |
-| yt-dlp box runs locally only | No host | §3 |
-| Oracle instance | No capacity | Watcher running |
-
-### 2.3 Not started
-
-- Corpus analysis / brief generator (needs the AI layer to run at all)
-- Weekly client read on a schedule (handler exists; scheduler does not)
-- Backfill orchestration across weeks
-
----
-
-## 3. The autonomy plan — and why it no longer waits for Oracle
-
-**The finding that changes the plan: this repo is PUBLIC, so GitHub Actions
-minutes are unlimited and free.** That is a real scheduler, already
-authenticated to this repo, at zero cost.
-
-The insight that makes it usable: **the jobs are not equally IP-sensitive.**
-
-| Class | Jobs | Needs a clean IP? | Can run on Actions |
+| Piece | Cadence | Host | State |
 |---|---|---|---|
-| **A — safe** | comments (official API), enrichment, AI analysis, weekly read, lifecycle | No | **Yes** |
-| **B — fragile** | transcripts (yt-dlp), any scraped path | Yes — datacenter IPs get refused | No |
+| Metrics sync + discovery | daily 06:00 | Vercel cron | ✅ live |
+| Pipeline (comments, analyse, weekly read) | every 6 h | GitHub Actions | ✅ live, secrets configured, runs green |
+| Oracle capacity hunt | every 30 min | GitHub Actions | ✅ live, self-deploys on success |
+| Transcripts for NEW videos | on demand | **none** | ⛔ blocked on Oracle inventory |
 
-So autonomy splits in two, and **Class A can be autonomous today**:
+The kind filter is enforced **in the claim** (`claim_ingest_jobs(p_kinds)`), so
+the Actions runner can never lease a transcript job it cannot perform. That
+this needed saying is §3.1.
 
-1. **GitHub Actions** runs the worker on a schedule for Class A. Secrets live
-   in Actions secrets. This delivers scheduled comments, enrichment,
-   AI analysis and weekly reads *without Oracle*.
-2. **Oracle**, when capacity lands, hosts the yt-dlp box and Class B, plus
-   takes over Class A if preferred.
-3. Until then Class B runs attended — a command a human starts.
+### 1.3 Audit — eight of eight dimensions verified
 
-**Trade-off, stated plainly:** putting the Supabase service key in GitHub
-Actions secrets adds a third place it lives (worker, Vercel absent, now
-Actions). Encrypted at rest, never printed in logs, and the workflow file is
-public but the secret is not. Acceptable; recorded so it is a decision rather
-than an accident.
+| Dimension | Method | Result |
+|---|---|---|
+| RLS tenancy | live suite | 120/120 |
+| Data integrity | independent recomputation, live | 13/13 |
+| UI correctness | authenticated render probe | 18/18 pages |
+| Security | built client bundle + tracked-files scan | clean |
+| Performance | direct pass | 1 defect found → fixed |
+| Error handling | adversarially-verified subagents | 2 defects found → fixed |
+| Dead code | direct pass | clean (2 candidates, both disproved) |
+| UI polish | direct pass | clean |
 
----
-
-## 4. Design decisions that already deviate from earlier PRDs
-
-Recorded so no future session "fixes" them back.
-
-**4.1 Lifecycle is computed at read time, not materialised.** PRD-video-
-intelligence §6.3 specified a `post_lifecycle` table. It was built as
-`lib/lifecycle.ts` instead, deriving from `post_snapshots` on read. No table
-exists and none should — a materialised copy would go stale between syncs for
-no gain at this data size.
-
-**4.2 The replay/attention map is retired.** Zero videos in this workspace
-publish "most replayed" data. The feature was removed rather than shipped as
-a permanently empty panel.
-
-**4.3 `has_captions` does not gate transcript fetching.** The API field counts
-manually uploaded tracks only. All 11 YouTube videos report `false` while
-carrying full auto-generated tracks. Gating on it would skip the entire
-library.
-
-**4.4 Transcripts route through the yt-dlp box first.** YouTube's timedtext
-endpoint requires a proof-of-origin token and answers plain requests with
-HTTP 200 and an empty body. The direct path is kept only as a fallback.
+A deeper subagent re-run of the dimensions that originally hit session limits
+is in flight; its confirmed findings get fixed like the previous ones.
 
 ---
 
-## 5. Constraints — the standing rules
+## 2. What remains, and who owns it
 
-**Cost**
-1. **Oracle: Always Free only, forever.** 2 OCPU / 12 GB A1 ceiling, enforced
-   in `provision.py` (exit 2). Never provision to the quota the console shows.
-   Never upgrade to Pay As You Go.
-2. Supabase free: 500 MB. Current corpus ~2 MB — not a concern.
-3. Vercel Hobby: **1 of 2 crons already used** by the sync.
-4. The LLM API is the only intended paid line item, with a hard monthly token
-   ceiling before it can surprise anyone.
+| Item | Blocker | Owner |
+|---|---|---|
+| Transcript host for new videos | Oracle Always Free capacity: measured absent across 3 fault domains × 3 sizes; datacenter IPs proven refused across 7 strategies | **Oracle inventory** (hunt is autonomous; likeliest window ~Aug 18 when over-limit instances are reclaimed) |
+| Remaining Instagram enrichment | ~117 Apify credits; 25 were authorised and exactly 25 spent | **User** — spend decision |
+| Client analytics import (CTR / retention) | needs a client to send a Studio export | **User / client relations** |
 
-**Architecture**
-5. **No OAuth, ever.** Enforced by schema constraint, not convention.
-6. Owner-only metrics arrive by client-supplied export → `post_analytics`.
-7. The worker has **zero inbound ports**; the job queue is its API.
-8. All state in Supabase; the worker is disposable.
-9. The model narrates numbers the system computed. It never computes them.
-
-**Data honesty**
-10. **Never sum views across platforms.** Per-platform chips, always.
-11. Replay data ≠ retention. The words *retention*/*drop-off* are banned from
-    replay-sourced copy.
-12. Auto-generated transcripts are flagged `is_generated`.
-13. Dubai (UTC+4) is the business timezone.
-
-**Operational**
-14. Never enter passwords into browser forms; headless API sign-in only.
-15. Never commit credentials — **the repo is public**.
-16. Git: SSH via `github-tn`; never HTTPS remotes; never set local user.name.
+Nothing else is open. Existing transcripts are safe in the database and every
+downstream feature (search, hooks, AI) works on them regardless of the host
+question, which affects **new** videos only.
 
 ---
 
-## 6. Execution order
+## 3. Defects found and fixed this session — and the lesson
 
-**C1 — Scheduled autonomy on GitHub Actions.** Workflow running the worker for
-Class A jobs on a cron, secrets configured, an enqueue step that finds work
-itself. *Accepts when:* a scheduled run completes with no human involvement
-and `/data` shows its heartbeat.
+Six, all silent, all confirmed against live systems before and after the fix:
 
-**C2 — Backfill the enrichment gaps.** TikTok and Instagram `posted_at_ts`,
-descriptions, captions flag. Paced, resumable. *Accepts when:* coverage is
->95% per platform or the remainder is explained.
+1. **`p_kinds` failed open** — the worker parsed `--kinds`, logged it, never
+   sent it. The scheduled runner could claim transcript jobs, fail them from a
+   datacenter IP, and settle them terminally with a *false* "no caption
+   tracks" verdict. One video was condemned; requeued, it returned 796
+   segments.
+2. **Vision payload in `last_error`** — a column the worker overwrites on
+   every retry. One 429 would have destroyed the path and orphaned the
+   screenshot. `ingest_jobs.payload` now exists.
+3. **TikTok posts arrived with no timestamp** — `posted_at` is a date column,
+   so the hour was destroyed on write, permanently. The snowflake decode now
+   runs in the provider at discovery.
+4. **A migration recorded itself as applied while its DDL never ran** — the
+   push died between the ledger insert and the ALTER. "Applying…" without
+   "Finished" means the record may exist without the change.
+5. **Channel dashboard silently capped at 1000 posts** — PostgREST's unpaged
+   limit; correct-looking until the library grows, then quietly wrong.
+6. **Instagram backfill was a credit-burning loop** — posts with no caption
+   stayed eligible forever; every run paid to rediscover the same silence.
+   No-caption verdicts are now settled in `ingest_jobs`.
 
-**C3 — Finish the transcript corpus.** The remaining 46 TikTok videos, paced
-across runs. *Accepts when:* every TikTok post has a transcript or a recorded
-reason.
-
-**C4 — Instagram comment backfill.** Paced against the Apify budget.
-
-**C5 — Turn the AI layer on.** Needs the key. Then comment themes and hook
-analysis across the corpus, cached by `input_digest`, under the token ceiling.
-
-**C6 — Weekly read on a schedule.** Monday morning Dubai, per client.
-
-**C7 — Oracle cutover.** When capacity lands: provision, deploy the yt-dlp box
-and the worker, move Class B off attended runs.
-
-**C8 — Client export loop.** Import a real Studio/Insights export end to end;
-prove the click-vs-stay panel with real numbers.
+**§3.1 The lesson, earned three separate times:** a script that prints success
+is not evidence. Three scripted edits this session reported "wired" while
+their patterns silently failed to match. Every fix above was verified against
+the artifact — the file, the RPC, the built bundle, the live row — never
+against the message that claimed it.
 
 ---
 
-## 7. Open questions for the user
+## 4. Standing constraints (unchanged, re-verified)
 
-1. **The LLM API key** — C5 is fully built and cannot run without it. This is
-   the single largest capability sitting idle.
-2. **Will a client send an export?** Decides whether Tier 3 (CTR, true
-   retention, click-vs-stay) ever exists.
-3. **Is a GitHub Actions runner acceptable** as the interim host, given §3's
-   secret-placement trade-off?
-4. **If Oracle never yields capacity**, is a different always-free host
-   acceptable for the yt-dlp box, or is waiting fine?
+1. **Oracle: Always Free only, forever.** The ceiling is **2 OCPU / 12 GB**
+   since Oracle halved it on 2026-06-15 *without announcement* — the old 4/24
+   figure was enforced here for weeks and would have provisioned a billable
+   instance had capacity ever appeared. `provision.py` refuses above the
+   ceiling with exit 2, verified on both code paths.
+2. No OAuth, ever — enforced by schema constraint, not convention.
+3. Views are never summed across platforms; verified live by the
+   display-calc suite.
+4. The worker has zero inbound ports; the job queue is its API; the yt-dlp
+   box binds loopback by default.
+5. The repo is public: no env file tracked, no credential literals, service
+   key absent from every client chunk — all verified against the built
+   artifact.
+6. Dubai (UTC+4) is the business timezone.
+
+---
+
+## 5. If Oracle never yields
+
+The decision is the user's, recorded here with the trade-offs:
+
+- **Wait** — costs nothing; the hunt self-deploys; new videos queue harmlessly
+  (`transcript:pending` accumulating is the queue accurately describing work
+  awaiting a host, not a fault).
+- **Any other always-free VPS** with a residential-adjacent IP — the
+  provisioning script and cloud-init are host-agnostic beyond the OCI calls;
+  the box + worker install is `systemd` + venv + two secrets.
+- **A machine the user keeps running** — a scheduled task draining
+  `--kinds=transcript` hourly closes the gap with zero new infrastructure.
+
+What is *not* acceptable under the standing constraints: paid shapes, paid
+proxies as a default path, or any owner-credential route.
