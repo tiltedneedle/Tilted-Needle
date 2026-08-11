@@ -499,8 +499,27 @@ export async function loadContentOverview(
     (platformsRes.data ?? []) as { slug: string; display_name: string }[]
   ).map((p) => ({ slug: p.slug, name: p.display_name }));
 
+  /**
+   * An archived client's work leaves the dashboard entirely.
+   *
+   * Only the client TABLE excluded them before, so their videos still filled
+   * the list, the KPI counts and the per-platform reach totals -- a client the
+   * team had explicitly deactivated went on contributing to every headline
+   * number, with no row anywhere to explain where those views came from.
+   *
+   * Nothing is deleted: archiving is reversible, and restoring the client
+   * brings its whole history straight back. Content with NO client is kept --
+   * it belongs to no archived client, so it is still current work.
+   */
+  const archivedClientIds = new Set(
+    clientRows.filter((c) => c.is_archived).map((c) => c.id),
+  );
+  const live = videos.filter(
+    (v) => !v.clientId || !archivedClientIds.has(v.clientId),
+  );
+
   return deriveContent(
-    videos,
+    live,
     clientRows.filter((c) => !c.is_archived).map((c) => ({ id: c.id, name: c.name })),
     platformOptions,
   );

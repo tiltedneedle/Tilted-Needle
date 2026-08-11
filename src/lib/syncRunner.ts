@@ -366,6 +366,28 @@ export async function runSync(
   if (opts.accountId) q = q.eq("id", opts.accountId);
   if (opts.platformSlug) q = q.eq("platform_slug", opts.platformSlug);
 
+  /**
+   * Accounts belonging to an ARCHIVED CLIENT are skipped entirely.
+   *
+   * Archiving a client is the statement "we no longer work with them", and
+   * every read the sync makes on their behalf after that costs something
+   * real: YouTube quota, and for Instagram actual Apify credit from a monthly
+   * ceiling that BLOCKS when exhausted. Continuing to track them spends a
+   * finite budget on data nobody will look at, and can starve live clients of
+   * the credit they need.
+   *
+   * Filtered in code rather than by an inner join because an account with NO
+   * client (client_id null) must keep syncing -- an inner join would silently
+   * drop those, which is the opposite of the intent.
+   */
+  const archived = await db
+    .from("clients")
+    .select("id")
+    .eq("is_archived", true);
+  const archivedClientIds = new Set(
+    ((archived.data ?? []) as { id: string }[]).map((c) => c.id),
+  );
+
   // Stalest first, never-synced before everything. The account list used to
   // come back in arbitrary-but-stable order, so when a run hit the function
   // time limit the SAME accounts sat past the cutoff every day -- six
@@ -377,7 +399,9 @@ export async function runSync(
   const { data, error } = await q;
   if (error) throw new Error(`Could not list accounts: ${error.message}`);
 
-  const accounts = (data ?? []) as AccountRow[];
+  const accounts = (data ?? []).filter(
+    (a) => !(a as AccountRow).client_id || !archivedClientIds.has((a as AccountRow).client_id!),
+  ) as AccountRow[];
   const results: AccountSyncResult[] = [];
 
   for (const account of accounts) {

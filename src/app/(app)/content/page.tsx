@@ -73,9 +73,29 @@ export default async function ContentPage({
   // branch a bare title list and the platform registry are enough; the
   // full overview stays for the list and client views that actually
   // render it.
+  /**
+   * Is anything narrowing the population besides the video drill-down itself?
+   *
+   * This decides whether the cheap path is safe. A video view does not render
+   * the overview's tables, so loading it is normally waste -- but the video
+   * DROPDOWN must still offer exactly the videos the active filters admit.
+   * The light query can only filter by client, so with any other filter set it
+   * would list videos the filters exclude, and picking one produces a view
+   * that contradicts the bar above it. That was the reported bug: with a
+   * person selected, every video in the workspace stayed selectable.
+   */
+  const narrowed = Boolean(
+    f.clientIds.length ||
+      f.personIds.length ||
+      f.platform ||
+      f.q ||
+      f.from ||
+      f.to,
+  );
+
   const [overview, lightVideosRes, platformsRes, clientsRes, membersRes, workspaceRoles] =
     await Promise.all([
-      videoId
+      videoId && !narrowed
         ? null
         : loadContentOverview(supabase, ws, rankings, {
             platform: f.platform,
@@ -86,14 +106,14 @@ export default async function ContentPage({
             from: f.from,
             to: f.to,
           }),
-      videoId
+      videoId && !narrowed
         ? supabase
             .from("content_items")
             .select("id, title, client_id")
             .eq("workspace_id", ws)
             .order("produced_at", { ascending: false, nullsFirst: false })
         : null,
-      videoId
+      videoId && !narrowed
         ? supabase
             .from("platforms")
             .select("slug, display_name")
@@ -123,19 +143,41 @@ export default async function ContentPage({
   }));
   const allClients = (clientsRes.data ?? []) as unknown as Client[];
 
-  // A video filter narrows to that video; client filters narrow the video
-  // dropdown to those clients' work so the two compose sensibly.
+  /**
+   * The videos this dropdown may offer.
+   *
+   * ONE RULE: it lists exactly what the active filters admit, never more.
+   * `overview.videos` is already the filtered population -- client, person,
+   * platform, search and range have all been applied by the loader -- so it
+   * needs no second pass here. The earlier code re-applied the client filter
+   * and nothing else, which was harmless when the overview existed and
+   * actively wrong when it did not.
+   *
+   * The light list is only reachable when NOTHING is narrowing (see
+   * `narrowed`), so it is the whole library by definition and needs no
+   * filtering either. Offering a video the filters exclude is not a cosmetic
+   * problem: selecting it produces a detail view that contradicts the filter
+   * bar still displayed above it.
+   */
   type LightVideo = { id: string; title: string; client_id: string | null };
-  const clientSet = new Set(f.clientIds);
   const videoOptions = (
     overview
-      ? (clientSet.size
-          ? overview.videos.filter((v) => v.clientId != null && clientSet.has(v.clientId))
-          : overview.videos
-        ).map((v) => ({ id: v.id, title: v.title }))
+      ? overview.videos.map((v) => ({ id: v.id, title: v.title }))
       : ((lightVideosRes?.data ?? []) as LightVideo[])
-          .filter((v) => !clientSet.size || (v.client_id != null && clientSet.has(v.client_id)))
   ).map((v) => ({ value: v.id, label: v.title }));
+
+  /**
+   * A drill-down that the current filters would exclude.
+   *
+   * Reachable by editing the URL or following a shared link whose filters no
+   * longer match, and previously it rendered the video anyway beneath a filter
+   * bar that disagreed with it. Detected rather than silently corrected: the
+   * view says so and offers the way out, because quietly dropping either the
+   * video or the filters would be guessing at intent.
+   */
+  const videoOutsideFilters = Boolean(
+    videoId && narrowed && overview && !overview.videos.some((v) => v.id === videoId),
+  );
 
   const platformOptions = overview
     ? overview.platformOptions
@@ -196,18 +238,10 @@ export default async function ContentPage({
           options: platformOptions.map((p) => ({ value: p.slug, label: p.name })),
           clears: ["video"],
         },
-        {
-          key: "status",
-          label: "Filter by status",
-          allLabel: "Any status",
-          value: f.status,
-          options: [
-            { value: "published", label: "Published" },
-            { value: "unpublished", label: "Not posted yet" },
-            { value: "boosting", label: "Boosting (2×+)" },
-          ],
-          clears: ["video"],
-        },
+        // The status filter is deliberately gone. "Boosting (2x+)" described
+        // a baseline-multiplier model that has been removed from the product,
+        // and published/unpublished was never a question anyone asked of this
+        // page. parseFilters still accepts ?status= so old links do not break.
       ]}
     />
   );
@@ -298,6 +332,21 @@ export default async function ContentPage({
         subtitle={one(view.item.client)?.name ?? "No client"}
       >
         {filters}
+        {videoOutsideFilters && (
+          // Says it rather than silently resolving it. Dropping the video
+          // would lose what was asked for; dropping the filters would lose
+          // the context that made it interesting -- so the choice is offered.
+          <div className="card mb-5 border-[var(--warning)]/30 bg-[var(--warning-100)] p-3 text-sm">
+            <span className="font-medium">
+              This video is outside the filters you have set.
+            </span>{" "}
+            <span className="text-[var(--muted)]">
+              It is shown because you asked for it directly. Clear the video to
+              return to the filtered list, or clear the filters to keep it in
+              view.
+            </span>
+          </div>
+        )}
         <ContentDetail
           workspaceId={ws}
           item={view.item}
