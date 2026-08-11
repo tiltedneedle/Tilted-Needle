@@ -56,10 +56,19 @@ export async function loadClientChannels(
       .eq("workspace_id", ws)
       .eq("client_id", clientId)
       .order("platform_slug"),
-    db
-      .from("platform_posts")
-      .select("id, account_id, metrics:post_current_metrics(views)")
-      .eq("workspace_id", ws),
+    // Paged. This reads EVERY post in the workspace, and PostgREST caps an
+    // unbounded select at 1000 rows SILENTLY -- no error, no warning, just a
+    // short array. At 237 posts it would have looked correct indefinitely and
+    // then started under-reporting channel reach the moment the library
+    // crossed the cap, with nothing to indicate why. The snapshot read below
+    // was already wrapped; this one was missed.
+    selectAll(() =>
+      db
+        .from("platform_posts")
+        .select("id, account_id, metrics:post_current_metrics(views)")
+        .eq("workspace_id", ws)
+        .order("id"),
+    ),
   ]);
 
   type PostRow = {
