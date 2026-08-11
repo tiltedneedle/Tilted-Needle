@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowDown, ArrowUp } from "lucide-react";
+import Select from "@/components/ui/Select";
 import {
   addTrainingVideo,
   assignTraining,
@@ -261,19 +262,14 @@ export default function TrainingAdmin({
           note="Only assigned employees can see this module at all"
         />
         <div className="mb-2 flex items-center gap-2">
-          <select
-            className="input max-w-[220px] py-1.5"
+          <Select
+            className="max-w-[230px]"
             value={assignee}
-            onChange={(e) => setAssignee(e.target.value)}
-            aria-label="Assign to"
-          >
-            <option value="">Give access to…</option>
-            {unassigned.map((m) => (
-              <option key={m.userId} value={m.userId}>
-                {m.name}
-              </option>
-            ))}
-          </select>
+            onChange={setAssignee}
+            placeholder="Give access to…"
+            ariaLabel="Assign to"
+            options={unassigned.map((m) => ({ value: m.userId, label: m.name }))}
+          />
           <button className="btn" onClick={() => void addAssignee()} disabled={!assignee}>
             Assign
           </button>

@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Select from "@/components/ui/Select";
 import { createProject, createTask, setArchived } from "@/app/actions";
 import type { Client, Project, Task } from "@/lib/types";
 
@@ -114,20 +115,18 @@ export default function ProjectsManager({
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && void onCreate()}
           />
-          <select
-            className="input max-w-[190px]"
+          {/* A project with no client is legitimate -- internal work -- so
+              the clear row means what it says. */}
+          <Select
+            className="max-w-[190px]"
             value={clientId}
-            onChange={(e) => setClientId(e.target.value)}
-          >
-            <option value="">No client</option>
-            {clients
+            onChange={setClientId}
+            placeholder="No client"
+            ariaLabel="Client"
+            options={clients
               .filter((c) => !c.is_archived)
-              .map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-          </select>
+              .map((c) => ({ value: c.id, label: c.name }))}
+          />
           <div className="flex items-center gap-1">
             {COLORS.map((c) => (
               <button

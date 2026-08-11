@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Select from "@/components/ui/Select";
 import {
   cancelTimeOffRequest,
   createTimeOffPolicy,
@@ -185,17 +186,16 @@ export default function TimeOffManager({
         <div className="card mb-6 flex flex-wrap items-end gap-2 p-3">
           <label className="text-xs text-[var(--muted)]">
             Policy
-            <select
-              className="input mt-1 min-w-[150px]"
+            {/* The native list had no empty option -- a request always has a
+                policy -- so an empty value is ignored rather than written. */}
+            <Select
+              className="mt-1 min-w-[150px]"
               value={policyId}
-              onChange={(e) => setPolicyId(e.target.value)}
-            >
-              {policies.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
+              onChange={(v) => v && setPolicyId(v)}
+              placeholder={policies[0]?.name ?? "Policy"}
+              ariaLabel="Policy"
+              options={policies.map((p) => ({ value: p.id, label: p.name }))}
+            />
           </label>
           <label className="text-xs text-[var(--muted)]">
             Start

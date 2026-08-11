@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Select from "@/components/ui/Select";
 import {
   addMemberByEmail,
   createGroup,
@@ -121,21 +122,27 @@ export default function TeamManager({
                     {m.name}
                   </td>
                   <td className="px-3 py-2.5">
+                    {/* A member always HAS a role, so the clear row is
+                        ignored -- writing "" would strip someone's
+                        permissions rather than leave them unchanged. */}
                     {editable ? (
-                      <select
-                        className="input max-w-[130px] py-1 text-xs capitalize"
+                      <Select
+                        className="max-w-[140px]"
                         value={m.role}
-                        aria-label={`Role for ${m.name}`}
-                        onChange={async (e) => {
-                          const res = await setMemberRole(m.id, e.target.value);
+                        ariaLabel={`Role for ${m.name}`}
+                        placeholder="member"
+                        onChange={async (v) => {
+                          if (!v) return;
+                          const res = await setMemberRole(m.id, v);
                           if (res.error) setError(res.error);
                           refresh();
                         }}
-                      >
-                        <option value="member">member</option>
-                        <option value="manager">manager</option>
-                        <option value="admin">admin</option>
-                      </select>
+                        options={[
+                          { value: "member", label: "member" },
+                          { value: "manager", label: "manager" },
+                          { value: "admin", label: "admin" },
+                        ]}
+                      />
                     ) : (
                       <span className="rounded bg-[var(--bg-subtle)] px-1.5 py-0.5 text-xs capitalize">
                         {m.role}
@@ -249,16 +256,18 @@ function AddMemberRow({
           }}
           aria-label="Email of the account to add"
         />
-        <select
-          className="input max-w-[120px] py-1.5 text-xs capitalize"
+        <Select
+          className="max-w-[130px]"
           value={role}
-          onChange={(e) => setRole(e.target.value)}
-          aria-label="Role for the new member"
-        >
-          <option value="member">member</option>
-          <option value="manager">manager</option>
-          <option value="admin">admin</option>
-        </select>
+          onChange={(v) => v && setRole(v)}
+          placeholder="member"
+          ariaLabel="Role for the new member"
+          options={[
+            { value: "member", label: "member" },
+            { value: "manager", label: "manager" },
+            { value: "admin", label: "admin" },
+          ]}
+        />
         <button
           className="btn-primary py-1.5"
           onClick={() => void add()}

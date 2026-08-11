@@ -259,14 +259,6 @@ export default async function ContentPage({
         </Shell>
       );
     }
-    // Standing of everyone credited on this video, in the role they hold on
-    // it, plus how the video itself did against each account's baseline.
-    const creditScores = rankings.people.map((p) => ({
-      userId: p.userId,
-      roleSlug: p.roleSlug,
-      overall: p.overall,
-      rankable: p.platforms.some((pl) => pl.rankable),
-    }));
     // The transcript, and any screenshot drafts still awaiting confirmation.
     // Drafts are deliberately loaded here rather than polled from the client:
     // a page refresh is the natural moment to discover the worker has
@@ -321,11 +313,6 @@ export default async function ContentPage({
         ).catch(() => null)
       : null;
 
-    const boostByPlatform: Record<string, number> = {};
-    for (const s of rankings.scoredByContent.get(videoId) ?? []) {
-      boostByPlatform[s.platform] = Math.max(boostByPlatform[s.platform] ?? 0, s.index);
-    }
-
     return (
       <Shell
         title={view.item.title}
@@ -359,8 +346,6 @@ export default async function ContentPage({
           history={view.history}
           analytics={view.analytics}
           clients={allClients}
-          creditScores={creditScores}
-          boostByPlatform={boostByPlatform}
           transcript={transcriptForItem}
           visionDrafts={visionDrafts}
           scrapeAllowance={scrapeAllowance}

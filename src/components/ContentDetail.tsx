@@ -53,14 +53,6 @@ export type AnalyticsRow = {
   source: string;
 };
 
-/** A credited person's standing in the role they hold on this video. */
-export type CreditScore = {
-  userId: string;
-  roleSlug: string;
-  overall: number | null;
-  rankable: boolean;
-};
-
 export default function ContentDetail({
   workspaceId,
   item,
@@ -73,8 +65,6 @@ export default function ContentDetail({
   history,
   analytics,
   clients,
-  creditScores = [],
-  boostByPlatform = {},
   transcript = null,
   visionDrafts = {},
   scrapeAllowance = null,
@@ -99,10 +89,6 @@ export default function ContentDetail({
   history: SnapshotRow[];
   analytics: AnalyticsRow[];
   clients: Client[];
-  /** Per-person, per-role standing, shown beside each credit (PRD 1.1.3). */
-  creditScores?: CreditScore[];
-  /** This video's own boost index per platform, keyed by platform slug. */
-  boostByPlatform?: Record<string, number>;
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -233,20 +219,20 @@ export default function ContentDetail({
             onChange={(e) => setMeta({ ...meta, title: e.target.value })}
             placeholder="Title"
           />
-          <select
-            className="input max-w-[180px]"
+          {/* "No client" is a real state for a video, so the clear row means
+              what it says. An archived client stays listed while it is THIS
+              video's current one -- otherwise the field would read blank and
+              reassigning would be the only way out of a state nobody chose. */}
+          <Select
+            className="max-w-[190px]"
             value={meta.clientId}
-            onChange={(e) => setMeta({ ...meta, clientId: e.target.value })}
-          >
-            <option value="">No client</option>
-            {clients
-              .filter((c) => !c.is_archived)
-              .map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-          </select>
+            onChange={(v) => setMeta({ ...meta, clientId: v })}
+            placeholder="No client"
+            ariaLabel="Client"
+            options={clients
+              .filter((c) => !c.is_archived || c.id === meta.clientId)
+              .map((c) => ({ value: c.id, label: c.name }))}
+          />
           <input
             type="date"
             className="input max-w-[160px]"
@@ -652,7 +638,7 @@ export default function ContentDetail({
       <div className="mb-2 flex items-baseline justify-between">
         <h2 className="text-sm font-semibold">Credits</h2>
         <span className="text-xs text-[var(--muted)]">
-          The figure beside a name is their standing in that role
+          Who did what on this video
         </span>
       </div>
       <div className="card divide-y divide-[var(--border)] overflow-hidden">
@@ -665,9 +651,6 @@ export default function ContentDetail({
               </span>
               <div className="flex flex-1 flex-wrap gap-1.5">
                 {holders.map((h) => {
-                  const score = creditScores.find(
-                    (s) => s.userId === h.user_id && s.roleSlug === role.slug,
-                  );
                   return (
                     <span
                       key={h.id}
@@ -711,28 +694,27 @@ export default function ContentDetail({
                   <span className="text-xs text-[var(--muted)]">Unassigned</span>
                 )}
               </div>
-              <select
-                className="input max-w-[150px] py-1 text-xs"
+              {/* An ACTION picker, not a value one: it holds "" so it resets
+                  after each pick and can assign a second person. The clear
+                  row is therefore a no-op, exactly as the empty <option> was. */}
+              <Select
+                className="max-w-[160px]"
                 value=""
-                onChange={async (e) => {
-                  if (!e.target.value) return;
+                placeholder="Assign…"
+                ariaLabel={`Assign ${role.name}`}
+                onChange={async (v) => {
+                  if (!v) return;
                   const res = await assignRole({
                     workspaceId,
                     contentItemId: item.id,
-                    userId: e.target.value,
+                    userId: v,
                     roleId: role.id,
                   });
                   if (res.error) setError(res.error);
                   refresh();
                 }}
-              >
-                <option value="">Assign…</option>
-                {members.map((m) => (
-                  <option key={m.userId} value={m.userId}>
-                    {m.name}
-                  </option>
-                ))}
-              </select>
+                options={members.map((m) => ({ value: m.userId, label: m.name }))}
+              />
             </div>
           );
         })}

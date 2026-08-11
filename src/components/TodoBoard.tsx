@@ -10,6 +10,7 @@ import {
   Copy,
   ListChecks,
 } from "lucide-react";
+import Select from "@/components/ui/Select";
 import { createTodo, deleteTodo, toggleTodoDone, updateTodo } from "@/app/actions";
 import EmptyState from "@/components/ui/EmptyState";
 import { useToast } from "@/components/ui/Toast";
@@ -177,32 +178,22 @@ export default function TodoBoard({
       {manages && (
         <div className="card mb-4 p-3">
           <div className="flex flex-wrap items-center gap-2">
-            <select
-              className="input max-w-[180px] py-1.5"
+            <Select
+              className="max-w-[180px]"
               value={draft.userId}
-              onChange={(e) => setDraft({ ...draft, userId: e.target.value })}
-              aria-label="Assign to"
-            >
-              <option value="">Assign to…</option>
-              {members.map((m) => (
-                <option key={m.userId} value={m.userId}>
-                  {m.name}
-                </option>
-              ))}
-            </select>
-            <select
-              className="input max-w-[200px] py-1.5"
+              onChange={(v) => setDraft({ ...draft, userId: v })}
+              placeholder="Assign to…"
+              ariaLabel="Assign to"
+              options={members.map((m) => ({ value: m.userId, label: m.name }))}
+            />
+            <Select
+              className="max-w-[200px]"
               value={draft.clientId}
-              onChange={(e) => setDraft({ ...draft, clientId: e.target.value })}
-              aria-label="Client"
-            >
-              <option value="">No client (general)</option>
-              {clients.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
+              onChange={(v) => setDraft({ ...draft, clientId: v })}
+              placeholder="No client (general)"
+              ariaLabel="Client"
+              options={clients.map((c) => ({ value: c.id, label: c.name }))}
+            />
             <input
               ref={descRef}
               className="input min-w-[220px] flex-1 py-1.5"
@@ -440,40 +431,29 @@ function BriefImport({
           <div className="space-y-1.5">
             {rows.map((r, i) => (
               <div key={i} className="flex flex-wrap items-center gap-1.5" title={r.raw}>
-                <select
-                  className="input max-w-[150px] py-1 text-xs"
+                <Select
+                  className="max-w-[150px]"
                   value={r.userId ?? ""}
-                  onChange={(e) => {
-                    const m = members.find((x) => x.userId === e.target.value);
+                  onChange={(v) => {
+                    const m = members.find((x) => x.userId === v);
                     patchRow(i, { userId: m?.userId ?? null, personName: m?.name ?? null });
                   }}
-                  aria-label="Person"
-                  style={{ borderColor: r.userId ? undefined : "var(--danger)" }}
-                >
-                  <option value="">Person…</option>
-                  {members.map((m) => (
-                    <option key={m.userId} value={m.userId}>
-                      {m.name}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  className="input max-w-[170px] py-1 text-xs"
+                  placeholder="Person…"
+                  ariaLabel="Person"
+                  invalid={!r.userId}
+                  options={members.map((m) => ({ value: m.userId, label: m.name }))}
+                />
+                <Select
+                  className="max-w-[170px]"
                   value={r.clientId ?? ""}
-                  onChange={(e) => {
-                    const c = clients.find((x) => x.id === e.target.value);
+                  onChange={(v) => {
+                    const c = clients.find((x) => x.id === v);
                     patchRow(i, { clientId: c?.id ?? null, clientName: c?.name ?? null });
                   }}
-                  aria-label="Client"
-                  style={{ borderColor: r.clientId ? undefined : "var(--warning)" }}
-                >
-                  <option value="">No client</option>
-                  {clients.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
+                  placeholder="No client"
+                  ariaLabel="Client"
+                  options={clients.map((c) => ({ value: c.id, label: c.name }))}
+                />
                 <input
                   className="input min-w-[180px] flex-1 py-1 text-xs"
                   value={r.description}
@@ -597,23 +577,18 @@ function TodoRow({
           <button className="btn px-2 py-1 text-xs" onClick={() => setEditing(true)}>
             Edit
           </button>
-          <select
-            className="input max-w-[130px] py-1 text-xs"
+          <Select
+            className="max-w-[150px]"
             value={client?.id ?? ""}
-            onChange={async (e) => {
-              const res = await updateTodo(todo.id, { clientId: e.target.value || null });
+            onChange={async (v) => {
+              const res = await updateTodo(todo.id, { clientId: v || null });
               if (res.error) toast("danger", res.error);
               onChanged();
             }}
-            aria-label="Change client"
-          >
-            <option value="">No client</option>
-            {clients.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
+            placeholder="No client"
+            ariaLabel="Change client"
+            options={clients.map((c) => ({ value: c.id, label: c.name }))}
+          />
           <button
             className="rounded px-2 py-1 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--danger)]"
             onClick={async () => {

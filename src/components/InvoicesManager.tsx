@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Select from "@/components/ui/Select";
 import { deleteInvoice, generateInvoice, updateInvoiceStatus } from "@/app/actions";
 import { formatMoney, type InvoiceTotals } from "@/lib/billing";
 import { dayKey } from "@/lib/format";
@@ -62,18 +63,17 @@ export default function InvoicesManager({
       <div className="card mb-4 flex flex-wrap items-end gap-2 p-3">
         <label className="text-xs text-[var(--muted)]">
           Client
-          <select
-            className="input mt-1 w-48"
+          {/* Archived clients stay listed HERE on purpose: work already done
+              for a client you have since stopped taking on still has to be
+              invoiced. Excluding them would strand that money. */}
+          <Select
+            className="mt-1 w-48"
             value={clientId}
-            onChange={(e) => setClientId(e.target.value)}
-          >
-            <option value="">Select…</option>
-            {clients.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
+            onChange={setClientId}
+            placeholder="Select…"
+            ariaLabel="Client"
+            options={clients.map((c) => ({ value: c.id, label: c.name }))}
+          />
         </label>
         <label className="text-xs text-[var(--muted)]">
           Include work up to

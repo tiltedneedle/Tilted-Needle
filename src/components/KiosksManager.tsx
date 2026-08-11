@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Select from "@/components/ui/Select";
 import { createKiosk, setMemberKioskPin, toggleKiosk } from "@/app/actions";
 
 type Kiosk = {
@@ -52,18 +53,16 @@ export default function KiosksManager({
           </label>
           <label className="text-xs text-[var(--muted)]">
             Project
-            <select
-              className="input mt-1 min-w-[150px]"
+            {/* A kiosk pinned to no project clocks general time, which is a
+                real setup, so the clear row means what it says. */}
+            <Select
+              className="mt-1 min-w-[150px]"
               value={projectId}
-              onChange={(e) => setProjectId(e.target.value)}
-            >
-              <option value="">No project</option>
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
+              onChange={setProjectId}
+              placeholder="No project"
+              ariaLabel="Project"
+              options={projects.map((p) => ({ value: p.id, label: p.name }))}
+            />
           </label>
           <button
             className="btn-primary"

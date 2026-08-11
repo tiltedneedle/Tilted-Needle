@@ -29,6 +29,7 @@ export default function Select({
   className = "",
   ariaLabel,
   disabled = false,
+  invalid = false,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -38,6 +39,14 @@ export default function Select({
   className?: string;
   ariaLabel?: string;
   disabled?: boolean;
+  /**
+   * Draw the control as needing attention. Exists because the import review
+   * rows flagged unmapped people and clients with a red or amber border on
+   * the native element -- swapping to this component would have silently
+   * dropped that cue, and a row that is missing a required value would have
+   * looked identical to one that is complete.
+   */
+  invalid?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -65,7 +74,11 @@ export default function Select({
       <button
         type="button"
         className={`input flex w-full cursor-pointer items-center gap-1.5 py-1.5 text-left text-sm transition-colors ${
-          value ? "border-[var(--accent)]/50 font-medium" : ""
+          invalid
+            ? "border-[var(--danger)]"
+            : value
+              ? "border-[var(--accent)]/50 font-medium"
+              : ""
         } ${disabled ? "cursor-not-allowed opacity-50" : ""}`}
         onClick={() => !disabled && setOpen((v) => !v)}
         aria-expanded={open}

@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
+import Select from "@/components/ui/Select";
 import { dayKey, formatDuration, formatDurationShort } from "@/lib/format";
 import type { Client, Project, TimeEntry } from "@/lib/types";
 
@@ -147,53 +148,52 @@ export default function ReportView({
 
           <label className="text-xs text-[var(--muted)]">
             Client
-            <select
-              className="input mt-1 min-w-[150px]"
+            {/* "Without client" is a REAL third choice here, not the
+                absence of a filter, so it stays an explicit option while the
+                clear row carries "All clients". */}
+            <Select
+              className="mt-1 min-w-[150px]"
               value={client}
-              onChange={(e) => setClient(e.target.value)}
-            >
-              <option value="">All clients</option>
-              {/* Null option, matching the Clockify pickers (PRD 7.3). */}
-              <option value="none">Without client</option>
-              {clients
-                .filter((c) => !c.is_archived)
-                .map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-            </select>
+              onChange={setClient}
+              placeholder="All clients"
+              ariaLabel="Client"
+              options={[
+                { value: "none", label: "Without client" },
+                ...clients
+                  .filter((c) => !c.is_archived)
+                  .map((c) => ({ value: c.id, label: c.name })),
+              ]}
+            />
           </label>
 
           <label className="text-xs text-[var(--muted)]">
             Project
-            <select
-              className="input mt-1 min-w-[150px]"
+            <Select
+              className="mt-1 min-w-[150px]"
               value={project}
-              onChange={(e) => setProject(e.target.value)}
-            >
-              <option value="">All projects</option>
-              {projects
+              onChange={setProject}
+              placeholder="All projects"
+              ariaLabel="Project"
+              options={projects
                 .filter((p) => !p.is_archived)
-                .map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-            </select>
+                .map((p) => ({ value: p.id, label: p.name }))}
+            />
           </label>
 
           {canSeeTeam && (
             <label className="text-xs text-[var(--muted)]">
               Scope
-              <select
-                className="input mt-1"
+              <Select
+                className="mt-1 min-w-[120px]"
                 value={scope}
-                onChange={(e) => setScope(e.target.value)}
-              >
-                <option value="me">Only me</option>
-                <option value="team">Team</option>
-              </select>
+                onChange={(v) => v && setScope(v)}
+                placeholder="Only me"
+                ariaLabel="Scope"
+                options={[
+                  { value: "me", label: "Only me" },
+                  { value: "team", label: "Team" },
+                ]}
+              />
             </label>
           )}
 
@@ -218,32 +218,31 @@ export default function ReportView({
         <div className="flex-1" />
         <label className="text-xs text-[var(--muted)]">
           Group by
-          <select
-            className="input mt-1"
+          <Select
+            className="mt-1 min-w-[130px]"
             value={primary}
-            onChange={(e) => setPrimary(e.target.value as GroupBy)}
-          >
-            {GROUPS.map((g) => (
-              <option key={g.value} value={g.value}>
-                {g.label}
-              </option>
-            ))}
-          </select>
+            onChange={(v) => v && setPrimary(v as GroupBy)}
+            placeholder={GROUPS[0]?.label ?? "Group by"}
+            ariaLabel="Group by"
+            options={GROUPS.map((g) => ({ value: g.value, label: g.label }))}
+          />
         </label>
         <label className="text-xs text-[var(--muted)]">
           Then by
-          <select
-            className="input mt-1"
+          {/* "None" is a real choice, not the absence of one, so it is an
+              explicit option AND the clear row maps onto it -- an empty
+              value would otherwise write "" into a field typed GroupBy. */}
+          <Select
+            className="mt-1 min-w-[130px]"
             value={secondary}
-            onChange={(e) => setSecondary(e.target.value as GroupBy | "none")}
-          >
-            <option value="none">None</option>
-            {GROUPS.filter((g) => g.value !== primary).map((g) => (
-              <option key={g.value} value={g.value}>
-                {g.label}
-              </option>
-            ))}
-          </select>
+            onChange={(v) => setSecondary((v || "none") as GroupBy | "none")}
+            placeholder="None"
+            ariaLabel="Then by"
+            options={GROUPS.filter((g) => g.value !== primary).map((g) => ({
+              value: g.value,
+              label: g.label,
+            }))}
+          />
         </label>
       </div>
 

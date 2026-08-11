@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Select from "@/components/ui/Select";
 import { createContentItem } from "@/app/actions";
 import { parseDuration } from "@/lib/format";
 import type { Client } from "@/lib/types";
@@ -66,20 +67,16 @@ export default function NewContentForm({
           value={title}
           onChange={(e) => setTitle(e.target.value)}
         />
-        <select
-          className="input max-w-[180px]"
+        <Select
+          className="max-w-[190px]"
           value={clientId}
-          onChange={(e) => setClientId(e.target.value)}
-        >
-          <option value="">No client</option>
-          {clients
+          onChange={setClientId}
+          placeholder="No client"
+          ariaLabel="Client"
+          options={clients
             .filter((c) => !c.is_archived)
-            .map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-        </select>
+            .map((c) => ({ value: c.id, label: c.name }))}
+        />
         <input
           type="date"
           className="input max-w-[160px]"
