@@ -5,6 +5,7 @@ import { updateSyncWindow } from "@/app/actions";
 import { useRouter } from "next/navigation";
 import { RefreshCw } from "lucide-react";
 import { syncNow } from "@/app/actions";
+import Select from "@/components/ui/Select";
 import { useToast } from "@/components/ui/Toast";
 import { PLATFORM_COLORS } from "@/lib/types";
 
@@ -270,14 +271,30 @@ function SyncWindowControl({
   const [busy, setBusy] = useState(false);
 
   return (
-    <select
-      className="cursor-pointer rounded bg-transparent text-xs text-[var(--muted)] transition-colors hover:text-[var(--fg)] focus:outline-none disabled:opacity-50"
+    // The dropdown from the Data-sync screenshot: a native <select> whose
+    // option list the OS draws, so it opened as a white panel of unreadable
+    // grey text over the dark theme. Rendered in our own tokens now.
+    //
+    // No clear row -- every account HAS a window, and "all time" is one of
+    // the five choices rather than the absence of a choice. Passing the
+    // current label as the placeholder keeps it from ever showing.
+    <Select
+      className="min-w-[130px]"
       value={value}
       disabled={busy}
-      title="How far back discovery looks for this account"
-      aria-label={`Import window for this account`}
-      onChange={async (e) => {
-        const next = e.target.value;
+      ariaLabel="Import window for this account"
+      placeholder="30d window"
+      options={[
+        { value: "7", label: "7d window" },
+        { value: "30", label: "30d window" },
+        { value: "90", label: "90d window" },
+        { value: "365", label: "1y window" },
+        { value: "all", label: "all time" },
+      ]}
+      onChange={async (next) => {
+        // Select offers a clear row that yields ""; there is no "no window"
+        // state here, so an empty value is ignored rather than written.
+        if (!next) return;
         setValue(next);
         setBusy(true);
         try {
@@ -293,12 +310,6 @@ function SyncWindowControl({
           setBusy(false);
         }
       }}
-    >
-      <option value="7">7d window</option>
-      <option value="30">30d window</option>
-      <option value="90">90d window</option>
-      <option value="365">1y window</option>
-      <option value="all">all time</option>
-    </select>
+    />
   );
 }
