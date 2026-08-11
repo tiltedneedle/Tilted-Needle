@@ -465,11 +465,12 @@ export default function ContentDetail({
                     </button>
                     <button
                       className="btn px-2 py-1 text-xs"
+                      title="Every reading ever taken of this post's numbers, oldest to newest — one per sync. Shows whether it is still growing or has flattened."
                       onClick={() =>
                         setShowHistory(showHistory === p.id ? null : p.id)
                       }
                     >
-                      History ({history.filter((h) => h.platform_post_id === p.id).length})
+                      History ({forPost.length})
                     </button>
                     <button
                       className="row-actions rounded px-2 py-1 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--danger)]"
@@ -879,63 +880,112 @@ function EnhancedMetrics({
  * The stored time series, made visible. Scoring evaluates at a fixed maturity
  * window rather than on lifetime totals, so the history is the data that
  * matters -- a single current number cannot support it.
+ *
+ * Every column the snapshot HOLDS is shown. It previously drew views alone
+ * while likes, comments, shares and saves were fetched on every page load and
+ * silently dropped -- four of the six stored fields, invisible. Anyone asking
+ * "did the edit change how people responded, or just how many arrived?" was
+ * looking at a panel that had the answer and would not print it.
+ *
+ * Shares and saves appear only when a platform reports them, rather than as
+ * permanent "—" columns: YouTube gives neither, so on a YouTube post those two
+ * columns would be dead width on every row forever.
  */
 function SnapshotHistory({ rows }: { rows: SnapshotRow[] }) {
   if (rows.length === 0) {
     return (
       <p className="animate-rise mt-2 text-xs text-[var(--muted)]">
-        No snapshots recorded yet.
+        No snapshots recorded yet. One is taken each time this account syncs.
       </p>
     );
   }
 
   const peak = Math.max(...rows.map((r) => r.views ?? 0), 1);
+  const hasShares = rows.some((r) => r.shares != null);
+  const hasSaves = rows.some((r) => r.saves != null);
   // Ascending for the reader: growth should run left to right.
   const ordered = [...rows].reverse();
 
   return (
     <div className="animate-rise mt-3 border-t border-[var(--border)] pt-2">
       <div className="mb-1.5 text-xs text-[var(--muted)]">
-        Snapshot history — {rows.length} recorded
+        Snapshot history — {rows.length} recorded, one per sync. Each row is
+        what the numbers were at that moment; the change column compares it to
+        the reading before it.
       </div>
-      <div className="space-y-1">
-        {ordered.map((r, i) => {
-          const prev = i > 0 ? (ordered[i - 1].views ?? 0) : null;
-          const views = r.views ?? 0;
-          const delta = prev == null ? null : views - prev;
-          return (
-            <div key={r.captured_at + i} className="flex items-center gap-2 text-xs">
-              <span className="w-28 shrink-0 text-[var(--muted)]">
-                {new Date(r.captured_at).toLocaleDateString([], {
-                  day: "numeric",
-                  month: "short",
-                })}{" "}
-                {new Date(r.captured_at).toLocaleTimeString([], {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </span>
-              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[var(--bg-subtle)]">
-                <div
-                  className="h-full rounded-full bg-[var(--accent)] transition-[width] duration-300"
-                  style={{ width: `${Math.max(2, (views / peak) * 100)}%` }}
-                />
+
+      {/* The row is wider than a phone. Scrolling it beats wrapping or
+          dropping columns -- the numbers only mean anything side by side. */}
+      <div className="-mx-1 overflow-x-auto px-1">
+        <div className="min-w-[440px] space-y-1">
+          <div className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-[var(--muted)]">
+            <span className="w-28 shrink-0">Taken</span>
+            <span className="flex-1">Views</span>
+            <span className="w-20 shrink-0 text-right">Views</span>
+            <span className="w-16 shrink-0 text-right">Change</span>
+            <span className="w-14 shrink-0 text-right">Likes</span>
+            <span className="w-16 shrink-0 text-right">Comments</span>
+            {hasShares && <span className="w-14 shrink-0 text-right">Shares</span>}
+            {hasSaves && <span className="w-14 shrink-0 text-right">Saves</span>}
+          </div>
+
+          {ordered.map((r, i) => {
+            const prev = i > 0 ? (ordered[i - 1].views ?? 0) : null;
+            const views = r.views ?? 0;
+            const delta = prev == null ? null : views - prev;
+            return (
+              <div key={r.captured_at + i} className="flex items-center gap-2 text-xs">
+                <span className="w-28 shrink-0 text-[var(--muted)]">
+                  {new Date(r.captured_at).toLocaleDateString([], {
+                    day: "numeric",
+                    month: "short",
+                  })}{" "}
+                  {new Date(r.captured_at).toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </span>
+                <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[var(--bg-subtle)]">
+                  <div
+                    className="h-full rounded-full bg-[var(--accent)] transition-[width] duration-300"
+                    style={{ width: `${Math.max(2, (views / peak) * 100)}%` }}
+                  />
+                </div>
+                <span className="tabular w-20 shrink-0 text-right">
+                  {views.toLocaleString()}
+                </span>
+                <span
+                  className={`tabular w-16 shrink-0 text-right ${
+                    delta && delta > 0 ? "text-emerald-500" : "text-[var(--muted)]"
+                  }`}
+                >
+                  {delta == null ? "—" : delta > 0 ? `+${delta.toLocaleString()}` : delta}
+                </span>
+                {/* null is "the platform never told us", which is not zero --
+                    so it prints as a dash rather than a number nobody
+                    measured. */}
+                <Cell value={r.likes} />
+                <Cell value={r.comments} width="w-16" />
+                {hasShares && <Cell value={r.shares} />}
+                {hasSaves && <Cell value={r.saves} />}
               </div>
-              <span className="tabular w-20 shrink-0 text-right">
-                {views.toLocaleString()}
-              </span>
-              <span
-                className={`tabular w-16 shrink-0 text-right ${
-                  delta && delta > 0 ? "text-emerald-500" : "text-[var(--muted)]"
-                }`}
-              >
-                {delta == null ? "—" : delta > 0 ? `+${delta.toLocaleString()}` : delta}
-              </span>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
     </div>
+  );
+}
+
+function Cell({ value, width = "w-14" }: { value: number | null; width?: string }) {
+  return (
+    <span
+      className={`tabular ${width} shrink-0 text-right ${
+        value == null ? "text-[var(--muted)]" : ""
+      }`}
+    >
+      {value == null ? "—" : value.toLocaleString()}
+    </span>
   );
 }
 
