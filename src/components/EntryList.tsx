@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { deleteEntry, updateEntry, startTimer } from "@/app/actions";
+import Select from "@/components/ui/Select";
 import { useToast } from "@/components/ui/Toast";
 import {
   dayKey,
@@ -140,25 +141,28 @@ export default function EntryList({
                       {/* The join: attaching an entry to content is what makes
                           hours-per-video and cost-per-1k-views possible. */}
                       {contentItems.length > 0 && (
-                        <select
-                          className="rounded border border-transparent bg-transparent px-1 py-0.5 text-xs text-[var(--muted)] transition-colors hover:border-[var(--border)] hover:text-[var(--fg)]"
+                        /* Was a native <select>. Its option list is drawn by
+                           the OS, so in dark mode it opened as a white panel
+                           of unreadable grey text -- and this one lists every
+                           video in the workspace, which made it the most
+                           visible instance of that bug in the app. */
+                        <Select
+                          className="min-w-[180px] max-w-[280px]"
                           value={e.content_item_id ?? ""}
-                          onChange={async (ev) => {
+                          onChange={async (v) => {
                             const res = await updateEntry(e.id, {
-                              contentItemId: ev.target.value || null,
+                              contentItemId: v || null,
                             });
                             if (res.error) toast("danger", res.error);
                             startTransition(() => router.refresh());
                           }}
-                          aria-label="Link to content"
-                        >
-                          <option value="">— no content —</option>
-                          {contentItems.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.title}
-                            </option>
-                          ))}
-                        </select>
+                          options={contentItems.map((c) => ({
+                            value: c.id,
+                            label: c.title,
+                          }))}
+                          placeholder="— no content —"
+                          ariaLabel="Link to content"
+                        />
                       )}
                     </div>
                   </div>
