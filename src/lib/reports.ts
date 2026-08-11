@@ -27,10 +27,18 @@ export type PersonStats = {
   userId: string;
   name: string;
   videosInView: number;
-  /** Per-platform reach on their in-view videos -- chips, never summed. */
-  platforms: { platform: string; views: number }[];
-  /** Mean boost index across the scored posts of their in-view videos. */
-  avgBoost: number | null;
+  /**
+   * Per-platform totals on their in-view videos -- chips, never summed
+   * across platforms.
+   *
+   * A person's performance IS the performance of the videos they worked on,
+   * stated in the platform's own units. This replaced a single boost
+   * multiplier ("0.94x"), which compressed all of that into one abstract
+   * number nobody could act on: it did not say whether the work reached
+   * anyone, and a figure below 1.00 read as a verdict on the person rather
+   * than a comparison against an account baseline that shifts under them.
+   */
+  platforms: { platform: string; views: number; likes: number; comments: number }[];
   /** Content roles they hold on the in-view videos, e.g. ["Editor"]. */
   roles: string[];
   /** How many in-view videos they hold each role on. */
@@ -67,13 +75,18 @@ export function personStats(
     const theirs = inView.filter((a) => a.user_id === userId);
     const videoIds = [...new Set(theirs.map((a) => a.content_item_id))];
 
-    const perPlatform = new Map<string, number>();
-    const boosts: number[] = [];
+    const perPlatform = new Map<
+      string,
+      { views: number; likes: number; comments: number }
+    >();
     for (const id of videoIds) {
       for (const pl of videoById.get(id)?.platforms ?? []) {
-        perPlatform.set(pl.platform, (perPlatform.get(pl.platform) ?? 0) + pl.views);
+        const cur = perPlatform.get(pl.platform) ?? { views: 0, likes: 0, comments: 0 };
+        cur.views += pl.views;
+        cur.likes += pl.likes;
+        cur.comments += pl.comments;
+        perPlatform.set(pl.platform, cur);
       }
-      for (const s of scoredByContent.get(id) ?? []) boosts.push(s.index);
     }
 
     const byRole = new Map<string, Set<string>>();
@@ -87,9 +100,8 @@ export function personStats(
       name,
       videosInView: videoIds.length,
       platforms: [...perPlatform.entries()]
-        .map(([platform, views]) => ({ platform, views }))
+        .map(([platform, t]) => ({ platform, ...t }))
         .sort((a, b) => b.views - a.views),
-      avgBoost: boosts.length ? boosts.reduce((s, x) => s + x, 0) / boosts.length : null,
       roles: [...byRole.keys()].sort(),
       roleCounts: [...byRole.entries()]
         .map(([role, ids]) => ({ role, videos: ids.size }))
@@ -171,10 +183,16 @@ export function buildEmployeeReport(
     cells: {
       label: { text: p.name, sort: p.name.toLowerCase() },
       videos: p.videosInView > 0 ? num(p.videosInView) : dash(0),
-      boost:
-        p.avgBoost != null
-          ? { text: `${p.avgBoost.toFixed(2)}×`, sort: p.avgBoost }
-          : dash(-1),
+      // Engagement, not a multiplier. Likes and comments ARE summable across
+      // platforms in a way views are not -- a like means roughly the same
+      // thing everywhere, while a view is counted differently on each -- so
+      // these two totals are honest where a pooled view count would not be.
+      likes: p.platforms.length
+        ? num(p.platforms.reduce((s, x) => s + x.likes, 0))
+        : dash(0),
+      comments: p.platforms.length
+        ? num(p.platforms.reduce((s, x) => s + x.comments, 0))
+        : dash(0),
       hours: dur(p.seconds),
       roles: p.roleCounts.length
         ? {
@@ -196,7 +214,8 @@ export function buildEmployeeReport(
     columns: [
       { key: "label", label: "Person", kind: "text" },
       { key: "videos", label: "Videos", kind: "number", hint: "Videos they are credited on, in range" },
-      { key: "boost", label: "Avg boost", kind: "number", hint: "Mean multiplier across their scored posts here" },
+      { key: "likes", label: "Likes", kind: "number", hint: "Across every video they are credited on, in range" },
+      { key: "comments", label: "Comments", kind: "number", hint: "Across every video they are credited on, in range" },
       { key: "hours", label: "Hours", kind: "number", hint: "Time tracked against these videos" },
       { key: "roles", label: "Roles", kind: "text" },
       { key: "reach", label: "Reach by platform", kind: "platforms" },
@@ -209,7 +228,13 @@ export function buildEmployeeReport(
         // three times. The honest total is how many distinct videos are in
         // view at all.
         videos: { text: videos.length.toLocaleString(), sort: videos.length },
-        boost: dash(),
+        // Summed over the VIDEOS in view, not over the person rows: a video
+        // with three credits would otherwise have its likes counted three
+        // times, and the total would exceed what the platform reports.
+        likes: num(videos.reduce((s, v) => s + v.platforms.reduce((t, p) => t + p.likes, 0), 0)),
+        comments: num(
+          videos.reduce((s, v) => s + v.platforms.reduce((t, p) => t + p.comments, 0), 0),
+        ),
         hours: dur(stats.reduce((s, p) => s + p.seconds, 0)),
         roles: dash(""),
       },

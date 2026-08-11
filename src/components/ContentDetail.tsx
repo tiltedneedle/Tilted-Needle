@@ -15,7 +15,6 @@ import {
   updatePlatformPost,
 } from "@/app/actions";
 import { formatDurationShort, parseDuration } from "@/lib/format";
-import { asMultiplier } from "@/lib/scoring";
 import VideoEmbed from "@/components/VideoEmbed";
 import Avatar from "@/components/Avatar";
 import ScreenshotImport from "@/components/ScreenshotImport";
@@ -431,22 +430,12 @@ export default function ContentDetail({
                   {p.source}
                 </span>
 
-                {/* How this post did against its own account's baseline --
-                    the only comparison that means anything across platforms. */}
-                {boostByPlatform[slug] != null && (
-                  <span
-                    className={`tabular rounded px-1.5 py-0.5 text-xs font-medium ${
-                      boostByPlatform[slug] >= 2
-                        ? "bg-emerald-500/10 text-emerald-500"
-                        : boostByPlatform[slug] >= 1
-                          ? "bg-[var(--bg-subtle)] text-[var(--muted)]"
-                          : "bg-amber-500/10 text-amber-500"
-                    }`}
-                    title="Views versus this account's recent median"
-                  >
-                    {boostByPlatform[slug].toFixed(1)}× baseline
-                  </span>
-                )}
+                {/* The "1.2x baseline" chip was here. Removed by request,
+                    with the whole baseline model: it compared a post to a
+                    median that moves as the account grows, so the same video
+                    could read as a win or a failure depending on when you
+                    looked, and nobody could act on the difference. The real
+                    numbers are directly below. */}
 
                 <button
                   className={`rounded px-1.5 py-0.5 text-xs transition-colors ${
@@ -642,13 +631,7 @@ export default function ContentDetail({
                     <span
                       key={h.id}
                       className="group/chip flex items-center gap-1.5 rounded-full bg-[var(--bg-subtle)] py-0.5 pl-0.5 pr-2 text-xs"
-                      title={
-                        // PRD v0.5 §3: the multiplier IS the information; the
-                        // tier vocabulary around it is removed by request.
-                        score?.rankable && score.overall != null
-                          ? `${asMultiplier(score.overall).toFixed(2)}× in this role`
-                          : "Not enough posts yet to score them in this role"
-                      }
+                      title="See everything they have worked on"
                     >
                       {/* Same colour as this person's circle everywhere else
                           in the app, so credits stay scannable across views. */}
@@ -665,13 +648,10 @@ export default function ContentDetail({
                       >
                         {h.profile?.full_name ?? "Unknown"}
                       </Link>
-                      {score?.rankable && score.overall != null ? (
-                        <span className="tabular font-medium">
-                          {asMultiplier(score.overall).toFixed(2)}×
-                        </span>
-                      ) : (
-                        <span className="text-[var(--muted)] opacity-70">n/a</span>
-                      )}
+                      {/* No score beside the name. A person's performance is
+                          the performance of their videos, shown as real
+                          totals when they are selected on Content -- not a
+                          per-role multiplier stamped on their face here. */}
                       <button
                         className="opacity-0 transition-opacity group-hover/chip:opacity-100"
                         onClick={async () => {

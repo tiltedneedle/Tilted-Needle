@@ -1,8 +1,8 @@
 import Link from "next/link";
 import Avatar from "@/components/Avatar";
-import { PlatformChips } from "@/components/PlatformReach";
 import { SectionHeading } from "@/components/Stat";
-import { formatDurationShort } from "@/lib/format";
+import { formatCount, formatDurationShort } from "@/lib/format";
+import { PLATFORM_COLORS } from "@/lib/types";
 
 import type { PersonStats } from "@/lib/reports";
 
@@ -34,14 +34,6 @@ export default function PeopleInView({ people }: { people: PersonStats[] }) {
               >
                 {p.name}
               </Link>
-              {p.avgBoost != null && (
-                <span
-                  className="tabular shrink-0 text-sm font-semibold"
-                  title="Average boost across their scored posts in this view"
-                >
-                  {p.avgBoost.toFixed(2)}×
-                </span>
-              )}
             </div>
 
             <div className="mt-3 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-sm">
@@ -69,9 +61,43 @@ export default function PeopleInView({ people }: { people: PersonStats[] }) {
               </div>
             )}
 
-            <div className="mt-2.5">
-              <PlatformChips platforms={p.platforms} emptyText="nothing published in view" />
-            </div>
+            {/* Their actual reach, per platform, in each platform's own
+                units. This replaced a single boost multiplier: one abstract
+                number that never said whether the work reached anyone, and
+                that read as a verdict on the person whenever it fell below
+                1.00. Rows rather than chips because likes and comments
+                belong beside the views they came from -- and still never
+                added across platforms, where a view is not the same thing. */}
+            {p.platforms.length === 0 ? (
+              <p className="mt-3 text-xs text-[var(--muted)]">
+                Nothing published in this view yet.
+              </p>
+            ) : (
+              <div className="mt-3 space-y-1.5 border-t border-[var(--border)] pt-2.5">
+                {p.platforms.map((pl) => (
+                  <div key={pl.platform} className="flex items-baseline gap-2 text-xs">
+                    <span
+                      className="size-2 shrink-0 rounded-full"
+                      style={{ background: PLATFORM_COLORS[pl.platform] ?? "var(--muted)" }}
+                    />
+                    <span className="w-16 shrink-0 capitalize text-[var(--muted)]">
+                      {pl.platform}
+                    </span>
+                    <span className="tabular font-semibold">
+                      {formatCount(pl.views)}
+                    </span>
+                    <span className="text-[var(--muted)]">views</span>
+                    <span className="flex-1" />
+                    <span className="tabular text-[var(--muted)]">
+                      {formatCount(pl.likes)} likes
+                    </span>
+                    <span className="tabular text-[var(--muted)]">
+                      {formatCount(pl.comments)} comments
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         ))}
       </div>

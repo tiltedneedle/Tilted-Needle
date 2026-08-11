@@ -1,6 +1,6 @@
 "use client";
 
-import { formatDurationShort } from "@/lib/format";
+import { formatCount, formatDurationShort } from "@/lib/format";
 import { hoursPerThousandViews } from "@/lib/rollup";
 import PlatformReach from "@/components/PlatformReach";
 import VideoTile, { type TileMember, type TileRole } from "@/components/VideoTile";
@@ -31,10 +31,17 @@ export default function ClientDetail({
   const published = videos.filter((v) => v.postCount > 0);
   const inProgress = videos.filter((v) => v.postCount === 0);
 
-  // Best performer by boost index, falling back to raw reach when nothing has
-  // enough account history to be scored yet.
+  // Ranked by actual reach, not by boost index. The index sorted by "beat its
+  // own account's median hardest", which routinely crowned a small video on a
+  // quiet account over one that genuinely reached the most people -- the
+  // opposite of what "best" reads as. Peak single-platform views, because a
+  // view means something different on each and must not be pooled.
   const best =
-    [...published].sort((a, b) => (b.bestIndex ?? 0) - (a.bestIndex ?? 0))[0] ?? null;
+    [...published].sort(
+      (a, b) =>
+        b.platforms.reduce((s, p) => Math.max(s, p.views), 0) -
+        a.platforms.reduce((s, p) => Math.max(s, p.views), 0),
+    )[0] ?? null;
 
   return (
     <>
@@ -62,11 +69,19 @@ export default function ClientDetail({
           }
           accent={client.recentGain > 0}
         />
+        {/* Was "Best performer: 2.1x over account baseline". The multiplier
+            is gone product-wide, so this states the same thing in the unit
+            the platform actually reports: the most-viewed video, by name. */}
         <Stat
-          label="Best performer"
-          value={best?.bestIndex != null ? `${best.bestIndex.toFixed(1)}×` : "—"}
-          hint={best?.bestIndex != null ? "over account baseline" : "not enough history"}
-          accent={best?.bestIndex != null && best.bestIndex >= 2}
+          label="Most viewed"
+          value={
+            best
+              ? formatCount(
+                  best.platforms.reduce((s, p) => Math.max(s, p.views), 0),
+                )
+              : "—"
+          }
+          hint={best ? best.title.slice(0, 40) : "nothing published yet"}
         />
       </StatGrid>
 

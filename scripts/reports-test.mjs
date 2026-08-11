@@ -77,15 +77,26 @@ const seconds = new Map([["u1", 7200], ["u2", 1800]]);
   check("two roles on one video count as one video, not two",
     u1.roleCounts.find((r) => r.role === "Editor").videos === 2 &&
     u1.roleCounts.find((r) => r.role === "Videographer").videos === 1);
+  // Performance is now the REAL totals of the videos they worked on, in each
+  // platform's own units -- the boost multiplier was removed from the product
+  // because one abstract number never said whether the work reached anyone.
   check("reach stays split by platform, never pooled",
     JSON.stringify(u1.platforms) ===
-      JSON.stringify([{ platform: "tiktok", views: 5000 }, { platform: "youtube", views: 1400 }]));
-  check("avg boost is the mean over their in-view scored posts",
-    Math.abs(u1.avgBoost - (1.5 + 2.5 + 1.0) / 3) < 1e-9, `got ${u1.avgBoost}`);
+      JSON.stringify([
+        { platform: "tiktok", views: 5000, likes: 250, comments: 25 },
+        { platform: "youtube", views: 1400, likes: 120, comments: 14 },
+      ]),
+    JSON.stringify(u1.platforms));
+  check("likes and comments accumulate across their videos, per platform",
+    u1.platforms.find((p) => p.platform === "youtube").likes === 120 &&
+    u1.platforms.find((p) => p.platform === "youtube").comments === 14);
+  check("the boost multiplier is gone from the shape entirely",
+    !("avgBoost" in u1), "avgBoost still present");
   check("tracked seconds come straight from the caller's map", u1.seconds === 7200);
   check("a person credited on one video reports one", u2.videosInView === 1);
-  check("nobody inherits anybody else's boost",
-    Math.abs(u2.avgBoost - 2.0) < 1e-9, `got ${u2.avgBoost}`);
+  check("nobody inherits anybody else's totals",
+    u2.platforms.find((p) => p.platform === "youtube").views === 1000,
+    `got ${u2.platforms.find((p) => p.platform === "youtube")?.views}`);
 
   // The whole point of the merge: same person, narrowed view, smaller numbers.
   const narrowed = personStats(people, videos.filter((v) => v.id === "v2"), assignments, scored, seconds);
@@ -106,11 +117,17 @@ const seconds = new Map([["u1", 7200], ["u2", 1800]]);
   const r = buildEmployeeReport(stats, videos);
 
   check("employee report has one row per person", r.rows.length === 2);
-  check("the boost prints as a plain multiplier, no tier words",
-    r.rows.find((x) => x.id === "u1").cells.boost.text === "1.67×",
-    r.rows.find((x) => x.id === "u1").cells.boost.text);
-  check("no cell anywhere carries baseline/tier vocabulary",
-    !JSON.stringify(r).match(/baseline|Insufficient/i));
+  // Likes and comments ARE summable across platforms in a way views are not:
+  // a like means roughly the same thing everywhere, a view does not.
+  check("the report shows real engagement totals, not a multiplier",
+    r.rows.find((x) => x.id === "u1").cells.likes.text === "370" &&
+    r.rows.find((x) => x.id === "u1").cells.comments.text === "39",
+    `${r.rows.find((x) => x.id === "u1").cells.likes.text} likes, `
+      + `${r.rows.find((x) => x.id === "u1").cells.comments.text} comments`);
+  check("no boost column survives anywhere in the report",
+    !r.columns.some((c) => c.key === "boost") && !JSON.stringify(r).includes("×"));
+  check("no cell anywhere carries baseline/tier/multiplier vocabulary",
+    !JSON.stringify(r).match(/baseline|Insufficient|multiplier/i));
   check("the totals row counts distinct videos, not summed credits",
     r.totals.cells.videos.text === "3",
     `${r.totals.cells.videos.text} (summing the column would give 3 from 2+1)`);
@@ -223,8 +240,17 @@ const seconds = new Map([["u1", 7200], ["u2", 1800]]);
   check("each csv row repeats the person's scalars beside one platform",
     rows.filter((x) => x[0] === "Usama").length === 2 &&
     rows.filter((x) => x[0] === "Usama").every((x) => x[1] === "2"));
-  check("csv figures match the screen",
-    rows.some((x) => x[0] === "Usama" && x[5] === "youtube" && x[6] === 1400));
+  // Located BY HEADER, not by position. The first version hardcoded x[5] and
+  // x[6], so replacing one column with two silently moved the fields under it
+  // and the assertion started reading the wrong cells -- a test that breaks on
+  // a layout change it does not care about is testing the layout.
+  {
+    const iPlat = headers.indexOf("Platform");
+    const iViews = headers.indexOf("Views");
+    check("csv figures match the screen",
+      rows.some((x) => x[0] === "Usama" && x[iPlat] === "youtube" && x[iViews] === 1400),
+      `Platform@${iPlat} Views@${iViews}`);
+  }
 
   // A person with nothing published still gets a row rather than vanishing.
   const lonely = buildEmployeeReport(

@@ -435,13 +435,10 @@ export default function VideoTile({
           </span>
         )}
 
-        {/* A boost badge only appears once the account has enough history to
-            have a baseline worth beating. */}
-        {v.bestIndex != null && v.bestIndex >= 2 && (
-          <span className="tabular rounded bg-emerald-500/10 px-1.5 py-0.5 text-xs font-medium text-emerald-500">
-            {v.bestIndex.toFixed(1)}×
-          </span>
-        )}
+        {/* The boost badge lived here. Removed with the rest of the baseline
+            model: it measured a video against a median that rises as the
+            account grows, so a good video could quietly become a "bad" one
+            without changing. The tile shows real reach instead. */}
 
         <div className="border-l border-[var(--border)] pl-3">
           <RoleCredits
