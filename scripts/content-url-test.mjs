@@ -47,6 +47,33 @@ const bad = (s) => { const r = U.parseContentUrl(s); return r.ok === false; };
     bad("https://www.youtube.com/@somechannel"));
   check("a /channel/ link is refused",
     bad("https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv"));
+
+  /* -- Shorts is a separate platform ---------------------------------------
+     A Shorts view is counted on impression; a long-form YouTube view after
+     ~30 seconds. Attaching a pasted Short to the youtube platform would file
+     one unit of measurement under another -- a wrong NUMBER, not a wrong
+     label -- so the URL shape is taken at its word. */
+  {
+    const s = ok(`https://www.youtube.com/shorts/${want}`);
+    check("a /shorts/ link resolves to the youtube_shorts platform",
+      s.ok && s.data.platform === "youtube_shorts",
+      s.ok ? s.data.platform : s.error);
+    check("...and keeps its Shorts canonical form",
+      s.ok && s.data.canonicalUrl === `https://www.youtube.com/shorts/${want}`,
+      s.ok ? s.data.canonicalUrl : "");
+    check("...with the same id as the watch form",
+      s.ok && s.data.externalId === want);
+
+    const w = ok(`https://www.youtube.com/watch?v=${want}`);
+    check("a watch link stays long-form youtube",
+      w.ok && w.data.platform === "youtube");
+    check("youtu.be short links are long-form, not Shorts",
+      ok(`https://youtu.be/${want}`).data.platform === "youtube");
+    // The id alone cannot tell you which it is -- only the URL shape can, and
+    // guessing would file the post under the wrong platform.
+    check("an /embed/ link is not assumed to be a Short",
+      ok(`https://www.youtube.com/embed/${want}`).data.platform === "youtube");
+  }
 }
 
 /* -- TikTok ---------------------------------------------------------------- */

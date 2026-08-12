@@ -80,26 +80,81 @@ export function parseIsoDuration(iso: string): number | null {
 }
 
 /**
- * Is this video a YouTube Short? Over 180s cannot be one (YouTube's own
- * ceiling); at or under, the /shorts/ URL is the authoritative signal -- it
- * serves a Short directly (200) but redirects a normal video to /watch
- * (3xx). Errors report "not a Short" on purpose: discovery must fail open
- * rather than silently drop long-form work (see discover()).
+ * Is this video a Short? true / false / null, where null means "the probe
+ * could not tell".
+ *
+ * Over 180s cannot be one (YouTube's own ceiling), which is a definite `false`
+ * needing no network call. At or under, the /shorts/ URL is authoritative: it
+ * serves a Short directly (200) and redirects a normal video to /watch (3xx).
+ *
+ * THE TRI-STATE IS THE POINT. This used to return a plain boolean and report
+ * "not a Short" when the probe threw, which was exactly right while there was
+ * only one consumer: long-form discovery skips Shorts, so an error meant
+ * "keep it", and no long-form work could ever be silently dropped.
+ *
+ * Inverting that same boolean for Shorts mode would invert the failure with
+ * it -- a network blip would mean "not a Short", and the video would be
+ * dropped from the only feed it belongs to. Silently. So the uncertainty is
+ * now explicit and each caller decides what to do with it: long-form keeps an
+ * unknown (unchanged behaviour), Shorts skips it. An unknown video therefore
+ * lands in long-form and never in both, and because it is never written to
+ * platform_posts under the Shorts account it stays "unseen" and gets another
+ * chance on the next discovery run. Nothing is lost permanently.
  */
-export async function isYoutubeShort(
+export async function classifyShort(
   externalId: string,
   lengthSeconds: number | null,
-): Promise<boolean> {
+): Promise<boolean | null> {
   if (lengthSeconds != null && lengthSeconds > 180) return false;
+
+  const memo = shortProbeCache.get(externalId);
+  if (memo && Date.now() - memo.at < PROBE_TTL_MS) return memo.value;
+
+  let value: boolean | null;
   try {
     const res = await fetch(`https://www.youtube.com/shorts/${externalId}`, {
       method: "HEAD",
       redirect: "manual",
     });
-    return res.status === 200;
+    // A 200 is a Short and a 3xx is a normal video. Anything else (429, 5xx,
+    // a captcha wall) is not evidence either way and must not be read as one.
+    value = res.status === 200 ? true : res.status >= 300 && res.status < 400 ? false : null;
   } catch {
-    return false;
+    value = null;
   }
+  rememberProbe(externalId, value);
+  return value;
+}
+
+/**
+ * Kept because a client with BOTH a youtube and a youtube_shorts account
+ * discovers the same channel twice in one sync run, and would otherwise probe
+ * every candidate video twice. Short TTL and a hard cap: this is a
+ * within-a-run memo, not a cache anyone should depend on.
+ */
+const PROBE_TTL_MS = 10 * 60 * 1000;
+const PROBE_CACHE_MAX = 2000;
+const shortProbeCache = new Map<string, { value: boolean | null; at: number }>();
+
+function rememberProbe(externalId: string, value: boolean | null) {
+  // A null is "we could not tell", so it must NOT be remembered -- caching it
+  // would turn one transient failure into ten minutes of the same wrong
+  // answer for that video.
+  if (value === null) return;
+  if (shortProbeCache.size >= PROBE_CACHE_MAX) shortProbeCache.clear();
+  shortProbeCache.set(externalId, { value, at: Date.now() });
+}
+
+/**
+ * Back-compat for callers that only ask "should long-form skip this".
+ * Unknown reads as "not a Short", which is the fail-open behaviour long-form
+ * discovery has always had and still wants.
+ */
+export async function isYoutubeShort(
+  externalId: string,
+  lengthSeconds: number | null,
+): Promise<boolean> {
+  return (await classifyShort(externalId, lengthSeconds)) === true;
 }
 
 /**
@@ -239,8 +294,23 @@ function toCandidates(
   }));
 }
 
-/** Resolves a handle or channel id to that channel's uploads playlist. */
+/**
+ * Resolves a handle or channel id to that channel's uploads playlist.
+ *
+ * Memoised because a client with BOTH a youtube and a youtube_shorts account
+ * syncs the same channel twice in one run, and this is a quota call. Only
+ * successes are remembered: caching a failure would turn one bad minute into
+ * ten minutes of a channel appearing not to exist.
+ */
+const PLAYLIST_TTL_MS = 10 * 60 * 1000;
+const playlistCache = new Map<string, { id: string; at: number }>();
+
 async function uploadsPlaylist(handle: string): Promise<ProviderResult<string>> {
+  const key = handle.trim().toLowerCase();
+  const memo = playlistCache.get(key);
+  if (memo && Date.now() - memo.at < PLAYLIST_TTL_MS) {
+    return { ok: true, data: memo.id };
+  }
   const ref = parseChannelRef(handle);
   if (!ref) {
     return {
@@ -263,6 +333,8 @@ async function uploadsPlaylist(handle: string): Promise<ProviderResult<string>> 
       error: `No public channel found for "${handle}".`,
     };
   }
+  if (playlistCache.size >= 500) playlistCache.clear();
+  playlistCache.set(key, { id: uploads, at: Date.now() });
   return { ok: true, data: uploads };
 }
 
@@ -431,12 +503,25 @@ export const youtubeProvider: PublicProvider = {
       }
     }
 
-    const longForm: DiscoveredPost[] = [];
+    /* The two modes are exact complements, and the UNKNOWN case is what keeps
+       them from overlapping or leaking.
+
+         definitely a Short   -> Shorts feed only
+         definitely not       -> long-form only
+         could not tell       -> long-form only
+
+       Long-form therefore behaves exactly as it always has (an unknown is
+       kept, so no long-form work is ever silently dropped), and a video can
+       never land in both. An unknown that really was a Short is missed for
+       this run only: it is never written under the Shorts account, so it is
+       still "unseen" next time and gets another chance. */
+    const wantShorts = options.shortsOnly === true;
+    const out: DiscoveredPost[] = [];
     for (const p of found) {
-      if (await isYoutubeShort(p.externalId, p.lengthSeconds)) continue;
-      longForm.push(p);
+      const isShort = await classifyShort(p.externalId, p.lengthSeconds);
+      if (wantShorts ? isShort === true : isShort !== true) out.push(p);
     }
-    return { ok: true, data: longForm };
+    return { ok: true, data: out };
   },
 
   async fetchMetrics(externalIds) {

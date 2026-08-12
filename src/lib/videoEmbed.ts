@@ -23,6 +23,14 @@ export function embedFor(
       const id = externalId || youtubeIdFrom(url);
       return id ? { src: `https://www.youtube-nocookie.com/embed/${id}`, vertical: false } : null;
     }
+    // Same embed endpoint -- a Short is an ordinary video to the player -- but
+    // vertical, so the frame matches the footage instead of pillarboxing it.
+    // Without this case a Short would fall through to `default` and render no
+    // player at all.
+    case "youtube_shorts": {
+      const id = externalId || youtubeIdFrom(url);
+      return id ? { src: `https://www.youtube-nocookie.com/embed/${id}`, vertical: true } : null;
+    }
     case "tiktok": {
       const id = externalId || tiktokIdFrom(url);
       return id ? { src: `https://www.tiktok.com/embed/v2/${id}`, vertical: true } : null;

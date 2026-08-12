@@ -126,6 +126,15 @@ export type DiscoverOptions = {
   limit?: number;
   /** ISO date (YYYY-MM-DD). Posts published before this are not returned. */
   since?: string | null;
+  /**
+   * YouTube only. Return ONLY Shorts instead of only long-form.
+   *
+   * The two modes are exact complements over the same uploads playlist, which
+   * is why this is a mode rather than a second provider: a channel has one
+   * upload feed, and "Shorts" is a property of the video, not a separate
+   * account to fetch.
+   */
+  shortsOnly?: boolean;
 };
 
 export type ProviderResult<T> =

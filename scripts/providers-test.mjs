@@ -341,26 +341,26 @@ const ref = (s) => Y.parseChannelRef(s);
     throw new Error("must not be called");
   };
   check("over 180s is long-form with no network call",
-    (await Y.isYoutubeShort("abcdefghijk", 181)) === false && fetched === 0);
+    (await Y.isYoutubeShort("probeLong001", 181)) === false && fetched === 0);
 
   // At or under 180s, the /shorts/ URL decides: 200 = a Short.
   globalThis.fetch = async (url, opts) => {
     check("short check hits the /shorts/ url with HEAD, no redirect follow",
-      String(url).includes("/shorts/abcdefghijk") &&
+      String(url).includes("/shorts/probeHit002") &&
         opts?.method === "HEAD" && opts?.redirect === "manual");
     return new Response(null, { status: 200 });
   };
-  check("a 200 on /shorts/ marks it a Short", (await Y.isYoutubeShort("abcdefghijk", 45)) === true);
+  check("a 200 on /shorts/ marks it a Short", (await Y.isYoutubeShort("probeHit002", 45)) === true);
 
   // A redirect means a normal watch page.
   globalThis.fetch = async () => new Response(null, { status: 303 });
   check("a redirect on /shorts/ marks it long-form",
-    (await Y.isYoutubeShort("abcdefghijk", 45)) === false);
+    (await Y.isYoutubeShort("probeRedir03", 45)) === false);
 
   // Unknown duration still gets the URL check rather than a guess.
   globalThis.fetch = async () => new Response(null, { status: 200 });
   check("null duration falls through to the URL check",
-    (await Y.isYoutubeShort("abcdefghijk", null)) === true);
+    (await Y.isYoutubeShort("probeNull004", null)) === true);
 
   // Network failure keeps the video: dropping long-form silently is the
   // worse failure mode, and a stray Short is deletable by hand.
@@ -368,9 +368,88 @@ const ref = (s) => Y.parseChannelRef(s);
     throw new Error("offline");
   };
   check("a network error fails open (kept as long-form)",
-    (await Y.isYoutubeShort("abcdefghijk", 45)) === false);
+    (await Y.isYoutubeShort("probeErr0005", 45)) === false);
 
   globalThis.fetch = realFetch;
+}
+
+/* -- Shorts classification is a TRI-state ---------------------------------
+   The boolean version was correct while long-form discovery was the only
+   consumer: an error meant "not a Short", so nothing long-form was ever
+   dropped. Inverting that same boolean for Shorts mode inverts the failure
+   with it -- a network blip would silently drop a Short from the only feed
+   it belongs to. So uncertainty is explicit and each mode decides. */
+{
+  const realFetch = globalThis.fetch;
+
+  globalThis.fetch = async () => new Response(null, { status: 200 });
+  check("a 200 is definitely a Short",
+    (await Y.classifyShort("classifyA0001", 30)) === true);
+
+  globalThis.fetch = async () => new Response(null, { status: 303 });
+  check("a redirect is definitely NOT a Short",
+    (await Y.classifyShort("classifyB0002", 30)) === false);
+
+  // 429 / 5xx / captcha wall: not evidence either way, and must not be read
+  // as one. This is the case the boolean version could not express.
+  globalThis.fetch = async () => new Response(null, { status: 429 });
+  check("a rate-limit answer is UNKNOWN, not 'not a Short'",
+    (await Y.classifyShort("classifyC0003", 30)) === null);
+
+  globalThis.fetch = async () => { throw new Error("offline"); };
+  check("a thrown request is UNKNOWN too",
+    (await Y.classifyShort("classifyD0004", 30)) === null);
+
+  // Over YouTube's own ceiling needs no network call at all.
+  let called = 0;
+  globalThis.fetch = async () => { called++; return new Response(null, { status: 200 }); };
+  check("over 180s is a definite false without probing",
+    (await Y.classifyShort("classifyE0005", 400)) === false && called === 0,
+    `probed ${called} times`);
+
+  // An unknown must NOT be cached: one bad minute would otherwise become ten
+  // minutes of the same wrong answer for that video.
+  let n = 0;
+  globalThis.fetch = async () => { n++; return new Response(null, { status: 429 }); };
+  await Y.classifyShort("classifyF0006", 30);
+  await Y.classifyShort("classifyF0006", 30);
+  check("an unknown result is never memoised", n === 2, `probed ${n} times`);
+
+  // A definite answer IS cached, so a client with both a youtube and a
+  // youtube_shorts account does not probe every video twice in one run.
+  let m = 0;
+  globalThis.fetch = async () => { m++; return new Response(null, { status: 200 }); };
+  await Y.classifyShort("classifyG0007", 30);
+  await Y.classifyShort("classifyG0007", 30);
+  check("a definite answer is memoised across the two modes", m === 1, `probed ${m} times`);
+
+  // The old boolean helper still exists for long-form's fail-open contract.
+  globalThis.fetch = async () => { throw new Error("offline"); };
+  check("isYoutubeShort still reads unknown as 'keep it as long-form'",
+    (await Y.isYoutubeShort("classifyH0008", 45)) === false);
+
+  globalThis.fetch = realFetch;
+}
+
+/* -- The registry --------------------------------------------------------- */
+{
+  check("youtube_shorts is a registered platform",
+    P.PROVIDERS.youtube_shorts?.slug === "youtube_shorts");
+  check("it is NOT the same object as youtube",
+    P.PROVIDERS.youtube_shorts !== P.PROVIDERS.youtube);
+  check("but it reuses youtube's capability and config checks",
+    P.PROVIDERS.youtube_shorts.capability === P.PROVIDERS.youtube.capability &&
+      P.PROVIDERS.youtube_shorts.isConfigured === P.PROVIDERS.youtube.isConfigured);
+
+  // The delegation must actually FORCE shortsOnly. If it silently forwarded
+  // the caller's options instead, the Shorts account would import long-form
+  // and nobody would notice until the numbers looked odd.
+  const seen = [];
+  const spy = { ...P.PROVIDERS.youtube, discover: async (h, o) => { seen.push(o); return { ok: true, data: [] }; } };
+  const shorts = { ...spy, slug: "youtube_shorts", discover: (h, o = {}) => spy.discover(h, { ...o, shortsOnly: true }) };
+  await shorts.discover("@x", { limit: 5 });
+  check("shorts mode forces shortsOnly and keeps other options",
+    seen[0]?.shortsOnly === true && seen[0]?.limit === 5, JSON.stringify(seen[0]));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

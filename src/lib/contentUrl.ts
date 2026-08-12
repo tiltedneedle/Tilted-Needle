@@ -14,7 +14,7 @@
  * why. Never guess an id out of an unfamiliar URL.
  */
 
-export type ContentPlatform = "youtube" | "tiktok" | "instagram";
+export type ContentPlatform = "youtube" | "youtube_shorts" | "tiktok" | "instagram";
 
 export type ParsedContentUrl = {
   platform: ContentPlatform;
@@ -106,13 +106,25 @@ function parseYouTube(url: string): ParseResult | null {
     return { ok: false, error: "No video id in that YouTube link." };
   }
 
+  // A /shorts/ link is the one case where the URL itself states which of the
+  // two platforms it belongs to, so it is taken at its word. Any other shape
+  // reads as long-form: guessing from the id alone would need the network
+  // probe, and being wrong here attaches the post to the wrong account -- and
+  // the two platforms count a view differently, so that is a wrong NUMBER,
+  // not just a wrong label.
+  const isShort = /\/shorts\/[A-Za-z0-9_-]{11}/.test(url);
+
   return {
     ok: true,
     data: {
-      platform: "youtube",
+      platform: isShort ? "youtube_shorts" : "youtube",
       externalId: m[1],
       handle: null,
-      canonicalUrl: `https://www.youtube.com/watch?v=${m[1]}`,
+      // Canonical form keeps the shape it came in as, so a Short opens as a
+      // Short rather than in the long-form player.
+      canonicalUrl: isShort
+        ? `https://www.youtube.com/shorts/${m[1]}`
+        : `https://www.youtube.com/watch?v=${m[1]}`,
     },
   };
 }

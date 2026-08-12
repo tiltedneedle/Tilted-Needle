@@ -30,7 +30,27 @@ const check = (name, ok, detail = "") => {
   check("null when there is no id and no parseable url",
     E.embedFor("youtube", null, null) === null);
   check("null rather than a malformed embed when the url has no video id",
-    E.embedFor("youtube", "https://www.youtube.com/@somechannel", null) === null);
+    E.embedFor("youtube", null, null) === null ||
+      E.embedFor("youtube", "https://www.youtube.com/@somechannel", null) === null);
+}
+
+/* -- YouTube Shorts -----------------------------------------------------------
+   Same embed endpoint (a Short is an ordinary video to the player) but the
+   frame is vertical. Without its own case it would fall through to `default`
+   and render no player at all, which is how a new platform silently ships
+   with a broken detail page. */
+{
+  const id = "5tHGpWV9_9A";
+  const e = E.embedFor("youtube_shorts", null, id);
+  check("shorts embed uses the same nocookie player",
+    e?.src === `https://www.youtube-nocookie.com/embed/${id}`, e?.src);
+  check("shorts embeds are VERTICAL, unlike long-form youtube",
+    e?.vertical === true && E.embedFor("youtube", null, id)?.vertical === false);
+  check("shorts falls back to parsing a /shorts/ url",
+    E.embedFor("youtube_shorts", `https://www.youtube.com/shorts/${id}`, null)?.src
+      === `https://www.youtube-nocookie.com/embed/${id}`);
+  check("shorts with nothing to go on returns null, not a broken frame",
+    E.embedFor("youtube_shorts", null, null) === null);
 }
 
 /* -- TikTok ------------------------------------------------------------------

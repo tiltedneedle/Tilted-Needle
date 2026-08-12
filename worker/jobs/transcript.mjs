@@ -123,6 +123,8 @@ async function viaDiscoverBox(externalId, postUrl, log) {
   };
 }
 
+import { isYouTubeLike } from "../platforms.mjs";
+
 export async function transcript({ db, job, log }) {
   const { data: posts, error } = await db
     .from("platform_posts")
@@ -164,7 +166,9 @@ export async function transcript({ db, job, log }) {
   //    everything else by URL, since no other platform has an id shape the
   //    service could reconstruct a link from.
   const boxed = await viaDiscoverBox(
-    post.platform === "youtube" ? post.external_id : null,
+    // A Short's id reconstructs a youtube.com URL exactly like any other, so
+    // it goes by id too rather than falling back to the URL route.
+    isYouTubeLike(post.platform) ? post.external_id : null,
     post.url,
     log,
   );
@@ -207,7 +211,7 @@ export async function transcript({ db, job, log }) {
   //    any other platform. Without this guard a TikTok post would be turned
   //    into a youtube.com/watch?v=<tiktok id> URL and fail as "no captions",
   //    which is a lie about the video rather than about the route.
-  if (post.platform !== "youtube") {
+  if (!isYouTubeLike(post.platform)) {
     return {
       unavailable: true,
       note: `no transcript available for this ${post.platform} post ` +

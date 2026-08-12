@@ -21,6 +21,7 @@
  *                converges instead of re-picking the same rows.
  */
 import { createClient } from "@supabase/supabase-js";
+import { isYouTubeLike } from "./platforms.mjs";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SECRET_KEY;
@@ -119,7 +120,10 @@ async function planComments() {
   const postsOfItem = new Map(); // content_item_id -> post ids
   for (const p of posts ?? []) {
     const slug = (Array.isArray(p.account) ? p.account[0] : p.account)?.platform_slug;
-    if (slug !== "youtube" && slug !== "instagram") continue;
+    // Shorts count as YouTube here: they carry captions like any other video
+    // on the service, and excluding them would leave a whole platform with no
+    // transcripts for no reason.
+    if (!isYouTubeLike(slug) && slug !== "instagram") continue;
     items.set(p.content_item_id, p.workspace_id);
     if (!postsOfItem.has(p.content_item_id)) postsOfItem.set(p.content_item_id, []);
     postsOfItem.get(p.content_item_id).push(p.id);
@@ -170,7 +174,7 @@ async function planTranscript() {
   const byItem = new Map();
   for (const p of posts ?? []) {
     const slug = (Array.isArray(p.account) ? p.account[0] : p.account)?.platform_slug;
-    if (slug !== "youtube" && slug !== "tiktok") continue;
+    if (!isYouTubeLike(slug) && slug !== "tiktok") continue;
     if (!byItem.has(p.content_item_id)) {
       byItem.set(p.content_item_id, p.workspace_id);
     }

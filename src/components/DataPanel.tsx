@@ -78,12 +78,20 @@ export default function DataPanel({
     startTransition(() => router.refresh());
   }
 
-  const known = ["youtube", "instagram", "tiktok"];
+  const known = ["youtube", "youtube_shorts", "instagram", "tiktok"];
   const sections = [
     {
       slug: "youtube",
       label: "YouTube",
-      note: "Official Data API — free quota, resets daily. Long-form only: Shorts are filtered out at discovery.",
+      note: "Official Data API — free quota, resets daily. Long-form only: Shorts belong to the YouTube Shorts platform below.",
+      pill: null as React.ReactNode,
+    },
+    {
+      slug: "youtube_shorts",
+      label: "YouTube Shorts",
+      // Says the two things someone needs before adding one: it is the same
+      // channel handle, and a Shorts view is not a YouTube view.
+      note: "Same channel, Shorts only — add a page here with the same @handle as the YouTube one. Views are counted on impression, not after 30 seconds, so they are never added to YouTube's.",
       pill: null as React.ReactNode,
     },
     {

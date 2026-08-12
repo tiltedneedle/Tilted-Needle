@@ -15,6 +15,8 @@
  */
 
 const API = "https://www.googleapis.com/youtube/v3/commentThreads";
+import { isYouTubeLike } from "../platforms.mjs";
+
 /** Enough for any realistic video; the cap stops a runaway thread eating quota. */
 const MAX_PAGES = 10;
 
@@ -34,7 +36,9 @@ export async function comments({ db, job, log }) {
     platform: (Array.isArray(p.account) ? p.account[0] : p.account)?.platform_slug,
   }));
 
-  const youtube = withPlatform.filter((p) => p.platform === "youtube");
+  // Shorts included: the Data API's commentThreads endpoint takes a video id
+  // and neither knows nor cares that the video is vertical.
+  const youtube = withPlatform.filter((p) => isYouTubeLike(p.platform));
   // Instagram has no free comment API, but yt-dlp reads them -- verified on a
   // real post. TikTok is deliberately absent: its extractor returns zero
   // comments even on a post with 169 of them, so queueing it would spend
