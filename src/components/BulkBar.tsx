@@ -9,6 +9,15 @@ import { useToast } from "@/components/ui/Toast";
 import type { TileMember, TileRole } from "@/components/VideoTile";
 
 /**
+ * Sentinel for "take these off their client".
+ *
+ * Not the empty string, because the empty string is what an untouched select
+ * holds -- and conflating the two is precisely how three videos were
+ * unassigned by pressing Move without choosing anything.
+ */
+const CLEAR_CLIENT = "__clear__";
+
+/**
  * What you can do to several videos at once, as a bar that appears when
  * something is selected.
  *
@@ -69,11 +78,18 @@ export default function BulkBar({
   }
 
   async function setClient() {
+    // Guarded, not just disabled: the button below cannot be pressed without
+    // a choice, but this is the function that actually clears data.
+    if (!clientId) return;
+    const target = clientId === CLEAR_CLIENT ? null : clientId;
     setBusy(true);
-    const res = await bulkSetClient({ workspaceId, contentItemIds: selected, clientId: clientId || null });
+    const res = await bulkSetClient({ workspaceId, contentItemIds: selected, clientId: target });
     setBusy(false);
     if (res.error) return toast("danger", res.error);
-    done(`${res.updated ?? 0} video${res.updated === 1 ? "" : "s"} moved.`);
+    const where = target
+      ? `to ${clients.find((c) => c.id === target)?.name ?? "that client"}`
+      : "out of their client";
+    done(`${res.updated ?? 0} video${res.updated === 1 ? "" : "s"} moved ${where}.`);
   }
 
   async function merge() {
@@ -137,15 +153,28 @@ export default function BulkBar({
 
       <span className="mx-1 h-4 w-px bg-[var(--border)]" />
 
+      {/* The placeholder used to read "No client", which is also a real
+          destination -- so an untouched dropdown looked like a valid choice
+          and Move silently unassigned everything selected. It has to read as
+          an empty field, and clearing has to be something you pick on
+          purpose. */}
       <Select
         className="max-w-[160px]"
         value={clientId}
         onChange={setClientId}
-        placeholder="No client"
+        placeholder="Move to…"
         ariaLabel="Move to client"
-        options={clients.map((c) => ({ value: c.id, label: c.name }))}
+        options={[
+          ...clients.map((c) => ({ value: c.id, label: c.name })),
+          { value: CLEAR_CLIENT, label: "— Remove from client —" },
+        ]}
       />
-      <button className="btn px-2.5 py-1 text-xs" disabled={busy} onClick={setClient}>
+      <button
+        className="btn px-2.5 py-1 text-xs"
+        disabled={busy || !clientId}
+        onClick={setClient}
+        title={clientId ? undefined : "Pick a destination first"}
+      >
         Move
       </button>
 
