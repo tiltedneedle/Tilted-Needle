@@ -146,7 +146,20 @@ function cutoffFor(windowDays: number | null): string | null {
 export async function syncAccount(
   db: Db,
   account: AccountRow,
-  opts: { discoverLimit?: number; pool?: BudgetPool; trigger?: "cron" | "manual" } = {},
+  opts: {
+    discoverLimit?: number;
+    pool?: BudgetPool;
+    trigger?: "cron" | "manual";
+    /**
+     * Whether this account may spend a BLOCKING vendor discovery call.
+     *
+     * Decided by runSync, which is the only place that can see how many the
+     * current run has already made -- see MAX_METERED_DISCOVERY_PER_RUN.
+     * Defaults to true so a direct syncAccount call (a person pressing Sync
+     * now on one account) is never silently throttled.
+     */
+    allowMeteredDiscovery?: boolean;
+  } = {},
 ): Promise<AccountSyncResult> {
   const base = {
     accountId: account.id,
@@ -212,17 +225,13 @@ export async function syncAccount(
     if (meteredDiscovery) {
       if (!isDueForDiscovery(trigger, account.last_discovered_at)) {
         grantedDiscovery = 0;
-      } else if (
-        trigger === "cron" &&
-        meteredDiscoveries >= MAX_METERED_DISCOVERY_PER_RUN
-      ) {
+      } else if (opts.allowMeteredDiscovery === false) {
         // Out of wall-clock budget for blocking vendor calls this run.
         // Deliberately does NOT stamp last_discovered_at: this account never
         // got its attempt, so it must stay due rather than be pushed to the
         // back of a 10-day cooldown it did not use.
         grantedDiscovery = 0;
       } else {
-        meteredDiscoveries++;
         const want = trigger === "manual" ? 12 : AUTO_DISCOVERY_WANT;
         grantedDiscovery = await claim(
           db,
@@ -580,9 +589,32 @@ export async function runSync(
       .single();
 
     const trigger = opts.trigger ?? "cron";
+
+    /**
+     * Ration the BLOCKING discovery calls across this run.
+     *
+     * Counted here rather than inside syncAccount because only the loop can
+     * see how many the run has already spent. A metered discovery is roughly
+     * thirty seconds of vendor actor time; nine of them is four and a half
+     * minutes of a three-hundred-second function, which is how the first
+     * live run came to overrun its limit.
+     *
+     * Only what would ACTUALLY discover counts against the cap -- an account
+     * still inside its cooldown makes no vendor call, so letting it consume
+     * a slot would throttle the run to nothing on a quiet day.
+     */
+    const wouldDiscover =
+      trigger === "cron" &&
+      providerFor(account.platform_slug)?.capability.discoveryMetered === true &&
+      isDueForDiscovery(trigger, account.last_discovered_at);
+    const allowMeteredDiscovery =
+      !wouldDiscover || meteredDiscoveries < MAX_METERED_DISCOVERY_PER_RUN;
+    if (wouldDiscover && allowMeteredDiscovery) meteredDiscoveries++;
+
     const result = await syncAccount(db, account, {
       discoverLimit: opts.discoverLimit,
       trigger,
+      allowMeteredDiscovery,
       // A manually-triggered run spends from the reserved manual pool, not
       // the automatic one -- so pressing "Sync now" or importing a new
       // account can never be starved by what the scheduled cron already
