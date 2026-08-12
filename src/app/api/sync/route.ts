@@ -65,6 +65,10 @@ export async function GET(req: Request) {
   // short. Absent means "everything", which is what a manual run wants.
   const maxRaw = Number(url.searchParams.get("max"));
   const maxAccounts = Number.isFinite(maxRaw) && maxRaw > 0 ? Math.floor(maxRaw) : undefined;
+  // What makes the batching terminate. The caller pins this to the moment it
+  // started, so accounts it has already synced drop out of the queue instead
+  // of rotating back to the front -- see runSync's staleBefore.
+  const staleBefore = url.searchParams.get("staleBefore") ?? undefined;
   // Vercel Cron never sends this -- it is for a deliberate operator call
   // (e.g. a fresh account's first import) that wants the fuller manual
   // catch-up rather than the throttled automatic cadence. Safe to expose:
@@ -80,6 +84,7 @@ export async function GET(req: Request) {
       accountId,
       platformSlug,
       maxAccounts,
+      staleBefore,
       trigger,
     });
 

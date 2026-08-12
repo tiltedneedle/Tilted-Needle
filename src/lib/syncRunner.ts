@@ -508,6 +508,20 @@ export async function runSync(
      *  function's time limit. The caller loops until a batch comes back
      *  short. Unset means "everything", which is what a manual run wants. */
     maxAccounts?: number;
+    /**
+     * Only accounts not synced since this ISO timestamp.
+     *
+     * This is what makes batching terminate. Without it the ordering merely
+     * ROTATES: batch three finishes the list, every account now has a fresh
+     * last_synced_at, and batch four happily returns the four oldest again --
+     * a full batch, forever. The first live run did exactly that, six batches
+     * for eleven accounts.
+     *
+     * Pinned to the moment the caller started, so an account synced by this
+     * run drops out of the queue while one that has genuinely never synced
+     * (null) always qualifies.
+     */
+    staleBefore?: string;
   } = {},
 ): Promise<AccountSyncResult[]> {
   let q = db
@@ -521,6 +535,10 @@ export async function runSync(
   if (opts.workspaceId) q = q.eq("workspace_id", opts.workspaceId);
   if (opts.accountId) q = q.eq("id", opts.accountId);
   if (opts.platformSlug) q = q.eq("platform_slug", opts.platformSlug);
+  // is.null first: an account that has never synced must always qualify.
+  if (opts.staleBefore) {
+    q = q.or(`last_synced_at.is.null,last_synced_at.lt.${opts.staleBefore}`);
+  }
 
   /**
    * Accounts belonging to an ARCHIVED CLIENT are skipped entirely.

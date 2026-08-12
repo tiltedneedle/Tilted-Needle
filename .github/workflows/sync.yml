@@ -114,6 +114,14 @@ jobs:
           # any one platform has; this only exists so a bug cannot loop.
           BATCHES=6
 
+          # Pinned once, before any request. Every batch asks only for
+          # accounts not synced since this instant, which is what makes the
+          # loop terminate: without it the stalest-first ordering merely
+          # rotates, and batch four returns the four accounts batch one just
+          # finished -- a full batch, forever.
+          STALE_BEFORE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          echo "syncing accounts not seen since ${STALE_BEFORE}"
+
           fail=0
           for platform in instagram tiktok youtube youtube_shorts; do
            for batch in $(seq 1 ${BATCHES}); do
@@ -125,7 +133,7 @@ jobs:
             code=$(curl -sS -o body.json -w '%{http_code}' \
               --max-time 320 \
               -H "Authorization: Bearer ${CRON_SECRET}" \
-              "${SITE_URL}/api/sync?platform=${platform}&max=${MAX}")
+              "${SITE_URL}/api/sync?platform=${platform}&max=${MAX}&staleBefore=${STALE_BEFORE}")
 
             # Print the body before judging it: on failure this is the only
             # record of WHY, and a 401 means the secret drifted from Vercel.
