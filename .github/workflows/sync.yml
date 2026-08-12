@@ -56,7 +56,10 @@ concurrency:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Four platforms, each up to a few batches. Generous on purpose: the point
+    # of batching is that no single REQUEST can hang, so the job timeout is a
+    # backstop rather than the thing keeping runs honest.
+    timeout-minutes: 30
     steps:
       - name: Trigger sync
         env:
@@ -93,8 +96,17 @@ jobs:
           #
           # Split by platform and each request is bounded and independently
           # meaningful. A slow vendor can no longer starve the others.
+          # Accounts per request. Instagram is the slow one at ~27s each, so
+          # six is roughly 160 seconds -- comfortably inside the route's 300s
+          # ceiling with room for a slow day.
+          MAX=6
+          # Safety stop. Six batches of six is far more than the ~14 accounts
+          # any one platform has; this only exists so a bug cannot loop.
+          BATCHES=6
+
           fail=0
           for platform in instagram tiktok youtube youtube_shorts; do
+           for batch in $(seq 1 ${BATCHES}); do
             # No --retry. Retrying a half-finished sync re-runs expensive work
             # for a request that may well have committed most of it, and the
             # stalest-first ordering already makes the NEXT scheduled run pick
@@ -103,28 +115,42 @@ jobs:
             code=$(curl -sS -o body.json -w '%{http_code}' \
               --max-time 320 \
               -H "Authorization: Bearer ${CRON_SECRET}" \
-              "${SITE_URL}/api/sync?platform=${platform}")
+              "${SITE_URL}/api/sync?platform=${platform}&max=${MAX}")
 
             # Print the body before judging it: on failure this is the only
             # record of WHY, and a 401 means the secret drifted from Vercel.
-            echo "--- ${platform}: HTTP ${code}"
+            echo "--- ${platform} batch ${batch}: HTTP ${code}"
             cat body.json
             echo
 
             if [ "${code}" != "200" ] || ! grep -q '"ok":true' body.json; then
               echo "::error::${platform} sync failed (HTTP ${code})"
               fail=1
-              # Deliberately keep going. One dead provider must not hide the
-              # results of the three that worked.
-              continue
+              # Give up on THIS platform but keep going with the others. One
+              # dead provider must not hide the results of the three that
+              # worked.
+              break
             fi
 
+            # Two reasons to stop asking. A short batch means the platform is
+            # finished. Zero synced means nothing moved -- every account came
+            # back skipped, so another identical request would return the same
+            # accounts forever.
             node -e '
-              const r = JSON.parse(require("fs").readFileSync("body.json", "utf8"));
-              const line = `'"${platform}"': synced ${r.synced}/${r.accounts} · ${r.postsCreated} new posts · ${r.snapshotsWritten} snapshots · ${r.failed} failed`;
+              const fs = require("fs");
+              const r = JSON.parse(fs.readFileSync("body.json", "utf8"));
+              const line = `'"${platform}"' batch '"${batch}"': synced ${r.synced}/${r.accounts} · ${r.postsCreated} new posts · ${r.snapshotsWritten} snapshots · ${r.failed} failed`;
               console.log(line);
-              require("fs").appendFileSync(process.env.GITHUB_STEP_SUMMARY, line + "\n");
+              fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, line + "\n");
+              fs.writeFileSync("counts.txt", `${r.accounts} ${r.synced}`);
             '
+            processed=$(cut -d" " -f1 counts.txt)
+            synced=$(cut -d" " -f2 counts.txt)
+
+            if [ "${processed}" -lt "${MAX}" ] || [ "${synced}" -eq 0 ]; then
+              break
+            fi
+           done
           done
 
           exit ${fail}

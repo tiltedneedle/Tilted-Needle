@@ -59,6 +59,12 @@ export async function GET(req: Request) {
   // curl retried it in pieces -- which reported a red X for work that had
   // actually succeeded.
   const platformSlug = url.searchParams.get("platform") ?? undefined;
+  // Batch size. Even one platform can outrun the limit -- Instagram's eleven
+  // accounts are ~27s each through Apify and returned 504 every time -- so
+  // the caller asks for a few at a time and repeats until a batch comes back
+  // short. Absent means "everything", which is what a manual run wants.
+  const maxRaw = Number(url.searchParams.get("max"));
+  const maxAccounts = Number.isFinite(maxRaw) && maxRaw > 0 ? Math.floor(maxRaw) : undefined;
   // Vercel Cron never sends this -- it is for a deliberate operator call
   // (e.g. a fresh account's first import) that wants the fuller manual
   // catch-up rather than the throttled automatic cadence. Safe to expose:
@@ -69,7 +75,13 @@ export async function GET(req: Request) {
   try {
     const db = serviceClient();
     const started = Date.now();
-    const results = await runSync(db, { workspaceId, accountId, trigger });
+    const results = await runSync(db, {
+      workspaceId,
+      accountId,
+      platformSlug,
+      maxAccounts,
+      trigger,
+    });
 
     // The pages themselves are dynamically rendered (session-based) and
     // always hit the database fresh, so this is not what keeps data

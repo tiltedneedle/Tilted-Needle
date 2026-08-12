@@ -504,6 +504,10 @@ export async function runSync(
     platformSlug?: string;
     trigger?: "cron" | "manual";
     discoverLimit?: number;
+    /** Process at most this many accounts, so one request fits in the
+     *  function's time limit. The caller loops until a batch comes back
+     *  short. Unset means "everything", which is what a manual run wants. */
+    maxAccounts?: number;
   } = {},
 ): Promise<AccountSyncResult[]> {
   let q = db
@@ -551,9 +555,27 @@ export async function runSync(
   const { data, error } = await q;
   if (error) throw new Error(`Could not list accounts: ${error.message}`);
 
-  const accounts = (data ?? []).filter(
+  const eligible = (data ?? []).filter(
     (a) => !(a as AccountRow).client_id || !archivedClientIds.has((a as AccountRow).client_id!),
   ) as AccountRow[];
+
+  /**
+   * Take only a batch, so one request finishes inside the function's limit.
+   *
+   * Splitting the scheduled sync by platform was not enough: Instagram alone
+   * is eleven accounts at roughly twenty-seven seconds each through Apify,
+   * which is over three hundred seconds on its own and returned 504 every
+   * time. The data stayed correct -- stalest-first ordering means a killed
+   * run resumes exactly where it stopped -- but a job that always times out
+   * can never report success, and a red light that is always red is not a
+   * signal.
+   *
+   * The caller loops until a batch comes back short. Because each synced
+   * account gets a fresh last_synced_at and the order is stalest-first, the
+   * next call naturally picks up where this one ended.
+   */
+  const accounts =
+    opts.maxAccounts && opts.maxAccounts > 0 ? eligible.slice(0, opts.maxAccounts) : eligible;
   const results: AccountSyncResult[] = [];
   // Blocking vendor discovery calls used so far this run -- see
   // MAX_METERED_DISCOVERY_PER_RUN for why wall clock, not spend, is the limit.
