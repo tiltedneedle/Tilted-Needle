@@ -334,6 +334,61 @@ export function RoleCredits({
 
 /* ---- The tile ------------------------------------------------------------ */
 
+/**
+ * The poster frame, and the neutral box it falls back to.
+ *
+ * The box is always rendered, image or not. That is the point: a video with no
+ * thumbnail has to look like a normal member of the list, not like something
+ * that failed to load, and a ragged left edge where some rows have an image
+ * and others start at the title would be worse than no images at all.
+ *
+ * 16:9 for every platform, including the vertical ones. A portrait frame at
+ * this height would be ~15px wide and identify nothing, and mixing aspect
+ * ratios down a list destroys the alignment the gutter exists to create. The
+ * image is cropped to fill, which for a vertical video shows its middle band --
+ * enough to recognise a clip you made, which is all this is for.
+ */
+function Thumb({
+  src,
+  title,
+  href,
+}: {
+  src: string | null;
+  title: string;
+  href: string;
+}) {
+  const [failed, setFailed] = useState(false);
+  const show = src && !failed;
+  return (
+    <Link
+      href={href}
+      className="hidden h-[30px] w-[52px] shrink-0 overflow-hidden rounded-[6px] bg-[var(--bg-subtle)] sm:block"
+      tabIndex={-1}
+      aria-hidden="true"
+      title={title}
+    >
+      {show && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={src}
+          alt=""
+          width={52}
+          height={30}
+          loading="lazy"
+          decoding="async"
+          // Some CDNs 403 a request that names a referring origin.
+          referrerPolicy="no-referrer"
+          className="size-full object-cover"
+          // A dead or expired URL becomes the empty box rather than the
+          // browser's broken-image glyph. Instagram's links are signed and
+          // WILL expire, so this is the expected path, not an edge case.
+          onError={() => setFailed(true)}
+        />
+      )}
+    </Link>
+  );
+}
+
 export type TileVideo = {
   id: string;
   title: string;
@@ -342,6 +397,8 @@ export type TileVideo = {
   lengthSeconds?: number | null;
   trackedSeconds?: number;
   platforms: TilePlatform[];
+  /** Poster frame, when a platform reported one. Optional and often absent. */
+  thumbnailUrl?: string | null;
   postCount?: number;
   bestIndex?: number | null;
   recentGain?: { views: number; days: number } | null;
@@ -389,6 +446,21 @@ export default function VideoTile({
     // than stacking by default -- a list is read down the titles, and pushing
     // every tile to four lines made 229 videos far longer to scan.
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-3 py-2 transition-colors hover:bg-[var(--bg-subtle)]">
+      {/* Sized to the two-line title block already here, so no row grows
+          taller -- the whole reason this list is one line per video is that
+          229 of them have to stay scannable.
+
+          A plain <img>, not next/image: next/image refuses any host not
+          allow-listed in next.config.ts, and these are platform CDNs whose
+          hostnames change without notice. ClientImage.tsx made the same call
+          for the same reason.
+
+          The box renders whether or not there is a URL, so a missing or
+          expired thumbnail looks deliberate rather than broken -- and onError
+          clears the src so a dead link degrades to that same box instead of
+          a browser's broken-image glyph. */}
+      <Thumb src={v.thumbnailUrl ?? null} title={v.title} href={href} />
+
       <div className="min-w-[220px] flex-1">
         <Link
           href={href}

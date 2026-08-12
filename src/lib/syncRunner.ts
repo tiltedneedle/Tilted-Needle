@@ -215,6 +215,7 @@ export async function syncAccount(
           // away for good. Nothing can recover this after the fact.
           posted_at_ts: e?.postedAtTs ?? null,
           has_captions: e?.hasCaptions ?? null,
+          thumbnail_url: post.thumbnailUrl ?? null,
           source: "api",
         })
         .select("id, external_id, content_item_id")
@@ -573,6 +574,7 @@ async function syncMeteredAccount(
               external_id: post.externalId,
               url: post.url,
               posted_at: post.postedAt,
+              thumbnail_url: post.thumbnailUrl ?? null,
               source: "api",
               last_scraped_at: new Date().toISOString(),
             })

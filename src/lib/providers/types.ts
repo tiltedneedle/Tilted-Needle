@@ -70,6 +70,13 @@ export type DiscoveredPost = {
    */
   metrics?: { views: number | null; likes: number | null; comments: number | null };
   /**
+   * Poster frame, when the response that found the post already carried one.
+   * Optional for the same reason as everything else here: a provider that
+   * cannot see it leaves it undefined rather than inventing a URL that would
+   * render as a broken image.
+   */
+  thumbnailUrl?: string | null;
+  /**
    * Enrichment a provider can supply for free, because the call it already
    * makes carries these fields. All optional: a provider that cannot see a
    * given field must leave it undefined rather than guess, since `false` and

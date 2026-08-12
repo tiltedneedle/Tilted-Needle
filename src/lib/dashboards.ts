@@ -38,6 +38,13 @@ export type VideoSummary = {
   producedAt: string | null;
   lengthSeconds: number | null;
   platforms: { platform: string; views: number; likes: number; comments: number }[];
+  /**
+   * Poster frame for the tile. First non-null across this video's posts: a
+   * video cross-posted to three platforms has three encodes and three frames,
+   * and any of them identifies the video to a human scanning the list, which
+   * is the entire job. Null is a normal state, not a failure.
+   */
+  thumbnailUrl: string | null;
   trackedSeconds: number;
   /** Highest boost index across this video's posts, when it has been scored. */
   bestIndex: number | null;
@@ -202,7 +209,7 @@ export async function loadContentOverview(
       supabase
         .from("platform_posts")
         .select(
-          "id, content_item_id, posted_at, account:accounts(platform_slug, last_synced_at), metrics:post_current_metrics(views, likes, comments)",
+          "id, content_item_id, posted_at, thumbnail_url, account:accounts(platform_slug, last_synced_at), metrics:post_current_metrics(views, likes, comments)",
         )
         .eq("workspace_id", ws)
         .order("id"),
@@ -244,6 +251,7 @@ export async function loadContentOverview(
     id: string;
     content_item_id: string;
     posted_at: string | null;
+    thumbnail_url: string | null;
     account:
       | { platform_slug: string; last_synced_at: string | null }
       | { platform_slug: string; last_synced_at: string | null }[]
@@ -326,6 +334,7 @@ export async function loadContentOverview(
   }
 
   const byItem = new Map<string, VideoSummary["platforms"]>();
+  const thumbByItem = new Map<string, string>();
   const postsByItem = new Map<string, number>();
   const gainByItem = new Map<string, { views: number; days: number }>();
   const platformGainByItem = new Map<string, Map<string, number>>();
@@ -345,6 +354,13 @@ export async function loadContentOverview(
       comments: m?.comments ?? 0,
     });
     postsByItem.set(p.content_item_id, (postsByItem.get(p.content_item_id) ?? 0) + 1);
+    // First non-null wins, and posts arrive in a stable order -- so a video
+    // does not flip between its platforms' poster frames on every reload.
+    // Note this respects the platform filter above: filter to TikTok and you
+    // see TikTok's frame, which is the honest answer to what you asked for.
+    if (p.thumbnail_url && !thumbByItem.has(p.content_item_id)) {
+      thumbByItem.set(p.content_item_id, p.thumbnail_url);
+    }
 
     const gain = gainForPost(p.id);
     if (gain != null) {
@@ -428,6 +444,7 @@ export async function loadContentOverview(
     producedAt: i.produced_at,
     lengthSeconds: i.length_seconds,
     platforms: byItem.get(i.id) ?? [],
+    thumbnailUrl: thumbByItem.get(i.id) ?? null,
     trackedSeconds: secondsByItem.get(i.id) ?? 0,
     bestIndex: bestIndexByItem.get(i.id) ?? null,
     postCount: postsByItem.get(i.id) ?? 0,

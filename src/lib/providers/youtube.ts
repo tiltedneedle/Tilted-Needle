@@ -180,7 +180,13 @@ type SearchResponse = {
 type PlaylistItemsResponse = {
   items?: {
     contentDetails?: { videoId?: string; videoPublishedAt?: string };
-    snippet?: { title?: string };
+    // The call already asks for part=snippet, so the thumbnails have been
+    // arriving in this response all along and were simply not declared --
+    // no extra request and no extra quota to start reading them.
+    snippet?: {
+      title?: string;
+      thumbnails?: { default?: { url?: string }; medium?: { url?: string } };
+    };
   }[];
 };
 type VideosResponse = {
@@ -371,6 +377,13 @@ export const youtubeProvider: PublicProvider = {
           url: `https://www.youtube.com/watch?v=${id}`,
           postedAt,
           lengthSeconds: null, // playlistItems does not carry duration
+          // Already in the snippet this call paid for. `medium` is 320x180,
+          // which is the smallest size that still looks right on a retina
+          // tile; `default` (120x90) is the fallback, not the choice.
+          thumbnailUrl:
+            item.snippet?.thumbnails?.medium?.url ??
+            item.snippet?.thumbnails?.default?.url ??
+            null,
         });
       }
 

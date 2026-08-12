@@ -61,6 +61,14 @@ type ApifyPost = {
   videoDuration?: number;
   ownerUsername?: string;
   type?: string;
+  /**
+   * Poster frame. `displayUrl` is the actor's documented field; read
+   * defensively because this is a metered response and I have not spent
+   * credit to confirm the exact shape on a live run. If it is absent or
+   * renamed, thumbnailUrl comes out null and the tile shows its placeholder
+   * -- a cosmetic miss, never a wrong number.
+   */
+  displayUrl?: string;
   error?: string;
 };
 
@@ -190,6 +198,9 @@ function toDiscovered(p: ApifyPost): DiscoveredPost | null {
       postedAtTs: p.timestamp ?? null,
       description: p.caption ?? null,
     },
+    // Free: this response is already bought and paid for. Instagram CDN URLs
+    // are signed and expire, so the stored value is expected to rot.
+    thumbnailUrl: p.displayUrl ?? null,
     // The discovery row already carries these -- passing them through saves
     // a newly-found post from needing a second, separately-billed
     // fetchMetrics call for a reading this response already paid for.
