@@ -10,6 +10,7 @@ import Popover from "@/components/ui/Popover";
 import { assignRole, bulkAssignRole, unassignRole } from "@/app/actions";
 import { useToast } from "@/components/ui/Toast";
 import { formatCount, formatDurationShort } from "@/lib/format";
+import { videoLabel } from "@/lib/contentLabels";
 import { PLATFORM_COLORS } from "@/lib/types";
 import { totalsByPlatform, type PlatformTotals } from "@/lib/rollup";
 import { SHAPE_LABEL, SHAPE_HINT, type LifecycleShape } from "@/lib/lifecycle";
@@ -475,6 +476,8 @@ export type TileVideo = {
   platforms: TilePlatform[];
   /** Poster frame, when a platform reported one. Optional and often absent. */
   thumbnailUrl?: string | null;
+  /** Platform id of the first post, used only to label caption-less videos. */
+  postCode?: string | null;
   postCount?: number;
   bestIndex?: number | null;
   recentGain?: { views: number; days: number } | null;
@@ -534,6 +537,12 @@ export default function VideoTile({
   const v = video;
   const notPosted = (v.postCount ?? v.platforms.length) === 0;
 
+  // Resolved once and used for the link, the checkbox's accessible name and
+  // the thumbnail's tooltip, so a caption-less video is described the same way
+  // everywhere rather than reading "Untitled" to a screen reader and something
+  // else on screen.
+  const label = videoLabel(v);
+
   return (
     // One row: title on the left, numbers and credits on the right. It wraps
     // to two lines only when the viewport genuinely cannot hold both, rather
@@ -562,7 +571,7 @@ export default function VideoTile({
           className="size-4 shrink-0 accent-[var(--accent)]"
           checked={selected}
           onChange={onToggleSelect}
-          aria-label={`Select ${v.title}`}
+          aria-label={`Select ${label.text}`}
         />
       )}
 
@@ -571,7 +580,7 @@ export default function VideoTile({
           reason to pick a winner between two when neither has artwork. */}
       <Thumb
         src={v.thumbnailUrl ?? null}
-        title={v.title}
+        title={label.text}
         href={href}
         platform={v.platforms[0]?.platform ?? null}
       />
@@ -580,11 +589,17 @@ export default function VideoTile({
           a real screen, but on a 360px phone it is 60% of the row and forces
           the rest out. Only applied once there is room for it. */}
       <div className="min-w-0 flex-1 sm:min-w-[220px]">
+        {/* Muted and italic when it is a stand-in, so the eye reads it as a
+            gap to fill rather than as the video's actual name. Forty rows all
+            saying "Untitled" looked like data; this looks like a to-do. */}
         <Link
           href={href}
-          className="block truncate text-sm font-medium transition-colors hover:text-[var(--accent)]"
+          className={`block truncate text-sm transition-colors hover:text-[var(--accent)] ${
+            label.isPlaceholder ? "font-normal italic text-[var(--muted)]" : "font-medium"
+          }`}
+          title={label.isPlaceholder ? "This post had no caption — open it to add a title" : undefined}
         >
-          {v.title}
+          {label.text}
         </Link>
         <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-[var(--muted)]">
           {v.clientName && <span className="truncate">{v.clientName}</span>}
