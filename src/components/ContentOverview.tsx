@@ -174,11 +174,17 @@ export default function ContentOverview({
             title="Clients"
             note="Reach shown per platform — never added together"
           >
+            {/* py-1, not py-0.5, on every chip in this file and in the video
+                row below. At 0.5 these measured 20px tall on a phone, under
+                the 24px minimum tap target -- and these are not decoration,
+                they are the sort and select controls someone thumbs through
+                on the way to a video. 12px text + 4px each side lands exactly
+                on 24. Do not shrink them back for density. */}
             <div className="flex flex-wrap items-center gap-1">
               {CLIENT_SORTS.map((s) => (
                 <button
                   key={s.key}
-                  className={`rounded px-2 py-0.5 text-xs transition-colors ${
+                  className={`rounded px-2 py-1 text-xs transition-colors ${
                     clientSort === s.key
                       ? "bg-[var(--accent)] text-[var(--accent-fg)]"
                       : "text-[var(--muted)] hover:bg-[var(--border)]"
@@ -274,7 +280,7 @@ export default function ContentOverview({
                 cannot leave a stale selection behind acting on later clicks. */}
             {canManage && (
               <button
-                className={`mr-1 rounded px-2 py-0.5 text-xs transition-colors ${
+                className={`mr-1 rounded px-2 py-1 text-xs transition-colors ${
                   selecting
                     ? "bg-[var(--accent)] text-[var(--accent-fg)]"
                     : "text-[var(--muted)] hover:bg-[var(--border)] hover:text-[var(--fg)]"
@@ -289,7 +295,7 @@ export default function ContentOverview({
               </button>
             )}
             <button
-              className="mr-1 rounded px-2 py-0.5 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--fg)]"
+              className="mr-1 rounded px-2 py-1 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--fg)]"
               onClick={() => exportVideos(rows)}
               title="Download exactly what is on screen, filters included"
             >
@@ -298,7 +304,7 @@ export default function ContentOverview({
             {SORTS.map((s) => (
               <button
                 key={s.key}
-                className={`rounded px-2 py-0.5 text-xs transition-colors ${
+                className={`rounded px-2 py-1 text-xs transition-colors ${
                   sort === s.key
                     ? "bg-[var(--accent)] text-[var(--accent-fg)]"
                     : "text-[var(--muted)] hover:bg-[var(--border)]"

@@ -429,7 +429,7 @@ export default function ContentDetail({
                     numbers are directly below. */}
 
                 <button
-                  className={`rounded px-1.5 py-0.5 text-xs transition-colors ${
+                  className={`rounded px-1.5 py-1 text-xs transition-colors ${
                     p.is_best_performing
                       ? "bg-[var(--accent)] text-[var(--accent-fg)]"
                       : "text-[var(--muted)] hover:bg-[var(--border)]"

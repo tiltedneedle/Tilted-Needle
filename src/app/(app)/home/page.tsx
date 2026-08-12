@@ -496,7 +496,7 @@ export default async function HomePage() {
           <SectionHeading title="Today's sheet by person">
             <Link
               href="/todos"
-              className="rounded px-2 py-0.5 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--fg)]"
+              className="rounded px-2 py-1 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--fg)]"
             >
               Open To-dos →
             </Link>
@@ -673,7 +673,7 @@ export default async function HomePage() {
           <SectionHeading title="Today's tasks">
             <Link
               href="/todos"
-              className="rounded px-2 py-0.5 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--fg)]"
+              className="rounded px-2 py-1 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--fg)]"
             >
               Open To-dos →
             </Link>
