@@ -76,6 +76,53 @@ type AccountRow = {
  */
 export { AUTO_DISCOVERY_WANT, AUTO_DISCOVERY_COOLDOWN_MS, isDueForDiscovery } from "./discoveryThrottle.ts";
 import { AUTO_DISCOVERY_WANT, isDueForDiscovery } from "./discoveryThrottle.ts";
+import { freeThumbnailFor, THUMBNAIL_FILL_CAP } from "./thumbnails.ts";
+
+/**
+ * Fills in poster frames for this account's posts that have none.
+ *
+ * Deliberately part of the SYNC rather than a script someone remembers to
+ * run: a new TikTok post would otherwise never get a thumbnail, because its
+ * discovery response does not carry one. Capped per run and paced, because
+ * TikTok's oEmbed is a free courtesy endpoint and the fastest way to lose a
+ * free route is to hammer it.
+ *
+ * Instagram is skipped here: its only source is the metered discovery
+ * response, which already sets the column when it runs.
+ */
+async function fillMissingThumbnails(db: Db, account: AccountRow): Promise<void> {
+  const { data: gaps } = await db
+    .from("platform_posts")
+    .select("id, external_id, url")
+    .eq("workspace_id", account.workspace_id)
+    .eq("account_id", account.id)
+    .is("thumbnail_url", null)
+    .not("external_id", "is", null)
+    .limit(THUMBNAIL_FILL_CAP);
+
+  const rows = (gaps ?? []) as { id: string; external_id: string; url: string | null }[];
+  if (rows.length === 0) return;
+
+  for (const row of rows) {
+    const src = await freeThumbnailFor(
+      account.platform_slug,
+      row.external_id,
+      account.handle,
+      row.url,
+    );
+    if (!src) {
+      // No free route for this platform -- stop rather than walk the whole
+      // page asking a question that has the same answer every time.
+      if (account.platform_slug !== "tiktok") return;
+      continue;
+    }
+    await db.from("platform_posts").update({ thumbnail_url: src }).eq("id", row.id);
+    // Only pace the route that makes a real request; YouTube's is arithmetic.
+    if (account.platform_slug === "tiktok") {
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  }
+}
 
 /** The import cutoff as an ISO date, or null when the window is unbounded. */
 function cutoffFor(windowDays: number | null): string | null {
@@ -149,6 +196,15 @@ export async function syncAccount(
       discoveredPosts = discovered.data;
     }
   }
+
+  // 1b. Close any thumbnail gaps on this account, using only free routes.
+  //     Runs on every sync so the system stays furnished without anybody
+  //     running a script: TikTok's discovery carries no image at all, and
+  //     anything that arrived before the column existed has none either.
+  //     Never allowed to fail a sync -- a missing poster frame is cosmetic,
+  //     and letting it break a metrics run would trade something that matters
+  //     for something that does not.
+  await fillMissingThumbnails(db, account).catch(() => {});
 
   // 2. Which of those are already tracked as platform_posts?
   const { data: existingRows } = await db

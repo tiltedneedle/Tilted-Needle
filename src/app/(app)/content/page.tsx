@@ -452,13 +452,24 @@ export default async function ContentPage({
      the person's total on the in-view videos and is NOT role-scoped --
      time_entries has no role_id and per-role time cannot be derived -- which
      is why no board renders it as a column. */
-  const roleTables = buildRoleTables(
+  const allRoleTables = buildRoleTables(
     workspaceRoles,
     members,
     overview.videosForTables,
     rankings.assignments,
     await secondsByUserOnVideos(supabase, ws, null, overview.videosForTables),
   );
+
+  /* Selecting a role shows THAT role's board and no others.
+     Asking "who is the best editor" and being handed five boards makes the
+     answer something you have to find rather than something you were given.
+     Note this narrows WHICH boards appear, not who is in them -- each board
+     still ranks against everyone in view, so a highlighted row still shows
+     where that person stands in the team rather than against themselves. */
+  const roleTables =
+    f.roleSlugs.length > 0
+      ? allRoleTables.filter((t) => f.roleSlugs.includes(t.roleSlug))
+      : allRoleTables;
 
   // Ranked on actual reach: peak single-platform views, because a view is a
   // different event on each platform and pooling them ranks nothing.

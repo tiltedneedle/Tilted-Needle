@@ -11,8 +11,10 @@
 // rows is not a trade worth making; those tiles show the neutral placeholder
 // until their next scheduled run fills them in for free.
 //
-// TikTok is not backfilled either, for a simpler reason: its discovery path
-// never carried a thumbnail, so there is nothing to derive one from.
+// TikTok IS backfilled, through its public oEmbed endpoint -- keyless, free,
+// one request per video, and it returns thumbnail_url directly. Slower than
+// YouTube's pure-function URL because it is a real request per post, so it is
+// paced; but it costs nothing and needs no token.
 //
 // Idempotent: only touches rows where thumbnail_url is null. Safe to re-run.
 //
@@ -41,7 +43,7 @@ const YT_ID = /^[A-Za-z0-9_-]{11}$/;
 const rows = await (
   await fetch(
     `${URL_BASE}/rest/v1/platform_posts` +
-      `?select=id,external_id,thumbnail_url,account:accounts!inner(platform_slug)` +
+      `?select=id,external_id,url,thumbnail_url,account:accounts!inner(platform_slug,handle)` +
       `&thumbnail_url=is.null&limit=2000`,
     { headers: H },
   )
@@ -57,6 +59,7 @@ const yt = rows.filter((r) => {
   const slug = one(r.account)?.platform_slug;
   return (slug === "youtube" || slug === "youtube_shorts") && YT_ID.test(r.external_id ?? "");
 });
+const tt = rows.filter((r) => one(r.account)?.platform_slug === "tiktok" && r.external_id);
 
 const byPlatform = {};
 for (const r of rows) {
@@ -66,10 +69,11 @@ for (const r of rows) {
 
 console.log(`posts with no thumbnail : ${rows.length}`);
 console.log(`  by platform           : ${JSON.stringify(byPlatform)}`);
-console.log(`derivable for free (YT) : ${yt.length}`);
+console.log(`free from the id   (YT) : ${yt.length}`);
+console.log(`free via oEmbed (TikTok): ${tt.length}`);
 console.log(
-  `left for the sync to fill: ${rows.length - yt.length}` +
-    ` (Instagram needs a metered run; TikTok reports none)`,
+  `left for the sync to fill: ${rows.length - yt.length - tt.length}` +
+    ` (Instagram only — its thumbnail arrives with the next discovery run)`,
 );
 
 if (!APPLY) {
@@ -96,6 +100,34 @@ for (const r of yt) {
     if (failed <= 3) console.error(`  failed ${r.id}: ${res.status} ${await res.text()}`);
   }
 }
+/* TikTok, through the public oEmbed endpoint: keyless, free, and it returns
+   thumbnail_url directly. One real request per video, so it is paced -- this
+   is a courtesy to an endpoint nobody is obliged to give us, and going at it
+   flat out is how a free route stops being free. */
+let ttOk = 0;
+let ttMiss = 0;
+for (const r of tt) {
+  const acct = one(r.account);
+  const url =
+    r.url ?? `https://www.tiktok.com/@${(acct?.handle ?? "").replace(/^@/, "")}/video/${r.external_id}`;
+  try {
+    const res = await fetch(`https://www.tiktok.com/oembed?url=${encodeURIComponent(url)}`);
+    if (!res.ok) { ttMiss++; continue; }
+    const body = await res.json();
+    if (!body?.thumbnail_url) { ttMiss++; continue; }
+    const patch = await fetch(`${URL_BASE}/rest/v1/platform_posts?id=eq.${r.id}`, {
+      method: "PATCH",
+      headers: H,
+      body: JSON.stringify({ thumbnail_url: body.thumbnail_url }),
+    });
+    patch.ok ? ttOk++ : ttMiss++;
+  } catch {
+    ttMiss++;
+  }
+  await new Promise((res) => setTimeout(res, 250));
+}
+if (tt.length) console.log(`tiktok via oEmbed: wrote ${ttOk}, missed ${ttMiss}`);
+
 console.log(`\nwrote ${ok}, failed ${failed}`);
 
 // Verify against the database rather than trusting the loop's own tally.
