@@ -9,6 +9,7 @@ import { datedName, downloadCsv, toCsv } from "@/lib/exportCsv";
 import { PlatformChips } from "@/components/PlatformReach";
 import VideoTile, { type TileMember, type TileRole } from "@/components/VideoTile";
 import LoadMoreList from "@/components/LoadMoreList";
+import BulkBar from "@/components/BulkBar";
 import { Empty, SectionHeading } from "@/components/Stat";
 import type { ClientSummary, VideoSummary } from "@/lib/dashboards";
 
@@ -130,6 +131,12 @@ export default function ContentOverview({
   );
 
   const [clientSort, setClientSort] = useState<ClientSortKey>("videos");
+  // Selection is local and deliberately NOT in the URL: it is a scratch pad
+  // for one action, not a view worth sharing, and a shared link that arrived
+  // with videos pre-selected would be a way to get someone to merge the wrong
+  // rows.
+  const [selecting, setSelecting] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   // Clients are ranked on peak single-platform reach rather than a sum, for
   // the same reason nothing else here totals across platforms.
@@ -261,6 +268,26 @@ export default function ContentOverview({
       <section>
         <SectionHeading title={`Videos (${rows.length})`}>
           <div className="flex flex-wrap items-center gap-1">
+            {/* Lives in the row that already exists, beside Export and the
+                sorts -- no new page, no new section, no mode to navigate
+                into. Turning it off clears the selection, so leaving the mode
+                cannot leave a stale selection behind acting on later clicks. */}
+            {canManage && (
+              <button
+                className={`mr-1 rounded px-2 py-0.5 text-xs transition-colors ${
+                  selecting
+                    ? "bg-[var(--accent)] text-[var(--accent-fg)]"
+                    : "text-[var(--muted)] hover:bg-[var(--border)] hover:text-[var(--fg)]"
+                }`}
+                onClick={() => {
+                  setSelecting((v) => !v);
+                  setSelected(new Set());
+                }}
+                title="Pick several videos to credit, move, or merge together"
+              >
+                {selecting ? "Done" : "Select"}
+              </button>
+            )}
             <button
               className="mr-1 rounded px-2 py-0.5 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--fg)]"
               onClick={() => exportVideos(rows)}
@@ -284,6 +311,18 @@ export default function ContentOverview({
           </div>
         </SectionHeading>
 
+        {selecting && selected.size > 0 && (
+          <BulkBar
+            workspaceId={workspaceId}
+            selected={[...selected]}
+            titles={Object.fromEntries(rows.map((v) => [v.id, v.title]))}
+            roles={roles}
+            members={members}
+            clients={clients.map((c) => ({ id: c.id, name: c.name }))}
+            onClear={() => setSelected(new Set())}
+          />
+        )}
+
         {rows.length === 0 ? (
           <Empty>No videos match these filters.</Empty>
         ) : (
@@ -299,6 +338,16 @@ export default function ContentOverview({
                 roles={roles}
                 members={members}
                 canManage={canManage}
+                selectable={selecting}
+                selected={selected.has(v.id)}
+                onToggleSelect={() =>
+                  setSelected((s) => {
+                    const next = new Set(s);
+                    if (next.has(v.id)) next.delete(v.id);
+                    else next.add(v.id);
+                    return next;
+                  })
+                }
               />
             ))}
           />

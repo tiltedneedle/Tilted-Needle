@@ -645,6 +645,108 @@ export async function setContentReviewState(
   return { updated: data?.length ?? 0 };
 }
 
+/**
+ * Merge cross-posted duplicates into one video.
+ *
+ * Thin on purpose. Every rule, every refusal and every row movement lives in
+ * the merge_content_items database function, because it must all happen in one
+ * transaction: content_assignments has no UPDATE policy so credits cannot be
+ * repointed from here at all, and a merge that dies halfway would leave hours
+ * pointing at a row about to be deleted -- and time_entries.content_item_id is
+ * ON DELETE SET NULL, so they would detach silently rather than fail.
+ */
+export async function mergeContentItems(input: {
+  survivorId: string;
+  loserIds: string[];
+  title?: string | null;
+  clientId?: string | null;
+  allowClientChange?: boolean;
+}): Promise<Result & { mergeId?: string }> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("merge_content_items", {
+    p_survivor: input.survivorId,
+    p_losers: input.loserIds,
+    p_title: input.title ?? null,
+    p_produced_at: null,
+    p_client_id: input.clientId ?? null,
+    p_allow_client_change: input.allowClientChange ?? false,
+  });
+  // The function raises with a sentence meant for a person -- "these are
+  // different videos: two of them are posted to the same account" -- so it is
+  // surfaced as-is rather than replaced with something vaguer.
+  if (error) return { error: error.message };
+
+  revalidatePath("/content");
+  revalidateTeam();
+  return { mergeId: data as string };
+}
+
+/** Reverses a merge, restoring the separate videos with their original ids. */
+export async function undoContentMerge(mergeId: string): Promise<Result> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("undo_content_merge", { p_merge_id: mergeId });
+  if (error) return { error: error.message };
+  revalidatePath("/content");
+  revalidateTeam();
+  return {};
+}
+
+/**
+ * Credit one person in one role across several videos at once.
+ *
+ * The reason this exists: credits are 8% populated because assigning them is
+ * one video at a time, and nobody is going to do that 255 times. Conflicts are
+ * ignored rather than raised -- re-crediting someone who already holds the
+ * role is the user getting what they asked for, not an error.
+ */
+export async function bulkAssignRole(input: {
+  workspaceId: string;
+  contentItemIds: string[];
+  userId: string;
+  roleId: string;
+}): Promise<Result & { added?: number }> {
+  if (input.contentItemIds.length === 0) return { added: 0 };
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("content_assignments")
+    .upsert(
+      input.contentItemIds.map((contentItemId) => ({
+        workspace_id: input.workspaceId,
+        content_item_id: contentItemId,
+        user_id: input.userId,
+        role_id: input.roleId,
+        source: "manual",
+      })),
+      { onConflict: "content_item_id,user_id,role_id", ignoreDuplicates: true },
+    )
+    .select("id");
+  if (error) return { error: error.message };
+
+  revalidatePath("/content");
+  revalidateTeam();
+  return { added: data?.length ?? 0 };
+}
+
+/** Move several videos to one client at once. */
+export async function bulkSetClient(input: {
+  workspaceId: string;
+  contentItemIds: string[];
+  clientId: string | null;
+}): Promise<Result & { updated?: number }> {
+  if (input.contentItemIds.length === 0) return { updated: 0 };
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("content_items")
+    .update({ client_id: input.clientId })
+    .eq("workspace_id", input.workspaceId)
+    .in("id", input.contentItemIds)
+    .select("id");
+  if (error) return { error: error.message };
+  revalidatePath("/content");
+  revalidateTeam();
+  return { updated: data?.length ?? 0 };
+}
+
 export async function updateContentItem(
   id: string,
   patch: Record<string, unknown>,

@@ -429,6 +429,9 @@ export default function VideoTile({
   roles,
   members,
   canManage = true,
+  selectable = false,
+  selected = false,
+  onToggleSelect,
 }: {
   video: TileVideo;
   href: string;
@@ -436,6 +439,11 @@ export default function VideoTile({
   roles: TileRole[];
   members: TileMember[];
   canManage?: boolean;
+  /** Selection mode is on. All three are optional so existing call sites
+      are untouched -- the tile renders exactly as before without them. */
+  selectable?: boolean;
+  selected?: boolean;
+  onToggleSelect?: () => void;
 }) {
   const v = video;
   const notPosted = (v.postCount ?? v.platforms.length) === 0;
@@ -459,6 +467,19 @@ export default function VideoTile({
           expired thumbnail looks deliberate rather than broken -- and onError
           clears the src so a dead link degrades to that same box instead of
           a browser's broken-image glyph. */}
+      {/* Only rendered in selection mode, so the row keeps its normal shape
+          the rest of the time -- a permanently visible checkbox column would
+          tax every reading of the list to serve an occasional action. */}
+      {selectable && (
+        <input
+          type="checkbox"
+          className="size-4 shrink-0 accent-[var(--accent)]"
+          checked={selected}
+          onChange={onToggleSelect}
+          aria-label={`Select ${v.title}`}
+        />
+      )}
+
       <Thumb src={v.thumbnailUrl ?? null} title={v.title} href={href} />
 
       <div className="min-w-[220px] flex-1">
