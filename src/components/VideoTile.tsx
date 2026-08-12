@@ -5,6 +5,7 @@ import { useCallback, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Eye, Heart, MessageCircle, Plus } from "lucide-react";
 import Avatar from "@/components/Avatar";
+import PlatformIcon from "@/components/PlatformIcon";
 import Popover from "@/components/ui/Popover";
 import { assignRole, unassignRole } from "@/app/actions";
 import { formatCount, formatDurationShort } from "@/lib/format";
@@ -347,15 +348,26 @@ export function RoleCredits({
  * ratios down a list destroys the alignment the gutter exists to create. The
  * image is cropped to fill, which for a vertical video shows its middle band --
  * enough to recognise a clip you made, which is all this is for.
+ *
+ * The empty box carries the platform's mark. An unmarked grey rectangle is
+ * indistinguishable from a broken image, and right now that distinction matters
+ * a lot: every Instagram post has no poster frame, because Instagram is the one
+ * provider whose thumbnails arrive only on a metered call -- YouTube derives
+ * them from the video id and TikTok has a keyless oEmbed, so both are already
+ * complete. Without the mark, a third of the list reads as failure rather than
+ * as "Instagram, poster pending".
  */
 function Thumb({
   src,
   title,
   href,
+  platform,
 }: {
   src: string | null;
   title: string;
   href: string;
+  /** Drives the fallback mark. Null only if a video has no posts at all. */
+  platform: string | null;
 }) {
   const [failed, setFailed] = useState(false);
   const show = src && !failed;
@@ -384,6 +396,14 @@ function Thumb({
           // WILL expire, so this is the expected path, not an edge case.
           onError={() => setFailed(true)}
         />
+      )}
+      {!show && platform && (
+        // Muted, not full brand strength: this is a stand-in for artwork, and
+        // a saturated logo would pull more attention than the real poster
+        // frames it sits beside.
+        <span className="grid size-full place-items-center opacity-40">
+          <PlatformIcon platform={platform} size={14} />
+        </span>
       )}
     </Link>
   );
@@ -480,7 +500,15 @@ export default function VideoTile({
         />
       )}
 
-      <Thumb src={v.thumbnailUrl ?? null} title={v.title} href={href} />
+      {/* The first platform, which for a merged video is the one it was
+          originally posted to -- close enough for a stand-in mark, and no
+          reason to pick a winner between two when neither has artwork. */}
+      <Thumb
+        src={v.thumbnailUrl ?? null}
+        title={v.title}
+        href={href}
+        platform={v.platforms[0]?.platform ?? null}
+      />
 
       <div className="min-w-[220px] flex-1">
         <Link
