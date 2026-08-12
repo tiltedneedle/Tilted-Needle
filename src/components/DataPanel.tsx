@@ -5,6 +5,7 @@ import { updateSyncWindow } from "@/app/actions";
 import { useRouter } from "next/navigation";
 import { RefreshCw } from "lucide-react";
 import { syncNow } from "@/app/actions";
+import SyncEnabledToggle from "@/components/SyncEnabledToggle";
 import Select from "@/components/ui/Select";
 import { useToast } from "@/components/ui/Toast";
 import { PLATFORM_COLORS } from "@/lib/types";
@@ -189,7 +190,14 @@ export default function DataPanel({
                             <td className="px-3 py-2.5">
                               <span className="flex items-center gap-2">
                                 <span className="font-medium">@{a.handle.replace(/^@/, "")}</span>
-                                {!a.syncEnabled && <span className="pill pill-neutral">sync off</span>}
+                                {/* Was a read-only "sync off" pill for a flag
+                                    nothing in the app could set. Now it is the
+                                    switch. */}
+                                <SyncEnabledToggle
+                                  accountId={a.id}
+                                  enabled={a.syncEnabled}
+                                  metered={a.isMetered}
+                                />
                                 <SyncWindowControl
                                   accountId={a.id}
                                   windowDays={a.syncWindowDays}
@@ -220,10 +228,20 @@ export default function DataPanel({
                               {ago(a.lastDiscoveredAt)}
                             </td>
                             <td className="px-3 py-2.5 text-right">
+                              {/* Disabled while paused rather than left
+                                  clickable. runSync filters on sync_enabled,
+                                  so a paused account cannot be manually synced
+                                  either -- the button would fire, report
+                                  nothing, and look broken. */}
                               <button
                                 className="btn px-2.5 py-1 text-xs"
                                 onClick={() => void refresh(a.id, a.id)}
-                                disabled={busy !== null}
+                                disabled={busy !== null || !a.syncEnabled}
+                                title={
+                                  a.syncEnabled
+                                    ? "Read this page's numbers now"
+                                    : "Syncing is paused for this page — resume it first"
+                                }
                               >
                                 <RefreshCw size={12} className={busy === a.id ? "animate-spin" : ""} />
                                 {busy === a.id ? "Syncing…" : "Refresh"}

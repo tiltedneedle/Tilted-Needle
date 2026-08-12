@@ -2350,6 +2350,60 @@ export async function updateSyncWindow(
 }
 
 /**
+ * Pauses or resumes automatic syncing for one account.
+ *
+ * `accounts.sync_enabled` has governed the whole pipeline since it was added
+ * -- runSync filters on it (syncRunner.ts) -- but nothing in the app could
+ * ever WRITE it. Two surfaces rendered a read-only "sync off" badge for a
+ * state no one could reach.
+ *
+ * Deliberately unlike updateSyncWindow, which triggers a sync on save: this
+ * one never does. Pausing an account must not spend a fetch, and for a
+ * metered platform that fetch is the client's money. Resuming does not
+ * back-fill either -- the next scheduled run picks it up, and firing a
+ * catch-up read the moment someone flips a pill would make an idle click
+ * expensive.
+ *
+ * This is NOT archiving. Archiving an account removes it from /data entirely,
+ * so a mistake there becomes invisible. A paused account stays listed,
+ * clearly marked, and its history is untouched; only new readings stop.
+ */
+export async function setAccountSyncEnabled(
+  accountId: string,
+  enabled: boolean,
+): Promise<Result> {
+  const supabase = await createClient();
+  const { data: account, error } = await supabase
+    .from("accounts")
+    .update({ sync_enabled: enabled })
+    .eq("id", accountId)
+    .select("id, workspace_id, handle, platform_slug")
+    .single();
+  // RLS refuses the update for a non-manager, so an error here IS the
+  // authorisation failure and must surface rather than no-op silently.
+  if (error) return { error: error.message };
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (user) {
+    await logAudit(supabase, {
+      workspaceId: account.workspace_id,
+      actorId: user.id,
+      action: enabled ? "account.sync_resumed" : "account.sync_paused",
+      entityType: "accounts",
+      entityId: accountId,
+      detail: { handle: account.handle, platform: account.platform_slug },
+    });
+  }
+
+  revalidatePath("/data");
+  revalidatePath("/accounts");
+  revalidateTeam();
+  return {};
+}
+
+/**
  * Re-reads one post's metrics immediately, drawing on the manual pool.
  *
  * The manual pool is separate from the automatic one precisely so this
