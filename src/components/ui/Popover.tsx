@@ -101,7 +101,10 @@ export default function Popover({
 
   const place = useCallback(() => {
     const el = anchorRef.current;
-    if (!el) return;
+    // Returning false rather than just bailing: the caller needs to know the
+    // anchor was not there yet, because that is a recoverable state and
+    // silently doing nothing is what made the panel never appear at all.
+    if (!el) return false;
     const r = el.getBoundingClientRect();
     const vw = window.innerWidth;
     const vh = window.innerHeight;
@@ -126,10 +129,36 @@ export default function Popover({
           { bottom: vh - r.top + GAP, left, width: w, maxHeight: room }
         : { top: r.bottom + GAP, left, width: w, maxHeight: room },
     );
+    return true;
   }, [anchorRef, align, matchWidth, minWidth, width, maxHeight]);
 
   // Measure before paint so the panel never appears at 0,0 and jumps.
-  useLayoutEffect(place, [place]);
+  useLayoutEffect(() => {
+    place();
+  }, [place]);
+
+  /**
+   * The anchor is not always attached yet when the layout effect runs, and
+   * without this the panel simply never appears.
+   *
+   * React commits layout effects and ref attachments in ONE bottom-up pass,
+   * so a child's useLayoutEffect can fire before an ANCESTOR's ref callback
+   * has run. That is fine for a trigger whose ref is attached on every render
+   * -- by the time the panel opens, the ref has been set for many commits.
+   * It is fatal for a call site that attaches the ref conditionally in the
+   * same commit that opens the panel, which is exactly what VideoTile's
+   * per-role credit menu does: `ref={isOpen ? anchorRef : undefined}`. The
+   * first measurement found null, bailed, and nothing ever tried again -- so
+   * clicking a role showed no menu whatsoever.
+   *
+   * Passive effects run after the whole commit, by which point every ref is
+   * attached. This only does work when the layout pass came up empty, so the
+   * normal path still measures before paint and never flickers.
+   */
+  useEffect(() => {
+    if (pos) return;
+    place();
+  }, [pos, place]);
 
   useEffect(() => {
     // capture:true so a scroll inside ANY container is seen, not just the
