@@ -160,12 +160,28 @@ jobs:
               const line = `'"${platform}"' batch '"${batch}"': synced ${r.synced}/${r.accounts} · ${r.postsCreated} new posts · ${r.snapshotsWritten} snapshots · ${r.failed} failed`;
               console.log(line);
               fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, line + "\n");
-              fs.writeFileSync("counts.txt", `${r.accounts} ${r.synced}`);
+              fs.writeFileSync("counts.txt", `${r.accounts} ${r.synced} ${r.eligible ?? 0}`);
             '
             processed=$(cut -d" " -f1 counts.txt)
             synced=$(cut -d" " -f2 counts.txt)
+            eligible=$(cut -d" " -f3 counts.txt)
 
-            if [ "${processed}" -lt "${MAX}" ] || [ "${synced}" -eq 0 ]; then
+            # How many requests a full pass actually needs, from the platform's
+            # own account count. A short batch cannot be the signal: every
+            # synced account gets a fresh last_synced_at and the order is
+            # stalest-first, so once a pass completes the next request returns
+            # the earliest accounts again -- full batches forever. Instagram
+            # ran all six for eleven accounts and stopped on the safety cap.
+            #
+            # "Nothing was written" is not a safe signal either: whether a post
+            # is due depends on its own age band, not its account's staleness,
+            # so a recently-synced account can hold the only work there is.
+            needed=1
+            if [ "${eligible}" -gt 0 ]; then
+              needed=$(( (eligible + MAX - 1) / MAX ))
+            fi
+
+            if [ "${processed}" -lt "${MAX}" ] || [ "${synced}" -eq 0 ] || [ "${batch}" -ge "${needed}" ]; then
               break
             fi
            done

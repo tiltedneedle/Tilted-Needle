@@ -79,6 +79,9 @@ export async function GET(req: Request) {
   try {
     const db = serviceClient();
     const started = Date.now();
+    // How many accounts this platform has in total, so a batching caller can
+    // work out how many requests a full pass needs instead of guessing.
+    let eligible = 0;
     const results = await runSync(db, {
       workspaceId,
       accountId,
@@ -86,6 +89,9 @@ export async function GET(req: Request) {
       maxAccounts,
       staleBefore,
       trigger,
+      onMeta: (m) => {
+        eligible = m.eligible;
+      },
     });
 
     // The pages themselves are dynamically rendered (session-based) and
@@ -104,6 +110,7 @@ export async function GET(req: Request) {
       ok: true,
       durationMs: Date.now() - started,
       accounts: results.length,
+      eligible,
       synced: results.filter((r) => r.status === "ok").length,
       skipped: results.filter((r) => r.status === "skipped").length,
       failed: results.filter((r) => r.status === "error").length,

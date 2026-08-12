@@ -509,6 +509,21 @@ export async function runSync(
      *  short. Unset means "everything", which is what a manual run wants. */
     maxAccounts?: number;
     /**
+     * Reports how many accounts were eligible BEFORE the batch slice.
+     *
+     * The batching caller needs this to know when to stop. It cannot infer it
+     * from a short batch: every account it syncs gets a fresh last_synced_at
+     * and the order is stalest-first, so once a pass is complete the next
+     * request simply returns the earliest ones again -- a full batch forever,
+     * never short. Instagram duly ran all six batches for eleven accounts and
+     * stopped only on the safety cap.
+     *
+     * "Nothing was written" is NOT a safe stop signal either: whether a post
+     * is due depends on its own age band, not on its account's staleness, so a
+     * recently-synced account can hold the only work there is.
+     */
+    onMeta?: (meta: { eligible: number }) => void;
+    /**
      * Only accounts not synced since this ISO timestamp.
      *
      * This is what makes batching terminate. Without it the ordering merely
@@ -592,6 +607,8 @@ export async function runSync(
    * account gets a fresh last_synced_at and the order is stalest-first, the
    * next call naturally picks up where this one ended.
    */
+  opts.onMeta?.({ eligible: eligible.length });
+
   const accounts =
     opts.maxAccounts && opts.maxAccounts > 0 ? eligible.slice(0, opts.maxAccounts) : eligible;
   const results: AccountSyncResult[] = [];
