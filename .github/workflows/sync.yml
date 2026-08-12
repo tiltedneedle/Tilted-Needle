@@ -72,6 +72,16 @@ jobs:
             exit 0
           fi
 
+          # A 401 here is ambiguous in the worst way: the secret is present, so
+          # nothing looks unset, but it does not match Vercel's. Printing the
+          # length and a truncated SHA-256 makes the two comparable without
+          # ever revealing either -- a 32-bit hash is not reversible, and it
+          # turns "wrong somehow" into "wrong by this much". The usual culprits
+          # are a trailing newline, surrounding quotes, or the whole
+          # NAME=value line pasted in as the value.
+          echo "secret length     : $(printf '%s' "${CRON_SECRET}" | wc -c)"
+          echo "secret fingerprint: $(printf '%s' "${CRON_SECRET}" | sha256sum | cut -c1-8)"
+
           # --max-time comfortably exceeds the route's own 300s maxDuration, so
           # a slow-but-succeeding run is never cut off at the client end.
           # -sS keeps the progress meter out of the log but keeps real errors.
