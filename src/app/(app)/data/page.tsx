@@ -93,6 +93,7 @@ export default async function DataPage() {
     isArchived: a.is_archived,
     isMetered: PROVIDERS[a.platform_slug]?.capability.isMetered ?? false,
     discoveryMetered: PROVIDERS[a.platform_slug]?.capability.discoveryMetered ?? false,
+    discoverySharedToken: PROVIDERS[a.platform_slug]?.capability.discoverySharedToken ?? false,
     syncEnabled: a.sync_enabled,
     syncWindowDays: a.sync_window_days,
     lastSyncedAt: a.last_synced_at,

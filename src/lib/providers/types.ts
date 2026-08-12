@@ -59,6 +59,20 @@ export type ProviderCapability = {
    * that is what the sync scheduler and the per-account badge mean by it.
    */
   discoveryMetered?: boolean;
+  /**
+   * Discovery is running on the SHARED vendor token rather than this
+   * platform's own.
+   *
+   * TikTok resolves its token as APIFY_TIKTOK_TOKEN || APIFY_TOKEN, which is
+   * the right precedence but a silent one: if the TikTok-specific key is
+   * missing from an environment, discovery still works and simply bills the
+   * other account instead. That is a billing surprise no error surfaces,
+   * because nothing failed.
+   *
+   * A flag rather than prose for the same reason isMetered is one -- the UI
+   * has to be able to badge it.
+   */
+  discoverySharedToken?: boolean;
   /** Shown in the UI to explain why a platform is not syncing. */
   reason: string;
   /** What the workspace owner would have to do to change that, if anything. */

@@ -86,6 +86,9 @@ function capabilityFor(): ProviderCapability {
       // shape of this integration. Only finding a new one costs.
       isMetered: false,
       discoveryMetered: true,
+      // True only when the fallback in apifyToken() is what supplied the
+      // token, i.e. TikTok is spending the shared account's credit.
+      discoverySharedToken: !process.env.APIFY_TIKTOK_TOKEN,
       reason:
         "New videos are found through Apify, which bills per row returned — so discovery is deliberately infrequent and capped. Reading a known video's numbers afterwards is free and unlimited.",
       remedy: "",

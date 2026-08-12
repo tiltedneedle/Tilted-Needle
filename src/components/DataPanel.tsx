@@ -27,6 +27,8 @@ export type PanelAccount = {
   isArchived: boolean;
   /** Finding new videos costs money even though refreshing them does not. */
   discoveryMetered: boolean;
+  /** ...and it is billing the shared vendor account, not this platform's own. */
+  discoverySharedToken: boolean;
   /**
    * Does this account's platform cost money to refresh? Derived from the
    * provider, never from accounts.connection_mode -- that column is 'manual'
@@ -293,6 +295,18 @@ export default function DataPanel({
                                   title="Finding NEW videos costs credit; refreshing known ones is free"
                                 >
                                   paid discovery
+                                </span>
+                              )}
+                              {/* Nothing fails when the platform-specific key
+                                  is missing -- discovery just bills the other
+                                  account. Without a badge the only place that
+                                  shows up is the vendor's invoice. */}
+                              {a.discoverySharedToken && (
+                                <span
+                                  className="pill pill-danger ml-1"
+                                  title="This platform has no key of its own, so discovery is spending the shared Apify account's credit. Set APIFY_TIKTOK_TOKEN to bill it separately."
+                                >
+                                  shared token
                                 </span>
                               )}
                             </td>
