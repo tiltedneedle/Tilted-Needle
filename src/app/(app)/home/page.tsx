@@ -316,6 +316,17 @@ export default async function HomePage() {
                       valuePrefix="+" valueSuffix=" views"
                     />
                   </div>
+                  {/* Views that arrived in readings too far apart to belong to
+                      any single day -- a paused account resuming, or a client
+                      coming back. Stated separately rather than drawn as a
+                      spike, because on the chart it would be indistinguishable
+                      from a viral day and would get acted on as one. */}
+                  {m.caughtUp > 0 && (
+                    <p className="mt-1.5 text-[11px] text-[var(--muted)]">
+                      +{m.caughtUp.toLocaleString()} more from a resumed page —
+                      not shown above, the gap makes it no single day&apos;s gain
+                    </p>
+                  )}
                 </div>
               ))}
             </div>

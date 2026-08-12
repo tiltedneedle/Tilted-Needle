@@ -86,7 +86,11 @@ function thaw(f: FrozenRankings): RankingsResult {
 const cached = unstable_cache(
   async (ws: string): Promise<FrozenRankings> =>
     freeze(await computeRankings(serviceClient(), ws)),
-  ["rankings-v1"],
+  // v2: computeRankings now excludes archived clients' work. Without the bump
+  // the first request after deploy would serve a pre-filter entry -- correct
+  // code returning the old wrong numbers, which is the hardest kind of stale
+  // to diagnose because nothing in the diff looks responsible.
+  ["rankings-v2"],
   // revalidate is in SECONDS and is the ceiling on how wrong these numbers
   // can be. Do not remove it in favour of "the tag handles it" -- the tag
   // does not fire for writes that bypass the app, which is how this went

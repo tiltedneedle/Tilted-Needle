@@ -114,12 +114,18 @@ export default async function ContentPage({
             from: f.from,
             to: f.to,
           }),
+      // Paged. Unbounded, PostgREST caps this at 1000 rows silently, and the
+      // symptom would be a video that exists but cannot be selected from the
+      // dropdown -- latent at today's 255 videos, certain later.
       videoId && !narrowed
-        ? supabase
-            .from("content_items")
-            .select("id, title, client_id")
-            .eq("workspace_id", ws)
-            .order("produced_at", { ascending: false, nullsFirst: false })
+        ? selectAll<{ id: string; title: string; client_id: string | null }>(() =>
+            supabase
+              .from("content_items")
+              .select("id, title, client_id")
+              .eq("workspace_id", ws)
+              .order("produced_at", { ascending: false, nullsFirst: false })
+              .order("id"),
+          )
         : null,
       videoId && !narrowed
         ? supabase

@@ -36,6 +36,28 @@ async function monthTokens(db, workspaceId) {
 }
 
 export async function weeklyRead({ db, job, log }) {
+  /* An archived client gets no weekly read.
+   *
+   * Refused at the job level rather than filtered row by row, because this
+   * job IS one client: the subject_id is the client id. Letting it run would
+   * spend LLM tokens to write present-tense prose about work the business has
+   * stopped doing -- and that prose is then stored and shown as current.
+   *
+   * Not an error. The client existing and being inactive is a normal state,
+   * so it completes as unavailable with a reason, which is what the queue's
+   * terminal handling expects. */
+  const { data: client } = await db
+    .from("clients")
+    .select("is_archived, name")
+    .eq("id", job.subject_id)
+    .maybeSingle();
+  if (client?.is_archived) {
+    return {
+      unavailable: true,
+      note: `${client.name ?? "this client"} is inactive — no weekly read is written for archived clients`,
+    };
+  }
+
   // Videos for this client, with the fields the evidence builder needs.
   const { data: items } = await db
     .from("content_items")

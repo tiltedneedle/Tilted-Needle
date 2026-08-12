@@ -1,6 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveApiKey, isErrorResponse } from "@/lib/publicApi";
+import { loadExcludedItemIds } from "@/lib/excludedItems";
+import { selectAll } from "@/lib/selectAll";
 import { one } from "@/lib/types";
 
 /**
@@ -18,13 +20,37 @@ export async function GET(request: NextRequest) {
   const limit = Math.min(Number(request.nextUrl.searchParams.get("limit")) || 100, 500);
 
   const admin = createAdminClient();
-  const { data: items, error } = await admin
-    .from("content_items")
-    .select("id, title, client_id, produced_at")
-    .eq("workspace_id", auth.workspaceId)
-    .order("produced_at", { ascending: false, nullsFirst: false })
-    .limit(limit);
+
+  /* Archived clients' work does not leave this endpoint.
+   *
+   * This runs on the admin client, so RLS is not a backstop here -- the
+   * filter has to be explicit or it does not exist. And of every read path in
+   * the app, this is the one where being wrong is least recoverable: whatever
+   * comes out lands in somebody else's spreadsheet or dashboard, where it
+   * will be reconciled against /content by a human who then has to work out
+   * which of the two is lying.
+   *
+   * The exclusion is applied BEFORE the limit, so `limit=100` returns 100
+   * live items rather than 100 rows of which some were quietly dropped.
+   */
+  const excluded = await loadExcludedItemIds(admin as never, auth.workspaceId);
+
+  const { data: allItems, error } = await selectAll<{
+    id: string;
+    title: string;
+    client_id: string | null;
+    produced_at: string | null;
+  }>(() =>
+    admin
+      .from("content_items")
+      .select("id, title, client_id, produced_at")
+      .eq("workspace_id", auth.workspaceId)
+      .order("produced_at", { ascending: false, nullsFirst: false })
+      .order("id"),
+  );
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  const items = (allItems ?? []).filter((i) => !excluded.has(i.id)).slice(0, limit);
 
   const ids = (items ?? []).map((i) => i.id);
   const { data: posts } = ids.length

@@ -7,6 +7,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { one } from "@/lib/types";
 import { selectAll } from "@/lib/selectAll";
+import { loadExcludedItemIds } from "@/lib/excludedItems";
 import {
   overallScore,
   platformScore,
@@ -54,6 +55,19 @@ export type RankingsResult = {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function computeRankings(supabase: SupabaseClient<any>, ws: string): Promise<RankingsResult> {
+  /* An archived client's work must not sit inside anyone's score.
+
+     This read was workspace-wide with no exclusion at all, which meant that
+     deactivating a client removed their videos from /content -- visibly --
+     while leaving them inside every role mean, every person's platform
+     totals, and every ranking derived from them. The page said the work was
+     gone and the numbers said it was not.
+
+     Both the scored posts AND the returned assignments are filtered below.
+     Filtering only the scores would leave personStats still counting those
+     videos, which is the same bug moved one layer down and harder to see. */
+  const excluded = await loadExcludedItemIds(supabase as never, ws);
+
   // These three read whole tables and all outgrow a single 1000-row response,
   // so they page. Truncation here is invisible and produces scores computed on
   // a prefix of the credits -- see selectAll.
@@ -99,7 +113,11 @@ export async function computeRankings(supabase: SupabaseClient<any>, ws: string)
     account: { id: string; platform_slug: string } | { id: string; platform_slug: string }[] | null;
     content: { id: string; title: string } | { id: string; title: string }[] | null;
   };
-  const rawPosts = (postsRes.data ?? []) as unknown as RawPost[];
+  // Filtered at the source, so nothing downstream -- scores, role means,
+  // per-platform baselines -- can accidentally see an excluded video.
+  const rawPosts = ((postsRes.data ?? []) as unknown as RawPost[]).filter(
+    (p) => !excluded.has(p.content_item_id),
+  );
   const postedContentIds = new Set(rawPosts.map((p) => p.content_item_id));
 
   const snapsByPost = new Map<string, { capturedAt: Date; value: number }[]>();
@@ -164,7 +182,14 @@ export async function computeRankings(supabase: SupabaseClient<any>, ws: string)
     profile: { full_name: string | null } | { full_name: string | null }[] | null;
     role: { slug: string; name: string; sort_order: number } | { slug: string; name: string; sort_order: number }[] | null;
   };
-  const rawAssigns = (assignRes.data ?? []) as unknown as Assign[];
+  // The second half of the same rule. personStats derives its video set from
+  // the assignments it is handed, so leaving excluded credits in here would
+  // put an archived client's videos straight back into every person's totals
+  // and every per-role board -- with the scores above correctly filtered,
+  // which is the confusing version of the bug rather than the obvious one.
+  const rawAssigns = ((assignRes.data ?? []) as unknown as Assign[]).filter(
+    (a) => !excluded.has(a.content_item_id),
+  );
 
   // person+role -> platform -> their scored posts.
   const buckets = new Map<

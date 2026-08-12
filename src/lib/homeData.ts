@@ -67,6 +67,14 @@ export type PlatformMomentum = {
   /** Views gained per Dubai day, oldest first, zero-filled. */
   points: { x: string; y: number }[];
   total: number;
+  /**
+   * Views that arrived in readings too far apart to belong to any one day --
+   * a paused account resuming, or an archived client coming back. Real views,
+   * deliberately kept OUT of `points` and `total` so a six-month catch-up
+   * cannot masquerade as a single viral day. Surface it as its own figure or
+   * not at all; never add it into the daily series.
+   */
+  caughtUp: number;
 };
 
 /**
@@ -123,29 +131,69 @@ export async function loadPlatformMomentum(
   }
 
   const gains = new Map<string, Map<string, number>>(); // platform -> day -> views
+  const caughtUp = new Map<string, number>(); // platform -> views from long gaps
   const lastSeen = new Map<string, number>(); // post -> previous views
+  const lastSeenAt = new Map<string, number>(); // post -> when that was read
+
   for (const s of snapsRes.data ?? []) {
     if (s.views == null) continue;
     const prev = lastSeen.get(s.platform_post_id);
+    const prevAt = lastSeenAt.get(s.platform_post_id);
     lastSeen.set(s.platform_post_id, s.views);
+    lastSeenAt.set(s.platform_post_id, new Date(s.captured_at).getTime());
     if (prev == null) continue; // first reading in-window has no delta
     const delta = Math.max(0, s.views - prev);
     if (delta === 0) continue;
     const platform = platformOfPost.get(s.platform_post_id);
     if (!platform) continue;
+
+    /* A delta is only a DAY's gain if the two readings are a day apart.
+     *
+     * Every delta used to be charged to the single day its later reading
+     * landed on, which is right at the normal cadence and badly wrong after a
+     * gap. Pause an account -- or archive a client and bring them back --
+     * and months of accumulation arrive as one reading, plotted as one day.
+     * The bar is indistinguishable from a genuinely viral day, and it is the
+     * kind of wrong number someone acts on.
+     *
+     * Held out of the daily series and reported separately instead. Not
+     * discarded, because the views are real; not spread across the gap
+     * either, because we have no idea which days they happened on and
+     * inventing a distribution would dress a guess up as data. */
+    const spanDays =
+      prevAt == null ? 0 : (new Date(s.captured_at).getTime() - prevAt) / DAY_MS;
+    if (spanDays > MAX_GAIN_SPAN_DAYS) {
+      caughtUp.set(platform, (caughtUp.get(platform) ?? 0) + delta);
+      continue;
+    }
+
     const day = dubaiDate(new Date(s.captured_at));
     if (!gains.has(platform)) gains.set(platform, new Map());
     const byDay = gains.get(platform)!;
     byDay.set(day, (byDay.get(day) ?? 0) + delta);
   }
 
-  return [...gains.entries()]
-    .map(([slug, byDay]) => {
+  const slugs = new Set([...gains.keys(), ...caughtUp.keys()]);
+  return [...slugs]
+    .map((slug) => {
+      const byDay = gains.get(slug) ?? new Map<string, number>();
       const points = dayKeys.map((k) => ({ x: shortLabel(k), y: byDay.get(k) ?? 0 }));
-      return { slug, points, total: points.reduce((s, p) => s + p.y, 0) };
+      return {
+        slug,
+        points,
+        total: points.reduce((s, p) => s + p.y, 0),
+        caughtUp: caughtUp.get(slug) ?? 0,
+      };
     })
     .sort((a, b) => b.total - a.total);
 }
+
+/**
+ * Beyond this, two readings are not a day apart and their difference is not a
+ * day's gain. Three rather than one, because the sync cadence slips and a
+ * weekend of missed runs is normal operation, not a resumption.
+ */
+const MAX_GAIN_SPAN_DAYS = 3;
 
 export type MoverVideo = {
   id: string;
