@@ -4,6 +4,7 @@
 //   node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/reports-test.mjs
 import {
   personStats,
+  buildRoleTables,
   buildEmployeeReport,
   buildClientReport,
   buildPlatformReport,
@@ -51,24 +52,23 @@ const videos = [
     { platformGains: [{ platform: "tiktok", views: 5 }] }),
 ];
 
+// roleSlug is the key anything SELECTS on; roleName is only ever displayed.
+// u1 holds two roles on the same video (v1), which is the case that decides
+// whether a per-role board double-counts.
 const assignments = [
-  { content_item_id: "v1", user_id: "u1", roleName: "Editor" },
-  { content_item_id: "v1", user_id: "u1", roleName: "Videographer" },
-  { content_item_id: "v2", user_id: "u1", roleName: "Editor" },
-  { content_item_id: "v1", user_id: "u2", roleName: "Editor" },
+  { content_item_id: "v1", user_id: "u1", roleSlug: "editor", roleName: "Editor" },
+  { content_item_id: "v1", user_id: "u1", roleSlug: "videographer", roleName: "Videographer" },
+  { content_item_id: "v2", user_id: "u1", roleSlug: "editor", roleName: "Editor" },
+  { content_item_id: "v1", user_id: "u2", roleSlug: "editor", roleName: "Editor" },
   // Credit on a video that is NOT in the view -- must be ignored entirely.
-  { content_item_id: "v9", user_id: "u1", roleName: "Editor" },
+  { content_item_id: "v9", user_id: "u1", roleSlug: "editor", roleName: "Editor" },
 ];
-const scored = new Map([
-  ["v1", [{ index: 1.5 }, { index: 2.5 }]],
-  ["v2", [{ index: 1.0 }]],
-]);
 const people = [{ userId: "u1", name: "Usama" }, { userId: "u2", name: "Veliko" }];
 const seconds = new Map([["u1", 7200], ["u2", 1800]]);
 
 /* ---- personStats -------------------------------------------------------- */
 {
-  const stats = personStats(people, videos, assignments, scored, seconds);
+  const stats = personStats(people, videos, assignments, seconds);
   const u1 = stats.find((s) => s.userId === "u1");
   const u2 = stats.find((s) => s.userId === "u2");
 
@@ -99,21 +99,83 @@ const seconds = new Map([["u1", 7200], ["u2", 1800]]);
     `got ${u2.platforms.find((p) => p.platform === "youtube")?.views}`);
 
   // The whole point of the merge: same person, narrowed view, smaller numbers.
-  const narrowed = personStats(people, videos.filter((v) => v.id === "v2"), assignments, scored, seconds);
+  const narrowed = personStats(people, videos.filter((v) => v.id === "v2"), assignments, seconds);
   check("narrowing the video set narrows the person's figures with it",
     narrowed.find((s) => s.userId === "u1").videosInView === 1 &&
     narrowed.find((s) => s.userId === "u2").videosInView === 0);
 
   // Order-independence: the people array order must not change any figure.
-  const reversed = personStats([...people].reverse(), videos, assignments, scored, seconds);
+  const reversed = personStats([...people].reverse(), videos, assignments, seconds);
   check("person order does not change any person's figures",
     JSON.stringify([...reversed].sort((a, b) => a.userId.localeCompare(b.userId))) ===
       JSON.stringify([...stats].sort((a, b) => a.userId.localeCompare(b.userId))));
 }
 
+/* ---- Per-role boards ----------------------------------------------------- */
+{
+  const roles = [
+    { slug: "editor", name: "Editor" },
+    { slug: "videographer", name: "Videographer" },
+    { slug: "qc", name: "Quality Control" },
+  ];
+  const tables = buildRoleTables(roles, people, videos, assignments, seconds);
+
+  check("one table per role, in the order given",
+    tables.map((t) => t.roleSlug).join(",") === "editor,videographer,qc");
+
+  const editor = tables.find((t) => t.roleSlug === "editor");
+  const vgraph = tables.find((t) => t.roleSlug === "videographer");
+  const qc = tables.find((t) => t.roleSlug === "qc");
+
+  // u1 edited v1 and v2; u2 edited v1 only.
+  check("the editor board counts only editing credits",
+    editor.rows.find((r) => r.userId === "u1").videosInView === 2 &&
+      editor.rows.find((r) => r.userId === "u2").videosInView === 1);
+
+  // u1 holds Editor AND Videographer on v1. They must appear once in each
+  // board, counting v1 once -- not twice anywhere.
+  check("holding two roles on one video counts once per board, not twice",
+    vgraph.rows.length === 1 &&
+      vgraph.rows[0].userId === "u1" &&
+      vgraph.rows[0].videosInView === 1,
+    JSON.stringify(vgraph.rows.map((r) => [r.userId, r.videosInView])));
+
+  check("a person's figures differ between their two boards",
+    editor.rows.find((r) => r.userId === "u1").videosInView !== vgraph.rows[0].videosInView);
+
+  // A videographer is not a bad editor; they are not an editor.
+  check("people with no credit in a role are absent, not listed at zero",
+    qc.rows.length === 0 && !editor.rows.some((r) => r.videosInView === 0));
+
+  check("rows rank by videos, most first",
+    editor.rows[0].userId === "u1" && editor.rows[1].userId === "u2");
+
+  // The board must never invent a pooled views figure. Views stay per
+  // platform; the sort key is videos/likes/comments, all of which are
+  // genuinely summable.
+  check("no row carries a single pooled views number",
+    editor.rows.every((r) => Array.isArray(r.platforms) && !("views" in r)),
+    "a scalar views field appeared on a row");
+  check("per-platform reach survives into the board",
+    editor.rows.find((r) => r.userId === "u1").platforms.length === 2);
+
+  // Credits on out-of-view videos (v9) must not leak in here either.
+  check("out-of-view credits stay out of the boards",
+    editor.rows.find((r) => r.userId === "u1").videosInView === 2);
+
+  // Selecting by slug is the point: filtering on the DISPLAY name would
+  // match nothing for "qc" vs "Quality Control".
+  check("boards select on slug, not display name",
+    buildRoleTables([{ slug: "qc", name: "Quality Control" }], people, videos, assignments, seconds)
+      [0].rows.length === 0);
+
+  check("the boards carry no functions across the boundary",
+    !JSON.stringify(tables).includes("function"));
+}
+
 /* ---- Employee report ---------------------------------------------------- */
 {
-  const stats = personStats(people, videos, assignments, scored, seconds);
+  const stats = personStats(people, videos, assignments, seconds);
   const r = buildEmployeeReport(stats, videos);
 
   check("employee report has one row per person", r.rows.length === 2);
@@ -200,7 +262,7 @@ const seconds = new Map([["u1", 7200], ["u2", 1800]]);
     orphaned.totals.cells.videos.text);
   check("the employee and client reports report the same video count",
     orphaned.totals.cells.videos.text ===
-      buildEmployeeReport(personStats(people, videos, assignments, scored, seconds), videos)
+      buildEmployeeReport(personStats(people, videos, assignments, seconds), videos)
         .totals.cells.videos.text);
   check("no tracked time reads as a dash, never 0s",
     orphaned.rows.find((x) => x.id === "__unattributed").cells.perVideo.text === "—");
@@ -226,7 +288,7 @@ const seconds = new Map([["u1", 7200], ["u2", 1800]]);
 
 /* ---- CSV ---------------------------------------------------------------- */
 {
-  const stats = personStats(people, videos, assignments, scored, seconds);
+  const stats = personStats(people, videos, assignments, seconds);
   const r = buildEmployeeReport(stats, videos);
   const { headers, rows } = reportToCsv(r);
 
@@ -254,7 +316,7 @@ const seconds = new Map([["u1", 7200], ["u2", 1800]]);
 
   // A person with nothing published still gets a row rather than vanishing.
   const lonely = buildEmployeeReport(
-    personStats([{ userId: "u3", name: "Nobody" }], videos, assignments, scored, new Map()),
+    personStats([{ userId: "u3", name: "Nobody" }], videos, assignments, new Map()),
     videos,
   );
   check("an entity with no platforms still exports one row",

@@ -34,6 +34,23 @@ import type { ScoredPost } from "@/lib/scoring";
  *   scores silently, an over-broad one merely recomputes ~1s of work on
  *   the next view. With one real workspace the trade is entirely one-sided.
  *
+ * - AND a time bound, because the note above turned out to be the actual
+ *   failure and not a theoretical one. Caught on 2026-08-12: the boards were
+ *   reading 27 assignments where the database held 47, and no amount of
+ *   reloading fixed it. The tag only fires when a WRITE GOES THROUGH THE APP;
+ *   21 credits had been inserted out of band, so nothing ever invalidated,
+ *   and unstable_cache with no `revalidate` keeps an entry indefinitely. The
+ *   result was every rankings-derived figure on /content silently describing
+ *   a snapshot from before those credits existed -- exactly the "stale scores
+ *   silently" case this comment already warned about.
+ *
+ *   A tag that only fires on in-app writes cannot be the ONLY defence for
+ *   data that other processes also write: the worker, the sync cron, SQL and
+ *   scripts all touch these tables. So staleness is now bounded to a minute.
+ *   The tag still gives prompt invalidation on the common path; the window is
+ *   the floor under it, and it costs one ~1s recompute per minute of active
+ *   use. A wrong number on a performance board is worth far more than that.
+ *
  * - The result carries Maps and a Set, which do not survive the cache's
  *   JSON round trip -- hence the freeze/thaw pair. Symptom if ever broken:
  *   scoredByContent.get is not a function on the second request.
@@ -70,7 +87,11 @@ const cached = unstable_cache(
   async (ws: string): Promise<FrozenRankings> =>
     freeze(await computeRankings(serviceClient(), ws)),
   ["rankings-v1"],
-  { tags: ["rankings"] },
+  // revalidate is in SECONDS and is the ceiling on how wrong these numbers
+  // can be. Do not remove it in favour of "the tag handles it" -- the tag
+  // does not fire for writes that bypass the app, which is how this went
+  // stale in the first place.
+  { tags: ["rankings"], revalidate: 60 },
 );
 
 export async function cachedRankings(ws: string): Promise<RankingsResult> {

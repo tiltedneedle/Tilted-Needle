@@ -18,12 +18,12 @@ const NOW = new Date("2026-08-07T10:00:00Z"); // 14:00 Dubai, a Friday
   // The same constraints as URL strings in shuffled parameter orders AND
   // shuffled comma orders. Every permutation must parse identically.
   const urls = [
-    "client=a,b&person=x,y&platform=youtube&from=2026-08-01&to=2026-08-14&status=published&q=hi",
-    "q=hi&status=published&to=2026-08-14&from=2026-08-01&platform=youtube&person=y,x&client=b,a",
-    "person=x,y&client=b,a&q=hi&from=2026-08-01&platform=youtube&status=published&to=2026-08-14",
-    "to=2026-08-14&client=a,b&status=published&person=y,x&q=hi&platform=youtube&from=2026-08-01",
+    "client=a,b&person=x,y&role=editor,idea&platform=youtube&from=2026-08-01&to=2026-08-14&status=published&q=hi",
+    "q=hi&status=published&to=2026-08-14&from=2026-08-01&platform=youtube&role=idea,editor&person=y,x&client=b,a",
+    "person=x,y&role=editor,idea&client=b,a&q=hi&from=2026-08-01&platform=youtube&status=published&to=2026-08-14",
+    "to=2026-08-14&client=a,b&status=published&role=idea,editor&person=y,x&q=hi&platform=youtube&from=2026-08-01",
     // Duplicates and empty segments are noise, not meaning.
-    "client=a,b,a,,b&person=,y,x,x&platform=youtube&from=2026-08-01&to=2026-08-14&status=published&q=hi",
+    "client=a,b,a,,b&person=,y,x,x&role=editor,,idea,editor&platform=youtube&from=2026-08-01&to=2026-08-14&status=published&q=hi",
   ];
   const states = urls.map((u) =>
     JSON.stringify(F.parseFilters(Object.fromEntries(new URLSearchParams(u)), NOW)),
@@ -33,6 +33,34 @@ const NOW = new Date("2026-08-07T10:00:00Z"); // 14:00 Dubai, a Friday
   check("id lists are normalised (sorted, deduped)",
     JSON.parse(states[0]).clientIds.join(",") === "a,b" &&
       JSON.parse(states[0]).personIds.join(",") === "x,y");
+  // Role joined the state as a first-class dimension, so it has to hold the
+  // same guarantee. Written as a separate assertion because a role list that
+  // preserved insertion order would still pass the permutation check above
+  // for any single URL -- it is the CROSS-url comparison that catches it, and
+  // this pins the normalised value explicitly.
+  check("role slugs are normalised (sorted, deduped, empties dropped)",
+    JSON.parse(states[0]).roleSlugs.join(",") === "editor,idea",
+    JSON.parse(states[0]).roleSlugs.join(","));
+}
+
+/* ---- Role filter ---------------------------------------------------------- */
+{
+  const none = F.parseFilters({}, NOW);
+  check("absent role is an empty list, never undefined",
+    Array.isArray(none.roleSlugs) && none.roleSlugs.length === 0);
+
+  const one = F.parseFilters({ role: "qc" }, NOW);
+  check("a single role parses", one.roleSlugs.join(",") === "qc");
+
+  // Slugs, not display names: this module is dependency-free and cannot know
+  // a workspace's roles, so an unknown value is carried through and simply
+  // matches nothing downstream rather than being silently dropped here.
+  const odd = F.parseFilters({ role: "not-a-role" }, NOW);
+  check("an unknown slug is carried, not swallowed",
+    odd.roleSlugs.join(",") === "not-a-role");
+
+  const blank = F.parseFilters({ role: " , ,, " }, NOW);
+  check("a role list of only separators is empty", blank.roleSlugs.length === 0);
 }
 
 /* ---- Malformed input degrades to unset, never throws -------------------- */

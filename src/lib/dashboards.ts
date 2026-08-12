@@ -105,6 +105,17 @@ export type ClientSummary = {
 
 export type ContentOverview = {
   videos: VideoSummary[];
+  /**
+   * The same population BEFORE the person and role filters narrowed it.
+   *
+   * This is what the per-role performance tables are computed from, and the
+   * distinction is the whole point: "who does best at editing" is a question
+   * about the team, so a table built from a set already narrowed to one
+   * person could only ever rank them first of one. Everything else -- client,
+   * dates, platform, search, the archived-client rules -- is already applied,
+   * so the tables still describe the slice you are looking at.
+   */
+  videosForTables: VideoSummary[];
   clients: ClientSummary[];
   platformTotals: PlatformTotals[];
   /** Every platform enabled in this workspace, for the filter dropdown. */
@@ -130,6 +141,12 @@ export type ContentFilters = {
   /** Multi-select: a video matches when ANY of these people is credited (OR). */
   personIds?: string[];
   /**
+   * Multi-select role SLUGS: a video matches when ANY of these roles is
+   * credited on it (OR). Narrows the video population, so the KPI tiles
+   * recount with it -- which is why the page labels them while it is set.
+   */
+  roleSlugs?: string[];
+  /**
    * Inclusive Dubai dates. Filters videos by produced_at AND windows the
    * growth metrics: gains become the sum of snapshot deltas landing inside
    * the range, so "last 2 weeks" answers "what moved in the last 2 weeks",
@@ -140,11 +157,14 @@ export type ContentFilters = {
 };
 
 /** Rebuilds the derived rollups so every filtered view stays self-consistent. */
+// Returns everything except videosForTables: this function is handed ONE
+// population and derives from it, so which population that is -- narrowed or
+// wide -- is the caller's decision, not something to smuggle in here.
 function deriveContent(
   videos: VideoSummary[],
   activeClients: { id: string; name: string }[],
   platformOptions: { slug: string; name: string }[],
-): ContentOverview {
+): Omit<ContentOverview, "videosForTables"> {
   const allRows: MetricRow[] = videos.flatMap((v) => v.platforms);
 
   // Every active client appears, including ones with nothing matching. A
@@ -480,16 +500,6 @@ export async function loadContentOverview(
     videos = videos.filter((v) => v.clientId != null && wanted.has(v.clientId));
   }
 
-  if (filters.personIds && filters.personIds.length > 0) {
-    const wanted = new Set(filters.personIds);
-    const theirs = new Set(
-      rankings.assignments
-        .filter((a) => wanted.has(a.user_id))
-        .map((a) => a.content_item_id),
-    );
-    videos = videos.filter((v) => theirs.has(v.id));
-  }
-
   if (filters.status === "published") videos = videos.filter((v) => v.postCount > 0);
   else if (filters.status === "unpublished") videos = videos.filter((v) => v.postCount === 0);
   else if (filters.status === "boosting")
@@ -535,11 +545,50 @@ export async function loadContentOverview(
     (v) => !v.clientId || !archivedClientIds.has(v.clientId),
   );
 
-  return deriveContent(
-    live,
-    clientRows.filter((c) => !c.is_archived).map((c) => ({ id: c.id, name: c.name })),
-    platformOptions,
-  );
+  /* ---- Person and role, applied LAST and captured either side -------------
+     Every other filter narrows the population everyone agrees on. These two
+     are different, because the per-role performance tables have to answer
+     "where does this person stand in the TEAM" -- and a table computed from a
+     set already narrowed to that person can only ever rank them first of one.
+
+     So `live` is kept as the table population (client, dates, platform,
+     search, archived-client rules all applied) and the person/role narrowing
+     produces the population for the video list and the KPI tiles.
+
+     Order between these two and the filters above is irrelevant to the
+     result -- each is an independent intersection over the same set, which is
+     the property that makes selection order structurally meaningless. Moving
+     the person filter down here changes nothing about what it returns. */
+  let shown = live;
+
+  if (filters.personIds && filters.personIds.length > 0) {
+    const wanted = new Set(filters.personIds);
+    const theirs = new Set(
+      rankings.assignments
+        .filter((a) => wanted.has(a.user_id))
+        .map((a) => a.content_item_id),
+    );
+    shown = shown.filter((v) => theirs.has(v.id));
+  }
+
+  if (filters.roleSlugs && filters.roleSlugs.length > 0) {
+    const wantedRoles = new Set(filters.roleSlugs);
+    const withRole = new Set(
+      rankings.assignments
+        .filter((a) => wantedRoles.has(a.roleSlug))
+        .map((a) => a.content_item_id),
+    );
+    shown = shown.filter((v) => withRole.has(v.id));
+  }
+
+  return {
+    ...deriveContent(
+      shown,
+      clientRows.filter((c) => !c.is_archived).map((c) => ({ id: c.id, name: c.name })),
+      platformOptions,
+    ),
+    videosForTables: live,
+  };
 }
 
 /** Unfiltered client list, so the dropdown does not shrink as filters narrow. */

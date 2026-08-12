@@ -17,6 +17,11 @@
 export type ContentFilterState = {
   clientIds: string[];
   personIds: string[];
+  /**
+   * Role SLUGS, not ids -- so a shared link keeps meaning something in a
+   * workspace whose roles are different rows with the same names.
+   */
+  roleSlugs: string[];
   platform: string | null;
   status: string | null;
   q: string | null;
@@ -67,6 +72,11 @@ export function parseFilters(
   return {
     clientIds: parseIdList(sp.client),
     personIds: parseIdList(sp.person),
+    // parseIdList, not a bespoke parse: it dedupes and SORTS, which is what
+    // keeps the order-independence guarantee true for this dimension too.
+    // Unknown slugs are left in and simply match nothing downstream -- this
+    // module is dependency-free and cannot know a workspace's roles.
+    roleSlugs: parseIdList(sp.role),
     platform: sp.platform?.trim() || null,
     status: ["published", "unpublished", "boosting"].includes(sp.status ?? "")
       ? sp.status!

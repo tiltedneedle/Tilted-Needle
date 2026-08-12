@@ -3,7 +3,8 @@ import NewContentForm from "@/components/NewContentForm";
 import ContentOverview from "@/components/ContentOverview";
 import ContentDetail, { type AnalyticsRow, type SnapshotRow } from "@/components/ContentDetail";
 import PeopleInView from "@/components/PeopleInView";
-import { personStats, type PersonStats } from "@/lib/reports";
+import RoleTables from "@/components/RoleTables";
+import { buildRoleTables, personStats, type PersonStats } from "@/lib/reports";
 import { secondsByUserOnVideos } from "@/lib/reportData";
 import FilterBar from "@/components/FilterBar";
 import PlatformReach from "@/components/PlatformReach";
@@ -46,6 +47,7 @@ export default async function ContentPage({
     platform?: string;
     period?: string;
     person?: string;
+    role?: string;
     status?: string;
     q?: string;
   }>;
@@ -87,6 +89,11 @@ export default async function ContentPage({
   const narrowed = Boolean(
     f.clientIds.length ||
       f.personIds.length ||
+      // Role narrows the video population like every other dimension, so it
+      // MUST be listed here. Leaving a dimension out of this gate is exactly
+      // the bug described above -- the dropdown would keep offering videos
+      // the filters exclude.
+      f.roleSlugs.length ||
       f.platform ||
       f.q ||
       f.from ||
@@ -103,6 +110,7 @@ export default async function ContentPage({
             q: f.q,
             clientIds: f.clientIds,
             personIds: f.personIds,
+            roleSlugs: f.roleSlugs,
             from: f.from,
             to: f.to,
           }),
@@ -195,7 +203,10 @@ export default async function ContentPage({
       searchClears={["video"]}
       range={{ from: f.from, to: f.to }}
       rangeClears={["video"]}
-      primaryCount={3}
+      // 4, not 3: role would otherwise sit behind "More filters", which only
+      // auto-opens when a hidden filter ALREADY has a value -- so on a fresh
+      // load the new filter would be invisible and read as missing.
+      primaryCount={4}
       // Sort is not a filter. "Clear all" clears what you filtered BY; it has
       // no business silently reordering the list you are looking at.
       preserveOnClear={["sort"]}
@@ -221,6 +232,19 @@ export default async function ContentPage({
           multi: true,
           values: f.personIds,
           options: members.map((m) => ({ value: m.userId, label: m.name })),
+          clears: ["video"],
+        },
+        // Roles come from the workspace's own `roles` rows, never a hardcoded
+        // five -- they are renameable and a workspace may not have the seeded
+        // set. The VALUE is the slug, so a shared link still means "editor"
+        // in a workspace where that role is a different row.
+        {
+          key: "role",
+          label: "Filter by role",
+          allLabel: "All roles",
+          multi: true,
+          values: f.roleSlugs,
+          options: workspaceRoles.map((r) => ({ value: r.slug, label: r.name })),
           clears: ["video"],
         },
         {
@@ -400,6 +424,34 @@ export default async function ContentPage({
       })())
     : null;
 
+  // Names of the roles currently filtering the list, for the stat tiles.
+  const roleLabel =
+    f.roleSlugs.length > 0
+      ? workspaceRoles
+          .filter((r) => f.roleSlugs.includes(r.slug))
+          .map((r) => r.name)
+          .join(" + ") || null
+      : null;
+
+  /* ---- Per-role boards ----------------------------------------------------
+     Computed from videosForTables, and from the FULL assignment list, so the
+     boards answer "where does this person stand in the team" rather than
+     "how does this person compare to themselves".
+
+     Tracked seconds are loaded for everyone here rather than only the
+     selected people, because a board that shows hours for two highlighted
+     rows and blanks for the rest looks like missing data. Note the figure is
+     the person's total on the in-view videos and is NOT role-scoped --
+     time_entries has no role_id and per-role time cannot be derived -- which
+     is why no board renders it as a column. */
+  const roleTables = buildRoleTables(
+    workspaceRoles,
+    members,
+    overview.videosForTables,
+    rankings.assignments,
+    await secondsByUserOnVideos(supabase, ws, null, overview.videosForTables),
+  );
+
   // Ranked on actual reach: peak single-platform views, because a view is a
   // different event on each platform and pooling them ranks nothing.
   const bestVideo =
@@ -432,7 +484,6 @@ export default async function ContentPage({
       })),
       overview.videos,
       rankings.assignments,
-      rankings.scoredByContent,
       await secondsByUserOnVideos(supabase, ws, f.personIds, overview.videos),
     );
   }
@@ -445,12 +496,23 @@ export default async function ContentPage({
       {filters}
 
       <StatGrid>
+        {/* The role filter narrows the video population, so this count means
+            something different while one is set. Saying which role is the
+            difference between a number that moved and a number that lies:
+            "207 videos" and "20 videos" look like the same statistic
+            otherwise. */}
         <Stat
           hero
           icon={Clapperboard}
-          label="Videos"
+          label={roleLabel ? `Videos · ${roleLabel}` : "Videos"}
           value={String(t.videos)}
-          hint={t.unpublished ? `${t.unpublished} not posted yet` : "all posted"}
+          hint={
+            roleLabel
+              ? `with ${roleLabel.toLowerCase()} credited`
+              : t.unpublished
+                ? `${t.unpublished} not posted yet`
+                : "all posted"
+          }
         />
         <Stat icon={Layers} label="Posts" value={String(t.posts)} hint="across all platforms" />
         <Stat
@@ -487,6 +549,23 @@ export default async function ContentPage({
       </StatGrid>
 
       <PeopleInView people={peopleInView} />
+
+      {/* Built from videosForTables -- the population BEFORE the person and
+          role filters narrowed it. That is deliberate and it is the only way
+          "who does best" can be answered: a board computed from a set already
+          narrowed to one person ranks them first of one, every time. Client,
+          dates, platform and search ARE applied, so the boards still describe
+          the slice being looked at. Selected people are highlighted in place
+          rather than isolated. */}
+      <RoleTables
+        tables={roleTables}
+        highlightUserIds={f.personIds}
+        scopeNote={
+          f.personIds.length > 0
+            ? "Ranked against everyone in view; your selection is highlighted"
+            : undefined
+        }
+      />
 
       <section className="mb-7">
         <SectionHeading

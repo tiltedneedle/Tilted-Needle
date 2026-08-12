@@ -145,7 +145,6 @@ async function ContentReport({
             roster,
             overview.videos,
             rankings.assignments,
-            rankings.scoredByContent,
             await secondsByUserOnVideos(
               supabase,
               ws,

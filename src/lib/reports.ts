@@ -51,6 +51,13 @@ export type AssignmentLite = {
   content_item_id: string;
   user_id: string;
   roleName: string;
+  /**
+   * The stable key. roleName is a display string an admin can rename, and
+   * filtering the URL's `qc` against the words "Quality Control" matches
+   * nothing while looking perfectly reasonable -- so anything selecting by
+   * role selects on this.
+   */
+  roleSlug: string;
 };
 
 /**
@@ -63,10 +70,12 @@ export function personStats(
   people: { userId: string; name: string }[],
   videos: VideoSummary[],
   assignments: AssignmentLite[],
-  scoredByContent: Map<string, { index: number }[]>,
   /** userId -> tracked seconds on the in-view videos. */
   secondsByUser: Map<string, number>,
 ): PersonStats[] {
+  // `scoredByContent` used to be a parameter here and was never once read --
+  // left behind when avgBoost was removed. Dropped rather than kept, so the
+  // next caller does not thread a Map through three files to satisfy it.
   const viewIds = new Set(videos.map((v) => v.id));
   const videoById = new Map(videos.map((v) => [v.id, v]));
   const inView = assignments.filter((a) => viewIds.has(a.content_item_id));
@@ -109,6 +118,64 @@ export function personStats(
       seconds: secondsByUser.get(userId) ?? 0,
     };
   });
+}
+
+/** One role's leaderboard: everyone who held that role on the in-view videos. */
+export type RoleTable = {
+  roleSlug: string;
+  roleName: string;
+  /** Only people who actually hold this role here; never a row of zeroes. */
+  rows: PersonStats[];
+};
+
+/**
+ * A leaderboard per role, from data already in memory.
+ *
+ * The trick is that `personStats` derives its video set from the assignments
+ * it is HANDED, so pre-filtering those to one role makes every figure it
+ * returns role-scoped. No new query, no new aggregation, and no second
+ * definition of "how many videos did this person work on" that could drift
+ * out of step with the people strip.
+ *
+ * ORDERING. Rows sort by videos, then likes, then comments -- all of which
+ * are summable across platforms. Views are deliberately NOT the sort key and
+ * deliberately not a column: a single "views" number requires pooling a
+ * TikTok view and a YouTube view, which are different events, and the whole
+ * scoring model exists to stop exactly that. Views still appear, per platform,
+ * as chips. Ranking on a number nobody should compute would make the tables
+ * look authoritative while being meaningless.
+ *
+ * People with no credit in a role are dropped rather than listed at zero. A
+ * videographer is not "worst editor"; they are not an editor.
+ */
+export function buildRoleTables(
+  rolesInOrder: { slug: string; name: string }[],
+  people: { userId: string; name: string }[],
+  videos: VideoSummary[],
+  assignments: AssignmentLite[],
+  secondsByUser: Map<string, number>,
+): RoleTable[] {
+  return rolesInOrder.map((role) => {
+    const forRole = assignments.filter((a) => a.roleSlug === role.slug);
+    const rows = personStats(people, videos, forRole, secondsByUser)
+      .filter((p) => p.videosInView > 0)
+      .sort(
+        (a, b) =>
+          b.videosInView - a.videosInView ||
+          sumLikes(b) - sumLikes(a) ||
+          sumComments(b) - sumComments(a) ||
+          a.name.localeCompare(b.name),
+      );
+    return { roleSlug: role.slug, roleName: role.name, rows };
+  });
+}
+
+/** Likes and comments ARE summable across platforms; views are not. */
+function sumLikes(p: PersonStats): number {
+  return p.platforms.reduce((s, x) => s + x.likes, 0);
+}
+function sumComments(p: PersonStats): number {
+  return p.platforms.reduce((s, x) => s + x.comments, 0);
 }
 
 /* ---- Report shape -------------------------------------------------------- */
