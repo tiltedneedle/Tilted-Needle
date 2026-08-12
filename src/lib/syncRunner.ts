@@ -74,8 +74,17 @@ type AccountRow = {
  * this: it is a deliberate action a person is not going to click 96 times a
  * day, and it deserves the fuller catch-up.
  */
-export { AUTO_DISCOVERY_WANT, AUTO_DISCOVERY_COOLDOWN_MS, isDueForDiscovery } from "./discoveryThrottle.ts";
-import { AUTO_DISCOVERY_WANT, isDueForDiscovery } from "./discoveryThrottle.ts";
+export {
+  AUTO_DISCOVERY_WANT,
+  AUTO_DISCOVERY_COOLDOWN_MS,
+  MAX_METERED_DISCOVERY_PER_RUN,
+  isDueForDiscovery,
+} from "./discoveryThrottle.ts";
+import {
+  AUTO_DISCOVERY_WANT,
+  MAX_METERED_DISCOVERY_PER_RUN,
+  isDueForDiscovery,
+} from "./discoveryThrottle.ts";
 import { freeThumbnailFor, THUMBNAIL_FILL_CAP } from "./thumbnails.ts";
 
 /**
@@ -203,7 +212,17 @@ export async function syncAccount(
     if (meteredDiscovery) {
       if (!isDueForDiscovery(trigger, account.last_discovered_at)) {
         grantedDiscovery = 0;
+      } else if (
+        trigger === "cron" &&
+        meteredDiscoveries >= MAX_METERED_DISCOVERY_PER_RUN
+      ) {
+        // Out of wall-clock budget for blocking vendor calls this run.
+        // Deliberately does NOT stamp last_discovered_at: this account never
+        // got its attempt, so it must stay due rather than be pushed to the
+        // back of a 10-day cooldown it did not use.
+        grantedDiscovery = 0;
       } else {
+        meteredDiscoveries++;
         const want = trigger === "manual" ? 12 : AUTO_DISCOVERY_WANT;
         grantedDiscovery = await claim(
           db,
@@ -527,6 +546,9 @@ export async function runSync(
     (a) => !(a as AccountRow).client_id || !archivedClientIds.has((a as AccountRow).client_id!),
   ) as AccountRow[];
   const results: AccountSyncResult[] = [];
+  // Blocking vendor discovery calls used so far this run -- see
+  // MAX_METERED_DISCOVERY_PER_RUN for why wall clock, not spend, is the limit.
+  let meteredDiscoveries = 0;
 
   for (const account of accounts) {
     // Platforms with no public read are skipped without a run row: logging a

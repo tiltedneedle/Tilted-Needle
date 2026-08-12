@@ -53,6 +53,12 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const workspaceId = url.searchParams.get("workspace") ?? undefined;
   const accountId = url.searchParams.get("account") ?? undefined;
+  // One platform per call, so the scheduler can spread ~30 accounts across
+  // several bounded requests instead of one that outruns maxDuration. The
+  // first live cron run took over ten minutes and only completed because
+  // curl retried it in pieces -- which reported a red X for work that had
+  // actually succeeded.
+  const platformSlug = url.searchParams.get("platform") ?? undefined;
   // Vercel Cron never sends this -- it is for a deliberate operator call
   // (e.g. a fresh account's first import) that wants the fuller manual
   // catch-up rather than the throttled automatic cadence. Safe to expose:

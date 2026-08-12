@@ -21,6 +21,22 @@
 export const AUTO_DISCOVERY_WANT = 5;
 export const AUTO_DISCOVERY_COOLDOWN_MS = 10 * 24 * 60 * 60 * 1000;
 
+/**
+ * How many accounts may do METERED discovery in a single automatic run.
+ *
+ * Not a spend cap -- the budget claim and the 10-day cooldown already bound
+ * what a month can cost. This is a WALL-CLOCK cap. A metered discovery is a
+ * blocking vendor actor run, roughly 30 seconds each, and nine of them in one
+ * request is four and a half minutes of the serverless function's 300-second
+ * ceiling spent before a single metric is refreshed. The first live run did
+ * exactly that and overran the limit.
+ *
+ * Accounts past the cap are left with their last_discovered_at untouched, so
+ * they stay due and the next run picks them up. At four runs a day this
+ * covers a dozen accounts well inside the cooldown window.
+ */
+export const MAX_METERED_DISCOVERY_PER_RUN = 4;
+
 /** Whether an automatic discovery attempt is due for an account. */
 export function isDueForDiscovery(
   trigger: "cron" | "manual",

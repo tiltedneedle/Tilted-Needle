@@ -82,39 +82,49 @@ jobs:
           echo "secret length     : $(printf '%s' "${CRON_SECRET}" | wc -c)"
           echo "secret fingerprint: $(printf '%s' "${CRON_SECRET}" | sha256sum | cut -c1-8)"
 
-          # --max-time comfortably exceeds the route's own 300s maxDuration, so
-          # a slow-but-succeeding run is never cut off at the client end.
-          # -sS keeps the progress meter out of the log but keeps real errors.
-          code=$(curl -sS -o body.json -w '%{http_code}' \
-            --max-time 600 \
-            --retry 2 --retry-delay 30 --retry-connrefused \
-            -H "Authorization: Bearer ${CRON_SECRET}" \
-            "${SITE_URL}/api/sync")
+          # ONE PLATFORM PER REQUEST.
+          #
+          # The first live run asked for everything at once and took over ten
+          # minutes: ~30 accounts of metrics plus nine blocking TikTok actor
+          # runs, well past the route's 300-second maxDuration. It only
+          # finished because curl retried the timeout and the retries did the
+          # work in pieces -- so the job reported a red X for a sync that had
+          # actually succeeded, which is the worst possible signal.
+          #
+          # Split by platform and each request is bounded and independently
+          # meaningful. A slow vendor can no longer starve the others.
+          fail=0
+          for platform in instagram tiktok youtube youtube_shorts; do
+            # No --retry. Retrying a half-finished sync re-runs expensive work
+            # for a request that may well have committed most of it, and the
+            # stalest-first ordering already makes the NEXT scheduled run pick
+            # up whatever this one missed. --max-time just above the route's
+            # own 300s ceiling so a hung call fails rather than hanging.
+            code=$(curl -sS -o body.json -w '%{http_code}' \
+              --max-time 320 \
+              -H "Authorization: Bearer ${CRON_SECRET}" \
+              "${SITE_URL}/api/sync?platform=${platform}")
 
-          # Print the body before judging it: on failure this is the only
-          # record of WHY, and a 401 here means the secret drifted from Vercel.
-          echo "HTTP ${code}"
-          cat body.json
-          echo
+            # Print the body before judging it: on failure this is the only
+            # record of WHY, and a 401 means the secret drifted from Vercel.
+            echo "--- ${platform}: HTTP ${code}"
+            cat body.json
+            echo
 
-          if [ "${code}" != "200" ]; then
-            echo "::error::sync returned HTTP ${code}"
-            exit 1
-          fi
+            if [ "${code}" != "200" ] || ! grep -q '"ok":true' body.json; then
+              echo "::error::${platform} sync failed (HTTP ${code})"
+              fail=1
+              # Deliberately keep going. One dead provider must not hide the
+              # results of the three that worked.
+              continue
+            fi
 
-          # A 200 is not success on its own -- the route reports per-account
-          # outcomes in the body. Fail the run when the top-level flag is false
-          # so a broken provider surfaces as a red X rather than a silent green.
-          if ! grep -q '"ok":true' body.json; then
-            echo "::error::sync reported failure"
-            exit 1
-          fi
+            node -e '
+              const r = JSON.parse(require("fs").readFileSync("body.json", "utf8"));
+              const line = `'"${platform}"': synced ${r.synced}/${r.accounts} · ${r.postsCreated} new posts · ${r.snapshotsWritten} snapshots · ${r.failed} failed`;
+              console.log(line);
+              require("fs").appendFileSync(process.env.GITHUB_STEP_SUMMARY, line + "\n");
+            '
+          done
 
-          # Surface the counts in the run summary so the Actions list is
-          # readable at a glance without opening each job.
-          node -e '
-            const r = JSON.parse(require("fs").readFileSync("body.json", "utf8"));
-            const line = `synced ${r.synced}/${r.accounts} · ${r.postsCreated} new posts · ${r.snapshotsWritten} snapshots · ${r.failed} failed`;
-            console.log(line);
-            require("fs").appendFileSync(process.env.GITHUB_STEP_SUMMARY, line + "\n");
-          '
+          exit ${fail}
