@@ -4,7 +4,12 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Merge, X } from "lucide-react";
 import Select from "@/components/ui/Select";
-import { bulkAssignRole, bulkSetClient, mergeContentItems } from "@/app/actions";
+import {
+  bulkAssignRole,
+  bulkSetClient,
+  mergeContentItems,
+  type ClientAssignment,
+} from "@/app/actions";
 import { useToast } from "@/components/ui/Toast";
 import type { TileMember, TileRole } from "@/components/VideoTile";
 
@@ -40,6 +45,7 @@ export default function BulkBar({
   members,
   clients,
   onClear,
+  onUndoableMove,
 }: {
   workspaceId: string;
   selected: string[];
@@ -49,6 +55,14 @@ export default function BulkBar({
   members: TileMember[];
   clients: { id: string; name: string }[];
   onClear: () => void;
+  /**
+   * Hands the parent what a move overwrote, so it can offer to take it back.
+   *
+   * It has to leave this component: finishing a move clears the selection,
+   * which is what makes this bar disappear -- an undo living here would
+   * vanish at the exact moment it became useful.
+   */
+  onUndoableMove?: (undo: { label: string; previous: ClientAssignment[] }) => void;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -89,7 +103,11 @@ export default function BulkBar({
     const where = target
       ? `to ${clients.find((c) => c.id === target)?.name ?? "that client"}`
       : "out of their client";
-    done(`${res.updated ?? 0} video${res.updated === 1 ? "" : "s"} moved ${where}.`);
+    const n = res.updated ?? 0;
+    if (res.previous?.length) {
+      onUndoableMove?.({ label: `${n} video${n === 1 ? "" : "s"} moved ${where}.`, previous: res.previous });
+    }
+    done(`${n} video${n === 1 ? "" : "s"} moved ${where}.`);
   }
 
   async function merge() {

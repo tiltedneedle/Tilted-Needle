@@ -10,6 +10,10 @@ import { PlatformChips } from "@/components/PlatformReach";
 import VideoTile, { type TileMember, type TileRole } from "@/components/VideoTile";
 import LoadMoreList from "@/components/LoadMoreList";
 import BulkBar from "@/components/BulkBar";
+import { restoreContentClients, type ClientAssignment } from "@/app/actions";
+import { useRouter } from "next/navigation";
+import { useToast } from "@/components/ui/Toast";
+import { Undo2 } from "lucide-react";
 import { Empty, SectionHeading } from "@/components/Stat";
 import type { ClientSummary, VideoSummary } from "@/lib/dashboards";
 
@@ -137,6 +141,12 @@ export default function ContentOverview({
   // rows.
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // Survives the selection being cleared, which is exactly the moment the
+  // bulk bar disappears and an undo starts being wanted.
+  const [undoMove, setUndoMove] = useState<{
+    label: string;
+    previous: ClientAssignment[];
+  } | null>(null);
 
   // Clients are ranked on peak single-platform reach rather than a sum, for
   // the same reason nothing else here totals across platforms.
@@ -326,6 +336,15 @@ export default function ContentOverview({
             members={members}
             clients={clients.map((c) => ({ id: c.id, name: c.name }))}
             onClear={() => setSelected(new Set())}
+            onUndoableMove={setUndoMove}
+          />
+        )}
+
+        {undoMove && (
+          <UndoMove
+            workspaceId={workspaceId}
+            undo={undoMove}
+            onDismiss={() => setUndoMove(null)}
           />
         )}
 
@@ -364,5 +383,61 @@ export default function ContentOverview({
         )}
       </section>
     </>
+  );
+}
+
+/**
+ * The way back from a bulk move.
+ *
+ * Deliberately a strip in the page rather than a toast action: a toast is
+ * gone in a few seconds, and the moment you realise a move was wrong is
+ * usually the moment after you look at the result. This stays until it is
+ * used or dismissed.
+ *
+ * It restores each video to ITS OWN previous client, not to one shared value.
+ * A single move can gather videos from several clients, and undoing that to
+ * whichever client happened to be first would be a quieter repeat of the bug
+ * the undo exists for.
+ */
+function UndoMove({
+  workspaceId,
+  undo,
+  onDismiss,
+}: {
+  workspaceId: string;
+  undo: { label: string; previous: ClientAssignment[] };
+  onDismiss: () => void;
+}) {
+  const router = useRouter();
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+
+  return (
+    <div className="mb-3 flex flex-wrap items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg-subtle)] px-3 py-2 text-xs">
+      <span className="min-w-0 flex-1 text-[var(--muted)]">{undo.label}</span>
+      <button
+        className="btn flex items-center gap-1.5 px-2.5 py-1 text-xs"
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          const res = await restoreContentClients({ workspaceId, previous: undo.previous });
+          setBusy(false);
+          if (res.error) return toast("danger", res.error);
+          toast("success", `${res.restored ?? 0} put back.`);
+          onDismiss();
+          router.refresh();
+        }}
+      >
+        <Undo2 size={13} />
+        {busy ? "Undoing…" : "Undo"}
+      </button>
+      <button
+        className="rounded px-2 py-1 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--fg)]"
+        onClick={onDismiss}
+        aria-label="Dismiss"
+      >
+        Dismiss
+      </button>
+    </div>
   );
 }

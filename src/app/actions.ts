@@ -728,13 +728,29 @@ export async function bulkAssignRole(input: {
 }
 
 /** Move several videos to one client at once. */
+/** What a video's client was before a move, so the move can be taken back. */
+export type ClientAssignment = { id: string; clientId: string | null };
+
 export async function bulkSetClient(input: {
   workspaceId: string;
   contentItemIds: string[];
   clientId: string | null;
-}): Promise<Result & { updated?: number }> {
+}): Promise<Result & { updated?: number; previous?: ClientAssignment[] }> {
   if (input.contentItemIds.length === 0) return { updated: 0 };
   const supabase = await createClient();
+
+  // Read the old owners BEFORE overwriting them. An UPDATE cannot return the
+  // pre-change value, and without it a move is unrecoverable -- which is not
+  // hypothetical: three videos were silently unassigned this way, and the
+  // only reason they came back is that their posts happened to still point
+  // at the right account. That is luck, not a design.
+  const { data: before, error: readErr } = await supabase
+    .from("content_items")
+    .select("id,client_id")
+    .eq("workspace_id", input.workspaceId)
+    .in("id", input.contentItemIds);
+  if (readErr) return { error: readErr.message };
+
   const { data, error } = await supabase
     .from("content_items")
     .update({ client_id: input.clientId })
@@ -744,7 +760,48 @@ export async function bulkSetClient(input: {
   if (error) return { error: error.message };
   revalidatePath("/content");
   revalidateTeam();
-  return { updated: data?.length ?? 0 };
+  return {
+    updated: data?.length ?? 0,
+    previous: (before ?? []).map((r) => ({ id: r.id as string, clientId: r.client_id as string | null })),
+  };
+}
+
+/**
+ * Put each video back with the client it had before a move.
+ *
+ * Restores per previous owner rather than to one value, because a single move
+ * can gather videos from several clients -- undoing it to any one of them
+ * would be a second, quieter version of the same bug.
+ */
+export async function restoreContentClients(input: {
+  workspaceId: string;
+  previous: ClientAssignment[];
+}): Promise<Result & { restored?: number }> {
+  if (input.previous.length === 0) return { restored: 0 };
+  const supabase = await createClient();
+
+  const byClient = new Map<string | null, string[]>();
+  for (const p of input.previous) {
+    const list = byClient.get(p.clientId) ?? [];
+    list.push(p.id);
+    byClient.set(p.clientId, list);
+  }
+
+  let restored = 0;
+  for (const [clientId, ids] of byClient) {
+    const { data, error } = await supabase
+      .from("content_items")
+      .update({ client_id: clientId })
+      .eq("workspace_id", input.workspaceId)
+      .in("id", ids)
+      .select("id");
+    if (error) return { error: error.message };
+    restored += data?.length ?? 0;
+  }
+
+  revalidatePath("/content");
+  revalidateTeam();
+  return { restored };
 }
 
 export async function updateContentItem(
