@@ -695,3 +695,34 @@ h3 {
 ::selection {
   background: rgb(240 112 74 / 0.22);
 }
+
+/* ---- Touch targets ------------------------------------------------------ */
+
+/**
+ * A floor of 24px on anything you tap, on touch devices only.
+ *
+ * WCAG 2.5.8 puts the minimum at 24x24. Reaching it with padding and
+ * line-height is what the chips already tried, and it does not hold: the same
+ * button measures 24px on a desktop and 21px on a phone, because the computed
+ * line-height differs. A measured floor is the only version that is actually
+ * true on the device that matters.
+ *
+ * Scoped to `pointer: coarse` so the dense desktop layout is untouched -- a
+ * mouse hits a 20px target fine, a thumb does not, and there is no reason to
+ * spend vertical space solving a problem the pointer does not have.
+ *
+ * min-height and min-width do not apply to non-replaced INLINE elements, which
+ * is a useful accident here: a link inside a sentence is unaffected, while the
+ * block and flex controls this is aimed at all pick it up. Inputs are left
+ * alone deliberately -- a checkbox stretched to 24px looks broken, and its
+ * label is the real target anyway.
+ */
+@media (pointer: coarse) {
+  button,
+  select,
+  [role="button"],
+  a[href] {
+    min-height: 24px;
+    min-width: 24px;
+  }
+}
