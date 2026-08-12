@@ -186,14 +186,81 @@ export async function syncAccount(
   let discoveryError: string | null = null;
 
   if (provider.capability.canDiscover) {
-    const discovered = await provider.discover(account.handle, {
-      limit: opts.discoverLimit ?? 200,
-      since: cutoffFor(account.sync_window_days),
-    });
-    if (!discovered.ok) {
-      discoveryError = discovered.error;
-    } else {
-      discoveredPosts = discovered.data;
+    /* A platform can be free to REFRESH and still cost money to DISCOVER --
+       TikTok is exactly that: finding a new video needs a paid vendor, and
+       reading that video's numbers afterwards is free forever.
+
+       So discovery on those platforms goes through the same budget claim and
+       the same cooldown as a fully metered platform, while the metrics
+       refresh below stays untouched and unlimited. Without this the 15-minute
+       cron would re-list the same thirty videos every tick and spend the
+       month's discovery pool before lunch, on nothing -- the vendor bills per
+       ROW RETURNED, not per new video found. */
+    const meteredDiscovery = provider.capability.discoveryMetered === true;
+    const trigger = opts.trigger ?? "cron";
+    let grantedDiscovery: number | null = null;
+
+    if (meteredDiscovery) {
+      if (!isDueForDiscovery(trigger, account.last_discovered_at)) {
+        grantedDiscovery = 0;
+      } else {
+        const want = trigger === "manual" ? 12 : AUTO_DISCOVERY_WANT;
+        grantedDiscovery = await claim(
+          db,
+          account.workspace_id,
+          account.platform_slug,
+          "discovery",
+          want,
+        );
+        // The attempt happened whether or not it was billed, so the cooldown
+        // resets either way. Stamping only on success would make a vendor
+        // outage retry on every tick -- the exact unthrottled spend this
+        // exists to prevent.
+        await db
+          .from("accounts")
+          .update({ last_discovered_at: new Date().toISOString() })
+          .eq("id", account.id);
+      }
+    }
+
+    if (!meteredDiscovery || (grantedDiscovery ?? 0) > 0) {
+      const discovered = await provider.discover(account.handle, {
+        limit: grantedDiscovery ?? opts.discoverLimit ?? 200,
+        since: cutoffFor(account.sync_window_days),
+      });
+      if (!discovered.ok) {
+        discoveryError = discovered.error;
+        // Nothing was returned, so nothing should have been charged.
+        if (meteredDiscovery && grantedDiscovery) {
+          await refund(
+            db,
+            account.workspace_id,
+            account.platform_slug,
+            "discovery",
+            grantedDiscovery,
+          );
+        }
+      } else {
+        discoveredPosts = discovered.data;
+        // Hand back the difference between what was reserved and what the
+        // vendor actually billed for, so a quiet week does not burn the pool.
+        if (meteredDiscovery && grantedDiscovery) {
+          const billed = discovered.billedCount ?? discovered.data.length;
+          if (billed < grantedDiscovery) {
+            await refund(
+              db,
+              account.workspace_id,
+              account.platform_slug,
+              "discovery",
+              grantedDiscovery - billed,
+            );
+          }
+        }
+      }
+    } else if (meteredDiscovery && grantedDiscovery === 0) {
+      // Not an error: either the cooldown has not elapsed or the pool is
+      // spent. Either way the free metrics refresh below carries on.
+      discoveryError = null;
     }
   }
 

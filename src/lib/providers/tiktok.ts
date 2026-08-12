@@ -46,29 +46,60 @@ import type {
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36";
 
-/** Both must be set for the optional discovery service to be considered available. */
+/** Both must be set for the optional self-hosted discovery service. */
 function discoveryConfigured(): boolean {
   return Boolean(process.env.TIKTOK_DISCOVER_URL && process.env.TIKTOK_DISCOVER_SECRET);
 }
 
+/** Its own token, falling back to the shared one if only that is set. */
+function apifyToken(): string | undefined {
+  return process.env.APIFY_TIKTOK_TOKEN || process.env.APIFY_TOKEN || undefined;
+}
+
+/** Overridable so a cheaper actor can be swapped in without a code change. */
+function apifyActor(): string {
+  return process.env.APIFY_TIKTOK_ACTOR ?? "clockworks~tiktok-scraper";
+}
+
+function apifyConfigured(): boolean {
+  return Boolean(apifyToken());
+}
+
 function capabilityFor(): ProviderCapability {
-  return discoveryConfigured()
-    ? {
-        canDiscover: true,
-        canFetchMetrics: true,
-        isMetered: false,
-        reason: "Discovery runs through a separate self-hosted service (yt-dlp) — see deploy/tiktok-discover.",
-        remedy: "",
-      }
-    : {
-        canDiscover: false,
-        canFetchMetrics: true,
-        isMetered: false,
-        reason:
-          "TikTok blocks creator profile pages, so a creator's videos cannot be listed automatically without the optional discovery service.",
-        remedy:
-          "Add each video's URL once — its metrics then refresh automatically with every sync. See deploy/tiktok-discover for the optional auto-discovery setup.",
-      };
+  // The self-hosted service is free, so it wins when it is actually
+  // configured. Apify is the route that works from a serverless deployment
+  // with nothing else running -- which is the case in production.
+  if (discoveryConfigured()) {
+    return {
+      canDiscover: true,
+      canFetchMetrics: true,
+      isMetered: false,
+      reason: "Discovery runs through a separate self-hosted service (yt-dlp) — see deploy/tiktok-discover.",
+      remedy: "",
+    };
+  }
+  if (apifyConfigured()) {
+    return {
+      canDiscover: true,
+      canFetchMetrics: true,
+      // Refreshing a KNOWN TikTok post stays free forever -- that is the whole
+      // shape of this integration. Only finding a new one costs.
+      isMetered: false,
+      discoveryMetered: true,
+      reason:
+        "New videos are found through Apify, which bills per row returned — so discovery is deliberately infrequent and capped. Reading a known video's numbers afterwards is free and unlimited.",
+      remedy: "",
+    };
+  }
+  return {
+    canDiscover: false,
+    canFetchMetrics: true,
+    isMetered: false,
+    reason:
+      "TikTok blocks creator profile pages, so a creator's videos cannot be listed automatically without a discovery route.",
+    remedy:
+      "Set APIFY_TIKTOK_TOKEN to find new videos automatically, or add each video's URL once — its metrics then refresh free with every sync.",
+  };
 }
 
 /**
@@ -266,7 +297,10 @@ export const tiktokProvider: PublicProvider = {
    * needs its own separate "not configured" branch.
    */
   async discover(handle: string, options: DiscoverOptions = {}) {
+    // Free route first when it is configured; Apify is what works from a
+    // serverless deployment with no self-hosted box behind it.
     if (!discoveryConfigured()) {
+      if (apifyConfigured()) return discoverViaApify(handle, options);
       return { ok: false, error: capabilityFor().reason };
     }
 
@@ -404,6 +438,139 @@ export const tiktokProvider: PublicProvider = {
     return { ok: true, data: out };
   },
 };
+
+/** One post as the TikTok actor reports it. Read defensively throughout. */
+type ApifyTikTokPost = {
+  id?: string;
+  text?: string;
+  createTimeISO?: string;
+  createTime?: number;
+  webVideoUrl?: string;
+  playCount?: number;
+  diggCount?: number;
+  commentCount?: number;
+  videoMeta?: { duration?: number; coverUrl?: string; originCover?: string };
+  authorMeta?: { name?: string };
+};
+
+/**
+ * Find a creator's recent videos through Apify.
+ *
+ * THE ENTIRE POINT of this route is that it is used ONCE per video. Apify
+ * bills per row returned, so a run that lists the same thirty videos every
+ * night pays thirty times a night for nothing. Once a video is in the system,
+ * its metrics refresh through TikTok's own free embed endpoint forever, and
+ * this is never asked about it again.
+ *
+ * That is why the limit is small and why the caller throttles how often this
+ * is allowed to run: discovery only has to catch what is NEW, and the cost of
+ * being a day late is nothing while the cost of asking constantly is the
+ * client's money.
+ */
+async function discoverViaApify(
+  handle: string,
+  options: DiscoverOptions,
+): Promise<ProviderResult<DiscoveredPost[]>> {
+  const token = apifyToken();
+  if (!token) return { ok: false, error: "APIFY_TIKTOK_TOKEN is not set." };
+
+  const clean = handle.trim().replace(/^@/, "");
+  // Hard ceiling regardless of what the caller asks for. A bug upstream that
+  // requested 500 would be a bill, not an error.
+  const want = Math.max(1, Math.min(options.limit ?? 10, 30));
+
+  try {
+    const res = await fetch(
+      `https://api.apify.com/v2/acts/${apifyActor()}/run-sync-get-dataset-items?token=${encodeURIComponent(token)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          profiles: [clean],
+          resultsPerPage: want,
+          // Nothing is downloaded: we want metadata, and asking for media
+          // would multiply both the runtime and the bill for files we throw
+          // away.
+          shouldDownloadVideos: false,
+          shouldDownloadCovers: false,
+          shouldDownloadSubtitles: false,
+          shouldDownloadSlideshowImages: false,
+        }),
+        cache: "no-store",
+        signal: AbortSignal.timeout(120_000),
+      },
+    );
+
+    if (res.status === 401 || res.status === 403) {
+      return { ok: false, error: "Apify rejected the token. Check APIFY_TIKTOK_TOKEN." };
+    }
+    if (res.status === 402) {
+      return {
+        ok: false,
+        error: "Apify credit exhausted — TikTok discovery pauses until the plan resets. Known videos keep refreshing free.",
+      };
+    }
+    if (!res.ok) {
+      return { ok: false, error: `Apify returned ${res.status} for @${clean}.` };
+    }
+
+    const rows = (await res.json()) as ApifyTikTokPost[];
+    if (!Array.isArray(rows)) return { ok: false, error: "Apify returned an unexpected shape." };
+
+    const since = options.since ?? null;
+    const out: DiscoveredPost[] = [];
+    for (const p of rows) {
+      // Prefer the actor's own id; fall back to parsing the URL. Both are
+      // checked against the real id shape, because a row we cannot identify
+      // is a row that would create a duplicate video on the next run.
+      let id: string | null = null;
+      if (p.id && /^\d{15,25}$/.test(p.id)) {
+        id = p.id;
+      } else if (p.webVideoUrl) {
+        const parsed = parseVideoId(p.webVideoUrl);
+        if (parsed.ok) id = parsed.id;
+      }
+      if (!id) continue;
+
+      // The id IS the timestamp, so the publish instant costs no request at
+      // all -- and it is exact, where createTimeISO is whatever the actor
+      // happened to serialise.
+      const ts = postedAtTsFrom(id) ?? p.createTimeISO ?? null;
+      const postedAt = ts ? ts.slice(0, 10) : null;
+      if (since && postedAt && postedAt < since) continue;
+
+      out.push({
+        externalId: id,
+        title: (p.text ?? "").trim().split("\n")[0].slice(0, 120) || "Untitled",
+        url: p.webVideoUrl ?? `https://www.tiktok.com/@${clean}/video/${id}`,
+        postedAt,
+        lengthSeconds:
+          typeof p.videoMeta?.duration === "number" ? Math.round(p.videoMeta.duration) : null,
+        // Already inside the response we paid for.
+        thumbnailUrl: p.videoMeta?.coverUrl ?? p.videoMeta?.originCover ?? null,
+        metrics: {
+          views: typeof p.playCount === "number" ? p.playCount : null,
+          likes: typeof p.diggCount === "number" ? p.diggCount : null,
+          comments: typeof p.commentCount === "number" ? p.commentCount : null,
+        },
+        enrichment: { postedAtTs: ts, description: p.text ?? null },
+      });
+    }
+
+    // Bill is per ROW RETURNED, not per row we chose to keep -- so the caller
+    // is told what it actually cost, not what it got.
+    return { ok: true, data: out, billedCount: rows.length };
+  } catch (e) {
+    const err = e as Error;
+    return {
+      ok: false,
+      error:
+        err.name === "TimeoutError"
+          ? "Apify timed out finding TikTok videos."
+          : `Could not reach Apify: ${err.message}`,
+    };
+  }
+}
 
 /** Confirms a video exists and reports which creator it belongs to. */
 export async function verifyVideo(

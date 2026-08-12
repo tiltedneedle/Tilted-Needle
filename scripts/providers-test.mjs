@@ -431,6 +431,57 @@ const ref = (s) => Y.parseChannelRef(s);
   globalThis.fetch = realFetch;
 }
 
+/* -- TikTok: metered to DISCOVER, free to REFRESH --------------------------
+   The whole shape of this integration. Folding the two together would either
+   badge every free refresh as spending money, or hide that discovery spends
+   any -- and the sync scheduler reads isMetered to decide whether to ration
+   reads, so getting it wrong would start rationing something that is free. */
+{
+  const TT = await import("../src/lib/providers/tiktok.ts");
+  const beforeTok = process.env.APIFY_TIKTOK_TOKEN;
+  const beforeShared = process.env.APIFY_TOKEN;
+  const beforeUrl = process.env.TIKTOK_DISCOVER_URL;
+  const beforeSecret = process.env.TIKTOK_DISCOVER_SECRET;
+
+  // No routes at all: honest refusal, and metrics still work.
+  delete process.env.APIFY_TIKTOK_TOKEN;
+  delete process.env.APIFY_TOKEN;
+  delete process.env.TIKTOK_DISCOVER_URL;
+  delete process.env.TIKTOK_DISCOVER_SECRET;
+  {
+    const c = TT.tiktokProvider.capability;
+    check("with no route, tiktok admits it cannot discover", c.canDiscover === false);
+    check("...but metrics still work, and are free",
+      c.canFetchMetrics === true && c.isMetered === false);
+    check("...and the remedy names the token", (c.remedy ?? "").includes("APIFY_TIKTOK_TOKEN"));
+  }
+
+  // Apify token present: discovery becomes possible, and METERED.
+  process.env.APIFY_TIKTOK_TOKEN = "test-token";
+  {
+    const c = TT.tiktokProvider.capability;
+    check("an apify token turns discovery on", c.canDiscover === true);
+    check("discovery is flagged metered", c.discoveryMetered === true);
+    check("refreshing a known post stays FREE", c.isMetered === false,
+      "isMetered must stay false or the scheduler starts rationing free reads");
+  }
+
+  // The self-hosted service is free, so it wins when configured.
+  process.env.TIKTOK_DISCOVER_URL = "http://example.invalid/discover";
+  process.env.TIKTOK_DISCOVER_SECRET = "s";
+  {
+    const c = TT.tiktokProvider.capability;
+    check("a free self-hosted route takes precedence over the paid one",
+      c.canDiscover === true && !c.discoveryMetered);
+  }
+
+  const restore = (k, v) => { if (v === undefined) delete process.env[k]; else process.env[k] = v; };
+  restore("APIFY_TIKTOK_TOKEN", beforeTok);
+  restore("APIFY_TOKEN", beforeShared);
+  restore("TIKTOK_DISCOVER_URL", beforeUrl);
+  restore("TIKTOK_DISCOVER_SECRET", beforeSecret);
+}
+
 /* -- The registry --------------------------------------------------------- */
 {
   check("youtube_shorts is a registered platform",

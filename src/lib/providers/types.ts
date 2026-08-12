@@ -46,6 +46,19 @@ export type ProviderCapability = {
    * while every one of its refreshes was spending credit.
    */
   isMetered: boolean;
+  /**
+   * DISCOVERY costs money even though the metrics refresh does not.
+   *
+   * Separate from isMetered because TikTok is genuinely both: finding a new
+   * video needs a paid vendor, but reading that video's numbers afterwards is
+   * free forever. Folding the two together would either badge every TikTok
+   * refresh as spending money (it does not, and the scheduler would start
+   * rationing free reads) or hide that discovery spends any (it does).
+   *
+   * isMetered stays the answer to "does refreshing this cost money", because
+   * that is what the sync scheduler and the per-account badge mean by it.
+   */
+  discoveryMetered?: boolean;
   /** Shown in the UI to explain why a platform is not syncing. */
   reason: string;
   /** What the workspace owner would have to do to change that, if anything. */
