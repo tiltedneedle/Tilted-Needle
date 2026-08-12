@@ -51,7 +51,15 @@ export default function ClientActiveToggle({
           ? "bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20"
           : "bg-[var(--bg-subtle)] text-[var(--muted)] hover:bg-[var(--border)]"
       }`}
-      title={isActive ? "Mark this client inactive" : "Mark this client active"}
+      // Says what it DOES, not what it sets. Inactive is not a label -- it
+      // pulls the client's videos out of Content and out of every filtered
+      // read, so someone tidying up a wall of cards needs to know the numbers
+      // will move before they click, not after.
+      title={
+        isActive
+          ? "Mark inactive — hides this client's videos from Content and reports. Reversible."
+          : "Mark active — restores this client's videos to Content and reports."
+      }
     >
       {busy ? "…" : isActive ? "Active" : "Inactive"}
     </button>

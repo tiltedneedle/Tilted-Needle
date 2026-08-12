@@ -215,6 +215,9 @@ export async function createClientRecord(
     .insert({ workspace_id: workspaceId, name: name.trim() });
   if (error) return { error: error.message };
   revalidatePath("/clients");
+  // Clients can now be created from the Guidelines wall too, and that grid
+  // would otherwise serve a cached page without the client just added.
+  revalidatePath("/guidelines");
   return {};
 }
 
