@@ -96,10 +96,20 @@ jobs:
           #
           # Split by platform and each request is bounded and independently
           # meaningful. A slow vendor can no longer starve the others.
-          # Accounts per request. Instagram is the slow one at ~27s each, so
-          # six is roughly 160 seconds -- comfortably inside the route's 300s
-          # ceiling with room for a slow day.
-          MAX=6
+          # Accounts per request, sized from measurement rather than guesswork.
+          #
+          # Timing a single account against production: 7s, 18s, 15s, 14s in
+          # steady state, and Instagram around 27s. Four of those is roughly a
+          # minute -- far inside the route's 300s ceiling.
+          #
+          # Four rather than six because of the outlier. One account that has
+          # a discovery backlog took 233 SECONDS on its own, and a batch of
+          # six could pair that with five normal ones and blow the limit
+          # anyway. At four, the worst realistic batch is 233 + 3x15 = 278s,
+          # which still lands. Two backlogged accounts together would still
+          # time out; that is rare, and the stalest-first ordering means the
+          # next run simply picks them up.
+          MAX=4
           # Safety stop. Six batches of six is far more than the ~14 accounts
           # any one platform has; this only exists so a bug cannot loop.
           BATCHES=6
