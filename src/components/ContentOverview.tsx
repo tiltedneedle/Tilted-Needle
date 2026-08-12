@@ -10,6 +10,7 @@ import { PlatformChips } from "@/components/PlatformReach";
 import VideoTile, { type TileMember, type TileRole } from "@/components/VideoTile";
 import LoadMoreList from "@/components/LoadMoreList";
 import BulkBar from "@/components/BulkBar";
+import MergeSuggestions from "@/components/MergeSuggestions";
 import { restoreContentClients, type ClientAssignment } from "@/app/actions";
 import { useRouter } from "next/navigation";
 import { useToast } from "@/components/ui/Toast";
@@ -381,6 +382,12 @@ export default function ContentOverview({
             ))}
           />
         )}
+
+        {/* Fed the FILTERED list on purpose. Scoped to what is on screen it
+            answers "are there duplicates in what I am looking at"; fed
+            everything it would keep proposing merges for a client you are not
+            currently looking at, from a panel sitting under their videos. */}
+        <MergeSuggestions videos={rows} canManage={canManage} />
       </section>
     </>
   );
