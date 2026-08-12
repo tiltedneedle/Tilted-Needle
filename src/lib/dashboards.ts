@@ -18,6 +18,7 @@
  */
 import { one } from "@/lib/types";
 import { selectAll } from "@/lib/selectAll";
+import { countsTowardPerformance } from "@/lib/excludedItems";
 import { totalsByPlatform, type MetricRow, type PlatformTotals } from "@/lib/rollup";
 import {
   readLifecycle,
@@ -220,7 +221,9 @@ export async function loadContentOverview(
     selectAll(() =>
       supabase
         .from("content_items")
-        .select("id, title, produced_at, length_seconds, client_id, client:clients(id, name)")
+        .select(
+          "id, title, produced_at, length_seconds, client_id, review_state, client:clients(id, name)",
+        )
         .eq("workspace_id", ws)
         .order("produced_at", { ascending: false, nullsFirst: false })
         .order("id"),
@@ -265,6 +268,7 @@ export async function loadContentOverview(
     produced_at: string | null;
     length_seconds: number | null;
     client_id: string | null;
+    review_state: string | null;
     client: { id: string; name: string } | { id: string; name: string }[] | null;
   };
   type PostRow = {
@@ -541,8 +545,19 @@ export async function loadContentOverview(
   const archivedClientIds = new Set(
     clientRows.filter((c) => c.is_archived).map((c) => c.id),
   );
-  const live = videos.filter(
-    (v) => !v.clientId || !archivedClientIds.has(v.clientId),
+
+  /* Both exclusion rules, from ONE definition in lib/excludedItems.
+     Archived client, and anything a human has not approved -- a video the
+     sync found but nobody has judged yet, or one judged as the client's own
+     post. Neither counts toward a performance figure, and neither is deleted:
+     the rows, their posts and their whole metrics history all survive, and
+     approving one from the review strip brings it straight back. */
+  const reviewByItem = new Map(items.map((i) => [i.id, i.review_state]));
+  const live = videos.filter((v) =>
+    countsTowardPerformance(
+      { review_state: reviewByItem.get(v.id) ?? "approved", clientId: v.clientId },
+      archivedClientIds,
+    ),
   );
 
   /* ---- Person and role, applied LAST and captured either side -------------
@@ -608,6 +623,97 @@ export async function loadClientOptions(supabase: Db, ws: string) {
  * Roles are rows, not an enum (PRD 6.6), so the credit circles render whatever
  * this returns rather than assuming the five seeded ones.
  */
+/**
+ * The approval queue: what is waiting, what was rejected, and how much of the
+ * pending pile arrived on the most recent sync.
+ *
+ * Archived clients are excluded from BOTH lists. A video that is pending AND
+ * belongs to a client we no longer work with must not sit in the queue asking
+ * to be judged -- nobody is going to approve work for a client they dropped,
+ * and leaving it there makes the queue permanently non-empty. It is already
+ * out of every performance figure via the same exclusion set, so it is simply
+ * not a question anyone needs to answer.
+ */
+export async function loadReviewQueue(supabase: Db, ws: string) {
+  const [itemsRes, clientsRes, postsRes, acctRes] = await Promise.all([
+    selectAll<{
+      id: string;
+      title: string;
+      client_id: string | null;
+      produced_at: string | null;
+      review_state: string;
+      created_at: string;
+    }>(() =>
+      supabase
+        .from("content_items")
+        .select("id, title, client_id, produced_at, review_state, created_at")
+        .eq("workspace_id", ws)
+        .neq("review_state", "approved")
+        .order("created_at", { ascending: false })
+        .order("id"),
+    ),
+    supabase.from("clients").select("id, name, is_archived").eq("workspace_id", ws),
+    selectAll<{ content_item_id: string; account: { platform_slug: string } | { platform_slug: string }[] | null }>(
+      () =>
+        supabase
+          .from("platform_posts")
+          .select("content_item_id, account:accounts(platform_slug)")
+          .eq("workspace_id", ws)
+          .order("id"),
+    ),
+    supabase
+      .from("accounts")
+      .select("last_synced_at")
+      .eq("workspace_id", ws)
+      .not("last_synced_at", "is", null)
+      .order("last_synced_at", { ascending: false })
+      .limit(1),
+  ]);
+
+  const clients = new Map(
+    ((clientsRes.data ?? []) as { id: string; name: string; is_archived: boolean }[]).map((c) => [
+      c.id,
+      c,
+    ]),
+  );
+  const platformsByItem = new Map<string, Set<string>>();
+  for (const p of postsRes.data ?? []) {
+    const slug = one(p.account)?.platform_slug;
+    if (!slug) continue;
+    if (!platformsByItem.has(p.content_item_id)) platformsByItem.set(p.content_item_id, new Set());
+    platformsByItem.get(p.content_item_id)!.add(slug);
+  }
+
+  const shape = (r: (typeof itemsRes.data)[number]) => ({
+    id: r.id,
+    title: r.title,
+    clientName: r.client_id ? (clients.get(r.client_id)?.name ?? null) : null,
+    producedAt: r.produced_at,
+    platforms: [...(platformsByItem.get(r.id) ?? [])].sort(),
+  });
+
+  const live = (itemsRes.data ?? []).filter(
+    (r) => !r.client_id || !clients.get(r.client_id)?.is_archived,
+  );
+
+  // "New since the last sync" is measured from when that sync ran, not from a
+  // fixed window: syncs are irregular, so a fixed "last 24h" would report
+  // nothing whenever the cadence happened not to match it.
+  const lastSync = (acctRes.data as { last_synced_at: string }[] | null)?.[0]?.last_synced_at;
+  const cutoff = lastSync ? new Date(lastSync).getTime() - 60 * 60 * 1000 : null;
+
+  const pending = live.filter((r) => r.review_state === "pending");
+
+  return {
+    pending: pending.map(shape),
+    rejected: live.filter((r) => r.review_state === "rejected").map(shape),
+    newSinceSync:
+      cutoff == null
+        ? 0
+        : pending.filter((r) => new Date(r.created_at).getTime() >= cutoff).length,
+  };
+}
+
 export async function loadRoles(supabase: Db, ws: string) {
   const { data } = await supabase
     .from("roles")

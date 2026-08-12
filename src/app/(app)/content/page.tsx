@@ -4,6 +4,7 @@ import ContentOverview from "@/components/ContentOverview";
 import ContentDetail, { type AnalyticsRow, type SnapshotRow } from "@/components/ContentDetail";
 import PeopleInView from "@/components/PeopleInView";
 import RoleTables from "@/components/RoleTables";
+import ReviewStrip from "@/components/ReviewStrip";
 import { buildRoleTables, personStats, type PersonStats } from "@/lib/reports";
 import { secondsByUserOnVideos } from "@/lib/reportData";
 import FilterBar from "@/components/FilterBar";
@@ -18,7 +19,7 @@ import { hoursPerThousandViews } from "@/lib/rollup";
 import { cachedRankings } from "@/lib/cachedRankings";
 import { parseFilters } from "@/lib/contentFilters";
 import { selectAll } from "@/lib/selectAll";
-import { loadContentOverview, loadRoles } from "@/lib/dashboards";
+import { loadContentOverview, loadReviewQueue, loadRoles } from "@/lib/dashboards";
 import { getScrapeBudget } from "@/app/actions";
 import type {
   Account,
@@ -100,7 +101,7 @@ export default async function ContentPage({
       f.to,
   );
 
-  const [overview, lightVideosRes, platformsRes, clientsRes, membersRes, workspaceRoles] =
+  const [overview, lightVideosRes, platformsRes, clientsRes, membersRes, workspaceRoles, reviewQueue] =
     await Promise.all([
       videoId && !narrowed
         ? null
@@ -145,6 +146,7 @@ export default async function ContentPage({
         .eq("workspace_id", ws)
         .eq("is_active", true),
       loadRoles(supabase, ws),
+      loadReviewQueue(supabase, ws),
     ]);
 
   type Member = {
@@ -599,6 +601,18 @@ export default async function ContentPage({
           </div>
         )}
       </section>
+
+      {/* Above the videos, because it is a queue -- and a queue nobody walks
+          past is a queue nobody empties. Collapses to one quiet line when
+          there is nothing waiting. */}
+      <ReviewStrip
+        workspaceId={ws}
+        pending={reviewQueue.pending}
+        rejected={reviewQueue.rejected}
+        approvedCount={t.videos}
+        newSinceSync={reviewQueue.newSinceSync}
+        canManage={manages}
+      />
 
       <NewContentForm workspaceId={ws} clients={allClients} />
 

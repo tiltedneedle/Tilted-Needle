@@ -40,7 +40,51 @@ type Db = {
  * Content with a NULL client_id is never excluded. It belongs to no archived
  * client, so it is still current work.
  */
+/**
+ * The rule itself, as a predicate, for callers that ALREADY hold the rows.
+ *
+ * loadContentOverview reads every content item anyway, so making it issue the
+ * two extra queries below just to learn what it already knows would be waste.
+ * But it must not therefore grow its own copy of the rule -- that is precisely
+ * how one surface ends up counting a rejected video and another does not. So
+ * the rule lives here once, in two shapes over the same definition:
+ * `countsTowardPerformance` for callers with the row, `loadExcludedItemIds`
+ * for callers with only an id.
+ */
+export function countsTowardPerformance(
+  item: { review_state?: string | null; client_id?: string | null; clientId?: string | null },
+  archivedClientIds: ReadonlySet<string>,
+): boolean {
+  // Approved is the ONLY state that counts. Written as an allow-list so a
+  // state added later is excluded until someone decides otherwise, rather
+  // than silently counted because nobody updated a deny-list.
+  if ((item.review_state ?? "approved") !== "approved") return false;
+  const clientId = item.client_id ?? item.clientId ?? null;
+  // No client means it belongs to no archived client -- still current work.
+  if (clientId && archivedClientIds.has(clientId)) return false;
+  return true;
+}
+
 export async function loadExcludedItemIds(db: Db, ws: string): Promise<Set<string>> {
+  const excluded = new Set<string>();
+
+  /* RULE 1 -- not our work.
+     Anything a human has not approved. `pending` means nobody has judged it
+     yet and `rejected` means someone judged it as the client's own post; both
+     stay out of our numbers, and both keep their rows and their metrics.
+     Approved is the ONLY state that counts, so a state added later is
+     excluded by default rather than silently counted. */
+  const unapproved = await selectAll<{ id: string }>(() =>
+    db
+      .from("content_items")
+      .select("id")
+      .eq("workspace_id", ws)
+      .neq("review_state", "approved")
+      .order("id"),
+  );
+  for (const r of unapproved.data ?? []) excluded.add(r.id);
+
+  /* RULE 2 -- not a current client. */
   const { data: archived } = await db
     .from("clients")
     .select("id")
@@ -48,17 +92,19 @@ export async function loadExcludedItemIds(db: Db, ws: string): Promise<Set<strin
     .eq("is_archived", true);
 
   const clientIds = ((archived ?? []) as { id: string }[]).map((c) => c.id);
-  if (clientIds.length === 0) return new Set();
+  if (clientIds.length > 0) {
+    // Paged: a workspace with a long archived roster can exceed the 1000-row
+    // cap, and a short read here would silently let excluded work back in.
+    const rows = await selectAll<{ id: string }>(() =>
+      db
+        .from("content_items")
+        .select("id")
+        .eq("workspace_id", ws)
+        .in("client_id", clientIds)
+        .order("id"),
+    );
+    for (const r of rows.data ?? []) excluded.add(r.id);
+  }
 
-  // Paged: a workspace with a long archived roster can exceed the 1000-row
-  // cap, and a short read here would silently let excluded work back in.
-  const rows = await selectAll<{ id: string }>(() =>
-    db
-      .from("content_items")
-      .select("id")
-      .eq("workspace_id", ws)
-      .in("client_id", clientIds)
-      .order("id"),
-  );
-  return new Set((rows.data ?? []).map((r) => r.id));
+  return excluded;
 }

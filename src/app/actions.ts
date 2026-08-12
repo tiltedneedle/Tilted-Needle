@@ -349,6 +349,9 @@ export async function createContentItem(input: {
   producedAt: string | null;
 }): Promise<Result> {
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   const { error } = await supabase.from("content_items").insert({
     workspace_id: input.workspaceId,
     client_id: input.clientId,
@@ -357,6 +360,13 @@ export async function createContentItem(input: {
     hook: input.hook,
     length_seconds: input.lengthSeconds,
     produced_at: input.producedAt,
+    // Typed in by a person, so it is approved by that act. The column
+    // defaults to pending for the SYNC's benefit -- it discovers a channel
+    // indiscriminately and cannot know whose work a video is. A human filling
+    // in a title already knows.
+    review_state: "approved",
+    reviewed_at: new Date().toISOString(),
+    reviewed_by: user?.id ?? null,
   });
   if (error) return { error: error.message };
   revalidatePath("/content");
@@ -539,6 +549,10 @@ export async function createContentFromUrl(input: {
       produced_at: input.producedAt,
       length_seconds: input.lengthSeconds,
       notes: `Added from a link: ${parsed.data.canonicalUrl}`,
+      // Pasted deliberately by a person, so it does not go through the queue.
+      review_state: "approved",
+      reviewed_at: new Date().toISOString(),
+      reviewed_by: (await supabase.auth.getUser()).data.user?.id ?? null,
     })
     .select("id")
     .single();
@@ -568,6 +582,67 @@ export async function createContentFromUrl(input: {
   revalidatePath("/content");
   revalidateTeam();
   return { contentItemId: item.id };
+}
+
+/**
+ * Approve or reject discovered videos.
+ *
+ * Takes an array because reviewing is a batch activity -- a sync drops in a
+ * dozen at once and they get judged in one sitting. One statement rather than
+ * a loop, so a partial failure cannot leave half the batch judged.
+ *
+ * `.eq("workspace_id", ws)` is explicit and NOT redundant with RLS. RLS is
+ * row-level and would refuse rows in another workspace, but a bulk update
+ * that quietly matched fewer rows than asked would look identical to success.
+ * Naming the workspace makes the scope of the statement a fact rather than a
+ * consequence.
+ *
+ * Rejecting never deletes. The video keeps its row, its posts and its whole
+ * metrics history -- rejection is a claim about who MADE it, not a reason to
+ * destroy the record. It also stops the sync handing it back: rediscovery
+ * matches on external_id, so a rejected video is already known and is never
+ * re-queued.
+ */
+export async function setContentReviewState(
+  workspaceId: string,
+  ids: string[],
+  state: "approved" | "rejected",
+): Promise<Result & { updated?: number }> {
+  if (ids.length === 0) return { updated: 0 };
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const { data, error } = await supabase
+    .from("content_items")
+    .update({
+      review_state: state,
+      reviewed_at: new Date().toISOString(),
+      reviewed_by: user?.id ?? null,
+    })
+    .eq("workspace_id", workspaceId)
+    .in("id", ids)
+    .select("id");
+  if (error) return { error: error.message };
+
+  if (user) {
+    await logAudit(supabase, {
+      workspaceId,
+      actorId: user.id,
+      action: state === "approved" ? "content.approved" : "content.rejected",
+      entityType: "content_items",
+      entityId: ids.length === 1 ? ids[0] : null,
+      detail: { count: data?.length ?? 0, ids: ids.slice(0, 50) },
+    });
+  }
+
+  revalidatePath("/content");
+  // Approval changes which videos count, so every rankings-derived figure
+  // moves with it -- the cache must not outlive the decision.
+  revalidateTeam();
+  return { updated: data?.length ?? 0 };
 }
 
 export async function updateContentItem(

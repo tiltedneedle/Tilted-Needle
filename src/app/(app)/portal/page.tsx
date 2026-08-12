@@ -16,9 +16,16 @@ export default async function PortalPage() {
 
   const [clientRes, itemsRes, postsRes] = await Promise.all([
     supabase.from("clients").select("id, name").limit(1).maybeSingle(),
+    // Approved only. The portal is the agency's claim about what it
+    // delivered, so a video the client posted themselves does not belong in
+    // it -- not as a row and not in the totals. Hiding it entirely, rather
+    // than listing it and excluding it from the figures, was the deliberate
+    // choice: a portal where a row and a total disagree needs explaining
+    // every time a client reads it.
     supabase
       .from("content_items")
       .select("id, title, produced_at, length_seconds, subject")
+      .eq("review_state", "approved")
       .order("produced_at", { ascending: false, nullsFirst: false }),
     supabase
       .from("platform_posts")
@@ -47,7 +54,15 @@ export default async function PortalPage() {
   const metricRows: MetricRow[] = [];
   const perItem = new Map<string, { platform: string; views: number }[]>();
 
+  /* The posts query cannot filter on approval by itself, so it is narrowed to
+     the items that survived above. Without this the client's own posts would
+     be absent from the LIST while still inflating the platform TOTALS -- the
+     worst of both: a figure they cannot reconcile against anything on screen,
+     and one that overstates what the agency delivered. */
+  const shown = new Set(items.map((i) => i.id));
+
   for (const p of (postsRes.data ?? []) as unknown as PostRow[]) {
+    if (!shown.has(p.content_item_id)) continue;
     const acct = one(p.account);
     if (!acct) continue;
     const m = one(p.metrics);

@@ -51,6 +51,35 @@ const CAP = (kind, fallback) =>
 const log = (event, data = {}) =>
   console.log(JSON.stringify({ ts: new Date().toISOString(), event, ...data }));
 
+/**
+ * Is this post's video work we should spend money on?
+ *
+ * The review_state half is done in the query (`item.review_state=approved`).
+ * The archived-client half is done HERE, in code, on purpose: filtering it in
+ * PostgREST would need a condition on the embedded clients row, and an inner
+ * join through clients silently drops every video with a NULL client_id --
+ * which is current work, not archived work. Losing those would be invisible:
+ * fewer jobs enqueued, no error, no clue.
+ *
+ * This gate exists because all three planners spend real money. Comments burn
+ * YouTube quota, transcripts spend a fragile and rate-limited route, and
+ * analyse spends LLM tokens against a monthly ceiling. Paying any of that to
+ * enrich a video the client posted themselves -- or one belonging to a client
+ * we no longer work with -- is spend with no possible return.
+ *
+ * Snapshots are deliberately NOT gated this way (see syncRunner): a metrics
+ * reading is the one thing in this system that cannot be reconstructed later,
+ * so it keeps being collected even for work we do not count.
+ */
+function isLiveAgencyWork(p) {
+  const item = Array.isArray(p.item) ? p.item[0] : p.item;
+  if (!item) return false;
+  if (item.review_state !== "approved") return false;
+  const client = Array.isArray(item.client) ? item.client[0] : item.client;
+  // No client row at all means no client -- still ours.
+  return !client?.is_archived;
+}
+
 /** Subjects that already have a job in flight for this kind. */
 async function inFlight(kind) {
   const { data, error } = await db
@@ -110,8 +139,9 @@ async function planComments() {
 
   const { data: posts, error } = await db
     .from("platform_posts")
-    .select("id, content_item_id, workspace_id, account:accounts(platform_slug)")
-    .not("external_id", "is", null);
+    .select("id, content_item_id, workspace_id, account:accounts(platform_slug), item:content_items!inner(review_state, client:clients(is_archived))")
+    .not("external_id", "is", null)
+    .eq("item.review_state", "approved");
   if (error) throw new Error(error.message);
 
   // An item is worth queueing if ANY of its posts is on a platform that
@@ -119,6 +149,7 @@ async function planComments() {
   const items = new Map();       // content_item_id -> workspace_id
   const postsOfItem = new Map(); // content_item_id -> post ids
   for (const p of posts ?? []) {
+    if (!isLiveAgencyWork(p)) continue;
     const slug = (Array.isArray(p.account) ? p.account[0] : p.account)?.platform_slug;
     // Shorts count as YouTube here: they carry captions like any other video
     // on the service, and excluding them would leave a whole platform with no
@@ -167,12 +198,14 @@ async function planTranscript() {
 
   const { data: posts, error } = await db
     .from("platform_posts")
-    .select("content_item_id, workspace_id, account:accounts(platform_slug)")
-    .not("external_id", "is", null);
+    .select("content_item_id, workspace_id, account:accounts(platform_slug), item:content_items!inner(review_state, client:clients(is_archived))")
+    .not("external_id", "is", null)
+    .eq("item.review_state", "approved");
   if (error) throw new Error(error.message);
 
   const byItem = new Map();
   for (const p of posts ?? []) {
+    if (!isLiveAgencyWork(p)) continue;
     const slug = (Array.isArray(p.account) ? p.account[0] : p.account)?.platform_slug;
     if (!isYouTubeLike(slug) && slug !== "tiktok") continue;
     if (!byItem.has(p.content_item_id)) {
@@ -221,11 +254,15 @@ async function planAnalyse() {
 
   const { data: posts } = await db
     .from("platform_posts")
-    .select("id, content_item_id, workspace_id")
-    .in("id", postIds);
+    .select("id, content_item_id, workspace_id, item:content_items!inner(review_state, client:clients(is_archived))")
+    .in("id", postIds)
+    .eq("item.review_state", "approved");
 
   const subjects = new Map(); // content_item_id -> workspace_id
-  for (const p of posts ?? []) subjects.set(p.content_item_id, p.workspace_id);
+  for (const p of posts ?? []) {
+    if (!isLiveAgencyWork(p)) continue;
+    subjects.set(p.content_item_id, p.workspace_id);
+  }
 
   const { data: done } = await db
     .from("ai_analyses")
