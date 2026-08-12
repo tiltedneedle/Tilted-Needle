@@ -12,6 +12,18 @@ import { runSync, serviceClient } from "@/lib/syncRunner";
  * Vercel Cron calls this on the schedule in vercel.json. Vercel signs its own
  * cron requests with CRON_SECRET; a manual call from a terminal can present
  * the same value as a Bearer token.
+ *
+ * CADENCE: every six hours (was daily). A client's post used to sit up to 24
+ * hours before anything noticed it -- and since the approval queue was added,
+ * that is 24 hours before anyone can even approve it.
+ *
+ * Running four times as often costs nothing extra, which is the only reason
+ * it is safe: metered spend is not governed by how often this fires. Metrics
+ * refresh only when a post's age band says it is due
+ * (scrape_schedule.interval_days), and metered DISCOVERY is gated by a 10-day
+ * per-account cooldown. Firing four times a day asks those questions four
+ * times and gets "not yet" three of them. Only YouTube's free quota sees more
+ * use, and it resets daily.
  */
 export const dynamic = "force-dynamic";
 // A full run across ~30 accounts takes over a minute -- at 60 the function

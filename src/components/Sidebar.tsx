@@ -25,7 +25,6 @@ import {
   PlayCircle,
   Receipt,
   RefreshCw,
-  Share2,
   ShieldCheck,
   Tag,
   Upload,
@@ -130,7 +129,8 @@ const NAV = [
     group: "Manage",
     items: [
       { href: "/team-admin", label: "Team admin", icon: Users as IconType },
-      { href: "/accounts", label: "Accounts", icon: Share2 as IconType },
+      // Accounts folded into Data sync: one object, one screen. The route
+      // still exists and redirects, because links to it are out there.
       { href: "/data", label: "Data sync", icon: RefreshCw as IconType },
       { href: "/projects", label: "Projects", icon: Folder as IconType },
       { href: "/tags", label: "Tags", icon: Tag as IconType },

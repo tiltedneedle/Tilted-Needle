@@ -25,14 +25,16 @@ export default async function DataPage() {
   const ws = session.active.id;
 
   const today = new Date().toISOString().slice(0, 10);
-  const [accountsRes, postsRes, budgetRes] = await Promise.all([
+  const [accountsRes, postsRes, budgetRes, clientsRes, platformsRes] = await Promise.all([
+    // Archived accounts are loaded too, now that this page owns account
+    // management: a page you can archive from but not restore from is a
+    // one-way door, and the row would simply vanish with nowhere to go.
     supabase
       .from("accounts")
       .select(
-        "id, platform_slug, handle, connection_mode, sync_enabled, sync_window_days, last_synced_at, last_sync_error, last_discovered_at, client:clients(name)",
+        "id, platform_slug, handle, connection_mode, sync_enabled, sync_window_days, last_synced_at, last_sync_error, last_discovered_at, is_archived, client_id, client:clients(name, is_archived)",
       )
       .eq("workspace_id", ws)
-      .eq("is_archived", false)
       .order("platform_slug")
       .order("handle"),
     supabase.from("platform_posts").select("account_id").eq("workspace_id", ws),
@@ -43,6 +45,19 @@ export default async function DataPage() {
       .gte("period_end", today)
       .order("period_end")
       .limit(5),
+    // Active clients only for the pickers: attaching an account to a client
+    // the business has stopped working with is not something to offer.
+    supabase
+      .from("clients")
+      .select("id, name")
+      .eq("workspace_id", ws)
+      .eq("is_archived", false)
+      .order("name"),
+    supabase
+      .from("platforms")
+      .select("slug, display_name")
+      .eq("is_enabled", true)
+      .order("sort_order"),
   ]);
 
   const postCount = new Map<string, number>();
@@ -60,14 +75,24 @@ export default async function DataPage() {
     last_synced_at: string | null;
     last_sync_error: string | null;
     last_discovered_at: string | null;
-    client: { name: string } | { name: string }[] | null;
+    is_archived: boolean;
+    client_id: string | null;
+    client: { name: string; is_archived: boolean } | { name: string; is_archived: boolean }[] | null;
   };
   const accounts: PanelAccount[] = ((accountsRes.data ?? []) as unknown as Row[]).map((a) => ({
     id: a.id,
     platformSlug: a.platform_slug,
     handle: a.handle,
+    clientId: a.client_id,
     clientName: one(a.client)?.name ?? null,
+    // Whether this account is quiet because its CLIENT is inactive, rather
+    // than because someone paused this page. Two different facts that look
+    // identical if you only show one switch -- and only one of them is fixed
+    // from this screen.
+    clientArchived: one(a.client)?.is_archived ?? false,
+    isArchived: a.is_archived,
     isMetered: PROVIDERS[a.platform_slug]?.capability.isMetered ?? false,
+    discoveryMetered: PROVIDERS[a.platform_slug]?.capability.discoveryMetered ?? false,
     syncEnabled: a.sync_enabled,
     syncWindowDays: a.sync_window_days,
     lastSyncedAt: a.last_synced_at,
@@ -75,6 +100,11 @@ export default async function DataPage() {
     lastError: a.last_sync_error,
     postsTracked: postCount.get(a.id) ?? 0,
   }));
+
+  const clients = (clientsRes.data ?? []) as { id: string; name: string }[];
+  const platforms = ((platformsRes.data ?? []) as { slug: string; display_name: string }[]).map(
+    (p) => ({ slug: p.slug, name: p.display_name }),
+  );
 
   const lastSync = accounts
     .map((a) => a.lastSyncedAt)
@@ -199,6 +229,8 @@ export default async function DataPage() {
             : null
         }
         tiktokBox={tiktokBox}
+        clients={clients}
+        platforms={platforms}
       />
     </div>
   );

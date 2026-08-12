@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { RefreshCw } from "lucide-react";
 import { syncNow } from "@/app/actions";
 import SyncEnabledToggle from "@/components/SyncEnabledToggle";
+import { AccountArchiveToggle, AccountClientPicker, AddAccount } from "@/components/AccountControls";
 import Select from "@/components/ui/Select";
 import { useToast } from "@/components/ui/Toast";
 import { PLATFORM_COLORS } from "@/lib/types";
@@ -14,7 +15,18 @@ export type PanelAccount = {
   id: string;
   platformSlug: string;
   handle: string;
+  clientId: string | null;
   clientName: string | null;
+  /**
+   * The account's client is inactive. Not the same as this account being
+   * paused, and not fixable from here -- the client's own switch governs it.
+   * Shown separately so a quiet account explains WHY it is quiet instead of
+   * looking like a setting somebody forgot.
+   */
+  clientArchived: boolean;
+  isArchived: boolean;
+  /** Finding new videos costs money even though refreshing them does not. */
+  discoveryMetered: boolean;
   /**
    * Does this account's platform cost money to refresh? Derived from the
    * provider, never from accounts.connection_mode -- that column is 'manual'
@@ -57,11 +69,17 @@ export default function DataPanel({
   accounts,
   instagramBudget,
   tiktokBox,
+  clients,
+  platforms,
 }: {
   workspaceId: string;
   accounts: PanelAccount[];
   instagramBudget: InstagramBudget;
   tiktokBox: TiktokBoxStatus;
+  /** Active clients, for attaching an account to one. */
+  clients: { id: string; name: string }[];
+  /** Enabled platforms, for adding a page. */
+  platforms: { slug: string; name: string }[];
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -117,7 +135,7 @@ export default function DataPanel({
     {
       slug: "tiktok",
       label: "TikTok",
-      note: "Metrics refresh is free. Discovering new videos rides the self-hosted box:",
+      note: "Refreshing a known video is free and unlimited. Finding NEW ones costs credit, so it runs rarely and capped:",
       pill: (
         <span
           className={`pill ${
@@ -137,7 +155,12 @@ export default function DataPanel({
 
   return (
     <>
-      <div className="mb-4 flex items-center justify-end">
+      {/* Adding a page lives here now. It used to be on a separate Accounts
+          screen that listed the same rows, so pausing a page and adding one
+          were two different destinations for the same object. */}
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <AddAccount workspaceId={workspaceId} platforms={platforms} clients={clients} />
+        <div className="flex-1" />
         <button
           className="btn py-1.5"
           onClick={() => void refresh("all")}
@@ -194,10 +217,32 @@ export default function DataPanel({
                       </thead>
                       <tbody className="divide-y divide-[var(--border)]">
                         {mine.map((a) => (
-                          <tr key={a.id} className="transition-colors hover:bg-[var(--bg-subtle)]">
+                          <tr
+                            key={a.id}
+                            className={`transition-colors hover:bg-[var(--bg-subtle)] ${
+                              a.isArchived || a.clientArchived ? "opacity-60" : ""
+                            }`}
+                          >
                             <td className="px-3 py-2.5">
-                              <span className="flex items-center gap-2">
-                                <span className="font-medium">@{a.handle.replace(/^@/, "")}</span>
+                              <span className="flex flex-wrap items-center gap-2">
+                                <span
+                                  className={`font-medium ${a.isArchived ? "line-through" : ""}`}
+                                >
+                                  @{a.handle.replace(/^@/, "")}
+                                </span>
+                                {/* Says WHY it is quiet. An account paused
+                                    here and one whose client went inactive
+                                    look identical otherwise, and only one of
+                                    them is fixed from this screen -- so the
+                                    other names where to go. */}
+                                {a.clientArchived && (
+                                  <span
+                                    className="pill pill-neutral"
+                                    title="Its client is inactive, so nothing on this page syncs. Reactivate the client under Clients."
+                                  >
+                                    client inactive
+                                  </span>
+                                )}
                                 {/* Was a read-only "sync off" pill for a flag
                                     nothing in the app could set. Now it is the
                                     switch. */}
@@ -220,13 +265,36 @@ export default function DataPanel({
                                 </div>
                               )}
                             </td>
-                            <td className="px-3 py-2.5 text-xs text-[var(--muted)]">
-                              {a.clientName ?? "—"}
+                            <td className="px-3 py-2.5">
+                              {/* Editable here now that this page owns
+                                  accounts. The link decides which client
+                                  dashboard the work lands on, so it has to be
+                                  correctable in place rather than only at
+                                  creation. */}
+                              <AccountClientPicker
+                                accountId={a.id}
+                                clientId={a.clientId}
+                                clientName={a.clientName}
+                                clients={clients}
+                              />
                             </td>
                             <td className="px-3 py-2.5">
+                              {/* Refreshing and DISCOVERING can cost
+                                  differently -- TikTok finds new videos
+                                  through a paid vendor and reads their
+                                  numbers free forever -- so one "metered"
+                                  badge would be wrong whichever way it fell. */}
                               <span className={`pill ${a.isMetered ? "pill-warning" : "pill-info"}`}>
                                 {a.isMetered ? "metered" : "free"}
                               </span>
+                              {a.discoveryMetered && (
+                                <span
+                                  className="pill pill-warning ml-1"
+                                  title="Finding NEW videos costs credit; refreshing known ones is free"
+                                >
+                                  paid discovery
+                                </span>
+                              )}
                             </td>
                             <td className="tabular px-3 py-2.5 text-right">{a.postsTracked}</td>
                             <td className="px-3 py-2.5 text-xs text-[var(--muted)]" title={a.lastSyncedAt ?? undefined}>
@@ -236,6 +304,7 @@ export default function DataPanel({
                               {ago(a.lastDiscoveredAt)}
                             </td>
                             <td className="px-3 py-2.5 text-right">
+                              <span className="flex items-center justify-end gap-1.5">
                               {/* Disabled while paused rather than left
                                   clickable. runSync filters on sync_enabled,
                                   so a paused account cannot be manually synced
@@ -244,16 +313,22 @@ export default function DataPanel({
                               <button
                                 className="btn px-2.5 py-1 text-xs"
                                 onClick={() => void refresh(a.id, a.id)}
-                                disabled={busy !== null || !a.syncEnabled}
+                                disabled={busy !== null || !a.syncEnabled || a.isArchived || a.clientArchived}
                                 title={
-                                  a.syncEnabled
-                                    ? "Read this page's numbers now"
-                                    : "Syncing is paused for this page — resume it first"
+                                  a.clientArchived
+                                    ? "This client is inactive — reactivate them under Clients"
+                                    : a.isArchived
+                                      ? "This page is archived — restore it first"
+                                      : a.syncEnabled
+                                        ? "Read this page's numbers now"
+                                        : "Syncing is paused for this page — resume it first"
                                 }
                               >
                                 <RefreshCw size={12} className={busy === a.id ? "animate-spin" : ""} />
                                 {busy === a.id ? "Syncing…" : "Refresh"}
                               </button>
+                              <AccountArchiveToggle accountId={a.id} isArchived={a.isArchived} />
+                              </span>
                             </td>
                           </tr>
                         ))}
