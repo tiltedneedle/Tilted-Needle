@@ -7,7 +7,8 @@ import { Eye, Heart, MessageCircle, Plus } from "lucide-react";
 import Avatar from "@/components/Avatar";
 import PlatformIcon from "@/components/PlatformIcon";
 import Popover from "@/components/ui/Popover";
-import { assignRole, unassignRole } from "@/app/actions";
+import { assignRole, bulkAssignRole, unassignRole } from "@/app/actions";
+import { useToast } from "@/components/ui/Toast";
 import { formatCount, formatDurationShort } from "@/lib/format";
 import { PLATFORM_COLORS } from "@/lib/types";
 import { totalsByPlatform, type PlatformTotals } from "@/lib/rollup";
@@ -128,6 +129,7 @@ export function RoleCredits({
   credits,
   members,
   canManage = true,
+  applyToIds,
 }: {
   workspaceId: string;
   contentItemId: string;
@@ -135,9 +137,21 @@ export function RoleCredits({
   credits: TileCredit[];
   members: TileMember[];
   canManage?: boolean;
+  /**
+   * Every video this menu should credit, not just the row it hangs off.
+   *
+   * Set while a multi-selection is active and THIS row is part of it, so the
+   * control people already use -- hover the stack, pick a role, pick a person
+   * -- credits the whole selection in one go. The bulk bar could always do
+   * this, but it meant learning a second control that asks for the role and
+   * the person as two dropdowns; the row menu already knows the role from
+   * which circle you opened.
+   */
+  applyToIds?: string[];
 }) {
   const [openRole, setOpenRole] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const toast = useToast();
   const [pending, startTransition] = useTransition();
   const router = useRouter();
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -152,15 +166,26 @@ export function RoleCredits({
   // click on a menu item as OUTSIDE and would close before the click landed.
   const closeMenu = useCallback(() => setOpenRole(null), []);
 
-  function run(fn: () => Promise<{ error?: string }>) {
+  function run(fn: () => Promise<{ error?: string }>, success?: string) {
     startTransition(async () => {
       const res = await fn();
       if (res?.error) setError(res.error);
-      else setError(null);
+      else {
+        setError(null);
+        // Only announced for the bulk path. A single credit is confirmed by
+        // the avatar appearing in the stack you are already looking at; a
+        // toast for that is noise. Twelve rows changing at once is not
+        // self-evident and has to say so.
+        if (success) toast("success", success);
+      }
       setOpenRole(null);
       router.refresh();
     });
   }
+
+  // More than one, because a "selection" of exactly this row is just the
+  // ordinary single-video case wearing a checkbox.
+  const bulkIds = applyToIds && applyToIds.length > 1 ? applyToIds : null;
 
   // Collapsed by default into an avatar stack (each circle overlapping the
   // previous by ~70%) so a dense list stays scannable; hovering, tabbing
@@ -261,8 +286,18 @@ export function RoleCredits({
                 maxHeight={340}
                 className="!py-0"
               >
+                {/* The header carries the blast radius. Picking a name here
+                    while a selection is live changes every selected video,
+                    and a menu that silently does twelve things when it looks
+                    like it does one is the kind of control people stop
+                    trusting after the first surprise. */}
                 <div className="border-b border-[var(--border)] px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
                   {role.name}
+                  {bulkIds && (
+                    <span className="ml-1 font-medium normal-case tracking-normal text-[var(--accent)]">
+                      · all {bulkIds.length} selected
+                    </span>
+                  )}
                 </div>
 
                 {holders.length > 0 && (
@@ -280,7 +315,17 @@ export function RoleCredits({
                           type="button"
                           className="rounded px-1 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--danger)]"
                           onClick={() => run(() => unassignRole(h.assignmentId))}
-                          title={`Remove ${h.userName} from ${role.name}`}
+                          // Removal stays single-video even during a
+                          // selection: an assignment id belongs to one video,
+                          // and the holders listed here are this row's. Taking
+                          // a credit away from twelve videos on one click is a
+                          // much worse mistake to make by accident than adding
+                          // one, which is idempotent and visible.
+                          title={
+                            bulkIds
+                              ? `Remove ${h.userName} from ${role.name} on this video only`
+                              : `Remove ${h.userName} from ${role.name}`
+                          }
                         >
                           Remove
                         </button>
@@ -298,13 +343,24 @@ export function RoleCredits({
                         type="button"
                         className="flex w-full items-center gap-2 px-2.5 py-1 text-left transition-colors hover:bg-[var(--bg-subtle)]"
                         onClick={() =>
-                          run(() =>
-                            assignRole({
-                              workspaceId,
-                              contentItemId,
-                              userId: m.userId,
-                              roleId: role.id,
-                            }),
+                          run(
+                            () =>
+                              bulkIds
+                                ? bulkAssignRole({
+                                    workspaceId,
+                                    contentItemIds: bulkIds,
+                                    userId: m.userId,
+                                    roleId: role.id,
+                                  })
+                                : assignRole({
+                                    workspaceId,
+                                    contentItemId,
+                                    userId: m.userId,
+                                    roleId: role.id,
+                                  }),
+                            bulkIds
+                              ? `${m.name} credited as ${role.name} on ${bulkIds.length} videos.`
+                              : undefined,
                           )
                         }
                       >
@@ -452,6 +508,7 @@ export default function VideoTile({
   selectable = false,
   selected = false,
   onToggleSelect,
+  bulkTargets,
 }: {
   video: TileVideo;
   href: string;
@@ -464,6 +521,15 @@ export default function VideoTile({
   selectable?: boolean;
   selected?: boolean;
   onToggleSelect?: () => void;
+  /**
+   * The whole current selection, passed only when this row is IN it.
+   *
+   * That condition is the safety rail. Opening the role menu on a row you
+   * have not ticked behaves exactly as it always has and touches that video
+   * alone, so a live selection elsewhere on the page cannot turn an ordinary
+   * one-video edit into a bulk one.
+   */
+  bulkTargets?: string[];
 }) {
   const v = video;
   const notPosted = (v.postCount ?? v.platforms.length) === 0;
@@ -588,6 +654,7 @@ export default function VideoTile({
             credits={v.credits}
             members={members}
             canManage={canManage}
+            applyToIds={bulkTargets}
           />
         </div>
       </div>

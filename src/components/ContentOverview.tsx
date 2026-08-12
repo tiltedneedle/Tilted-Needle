@@ -346,6 +346,10 @@ export default function ContentOverview({
                 canManage={canManage}
                 selectable={selecting}
                 selected={selected.has(v.id)}
+                // Only when this row is part of the selection, so the role
+                // menu on an unticked row keeps its ordinary one-video
+                // meaning even while a selection is live elsewhere.
+                bulkTargets={selecting && selected.has(v.id) ? [...selected] : undefined}
                 onToggleSelect={() =>
                   setSelected((s) => {
                     const next = new Set(s);
