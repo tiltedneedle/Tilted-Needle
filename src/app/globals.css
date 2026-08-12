@@ -134,6 +134,33 @@ body {
   transition: background-color var(--dur-base) var(--ease), color var(--dur-base) var(--ease);
 }
 
+/**
+ * Phones: scale the whole interface down rather than let anything overflow.
+ *
+ * A dashboard is dense by nature, and on a 360px screen the choice is between
+ * something slightly smaller and something you have to pan sideways to read.
+ * Smaller wins -- a control you cannot reach is worse than a control you have
+ * to look at closely.
+ *
+ * This works on the ROOT, not on body. Tailwind's spacing, radii and type
+ * scale are all rem, and rem resolves against html -- which was still the
+ * browser's 16px while body sat at 14. Moving html to 14px scales every
+ * padding, gap and font together, in proportion, with no per-component
+ * overrides to keep in sync.
+ *
+ * It is a companion to the layout fixes, not a substitute: shrinking things
+ * would not have saved a cluster that was 433px wide and refused to shrink.
+ */
+@media (max-width: 640px) {
+  html {
+    font-size: 14px;
+  }
+
+  body {
+    font-size: 13px;
+  }
+}
+
 h1,
 h2,
 h3 {

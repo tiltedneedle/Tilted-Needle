@@ -294,7 +294,7 @@ export default async function HomePage() {
           {momentum.length === 0 ? (
             <Empty>No snapshot history yet — momentum appears after a few daily syncs.</Empty>
           ) : (
-            <div className="stagger grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="stagger grid gap-3 [&>*]:min-w-0 sm:grid-cols-2 lg:grid-cols-3">
               {momentum.map((m) => (
                 <div key={m.slug} className="card animate-rise p-4">
                   <div className="flex items-baseline gap-2">
@@ -334,7 +334,7 @@ export default async function HomePage() {
         </section>
 
         {/* ---- Hours + what's moving -------------------------------------- */}
-        <div className="mb-7 grid gap-3 lg:grid-cols-2">
+        <div className="mb-7 grid gap-3 [&>*]:min-w-0 lg:grid-cols-2">
           <div className="card animate-rise p-4">
             <div className="mb-3 flex items-baseline gap-2">
               <Clock size={15} className="text-[var(--muted)]" />
@@ -409,7 +409,7 @@ export default async function HomePage() {
         </div>
 
         {/* ---- Performers, training, pipeline ------------------------------ */}
-        <div className="mb-7 grid gap-3 sm:grid-cols-3">
+        <div className="mb-7 grid gap-3 [&>*]:min-w-0 sm:grid-cols-3">
           <div className="card animate-rise p-4">
             <div className="mb-3 flex items-center gap-2">
               <Trophy size={15} className="text-[var(--muted)]" />
@@ -668,7 +668,7 @@ export default async function HomePage() {
         />
       </StatGrid>
 
-      <div className="mb-7 grid gap-3 lg:grid-cols-2">
+      <div className="mb-7 grid gap-3 [&>*]:min-w-0 lg:grid-cols-2">
         <section>
           <SectionHeading title="Today's tasks">
             <Link
@@ -703,7 +703,7 @@ export default async function HomePage() {
       {inProgress.length > 0 && (
         <section className="mb-7">
           <SectionHeading title="Continue training" />
-          <div className="stagger grid gap-3 sm:grid-cols-2">
+          <div className="stagger grid gap-3 [&>*]:min-w-0 sm:grid-cols-2">
             {inProgress.slice(0, 4).map((c) => (
               <Link
                 key={c.id}

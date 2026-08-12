@@ -510,7 +510,10 @@ export default function VideoTile({
         platform={v.platforms[0]?.platform ?? null}
       />
 
-      <div className="min-w-[220px] flex-1">
+      {/* The 220px floor is what keeps a title readable next to the numbers on
+          a real screen, but on a 360px phone it is 60% of the row and forces
+          the rest out. Only applied once there is room for it. */}
+      <div className="min-w-0 flex-1 sm:min-w-[220px]">
         <Link
           href={href}
           className="block truncate text-sm font-medium transition-colors hover:text-[var(--accent)]"
@@ -538,7 +541,14 @@ export default function VideoTile({
         </div>
       </div>
 
-      <div className="ml-auto flex shrink-0 items-center gap-3">
+      {/* shrink-0 only from sm up. On a phone this cluster measured 433px
+          inside a 301px card: the row already wraps, but wrapping an
+          unshrinkable block just moves 433px onto its own line, and the card's
+          overflow-hidden then CLIPS it -- the credit buttons were not merely
+          off-screen, they were unreachable. Allowed to wrap internally
+          instead, so the metrics and role pills flow onto extra lines and
+          everything stays inside the card. */}
+      <div className="ml-auto flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5 sm:flex-nowrap sm:shrink-0">
         <PlatformMetrics platforms={v.platforms} />
 
         {/* Where this sits in its life. Only the shapes that are genuinely
