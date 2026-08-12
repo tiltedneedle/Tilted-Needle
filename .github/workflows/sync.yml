@@ -1,0 +1,110 @@
+# Scheduled content sync.
+#
+# WHY THIS EXISTS ALONGSIDE vercel.json's cron
+#
+# Vercel's Hobby plan permits one cron run per day. That is the whole reason
+# this file is here: a client's post could otherwise sit up to 24 hours before
+# anything noticed it, and since the approval queue landed, that is 24 hours
+# before anyone can even approve it. GitHub Actions schedules are free on
+# public repositories, so the fix costs nothing and needs no plan change.
+#
+# The two schedules are deliberately BOTH kept, and they are not redundant:
+#
+#   - Vercel's 06:00 UTC run is the floor. GitHub disables scheduled workflows
+#     in repositories with no activity for 60 days, so this file cannot be the
+#     only thing keeping data fresh.
+#   - This workflow adds 03:25 / 09:25 / 15:25 / 21:25, offset three hours from
+#     the Vercel run. Worst-case staleness drops from 24 hours to 6.
+#
+# Running more often is safe because metered spend is NOT governed by how often
+# this fires. Metrics refresh only when a post's age band says it is due
+# (scrape_schedule.interval_days), and metered discovery is gated by a 10-day
+# per-account cooldown. Firing five times a day asks those questions five times
+# and gets "not yet" for most of them. Only YouTube's free quota sees more use,
+# and it resets daily.
+#
+# The :25 offset is intentional. GitHub queues scheduled jobs on a shared pool
+# and runs starting on the hour are the most delayed; an odd offset gets picked
+# up sooner.
+#
+# SETUP -- this workflow no-ops until you do this once:
+#   Repo Settings -> Secrets and variables -> Actions -> New repository secret
+#   Name: CRON_SECRET     Value: the same value set in the Vercel project
+# Until then every run exits green with a "not configured" note rather than
+# failing, so an unconfigured repo does not mail you a red X four times a day.
+#
+# The secret is masked in logs by Actions and is never exposed to pull requests
+# from forks, which matters here because this repository is public.
+
+name: sync
+
+on:
+  schedule:
+    - cron: "25 3,9,15,21 * * *"
+  # Lets you force a run from the Actions tab -- useful right after adding an
+  # account instead of waiting for the next slot.
+  workflow_dispatch:
+
+# A full run across ~30 accounts takes over a minute and writes snapshots.
+# Two overlapping runs would double-read the same accounts for no benefit, so
+# a late run waits rather than racing. Never cancel one mid-flight: it would
+# leave the tail of the account list unsynced.
+concurrency:
+  group: sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Trigger sync
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          # Change here if the production domain ever moves.
+          SITE_URL: https://tilted-needle0.vercel.app
+        run: |
+          set -euo pipefail
+
+          if [ -z "${CRON_SECRET}" ]; then
+            echo "CRON_SECRET is not set on this repository -- nothing to do."
+            echo "See the setup note at the top of .github/workflows/sync.yml."
+            exit 0
+          fi
+
+          # --max-time comfortably exceeds the route's own 300s maxDuration, so
+          # a slow-but-succeeding run is never cut off at the client end.
+          # -sS keeps the progress meter out of the log but keeps real errors.
+          code=$(curl -sS -o body.json -w '%{http_code}' \
+            --max-time 600 \
+            --retry 2 --retry-delay 30 --retry-connrefused \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "${SITE_URL}/api/sync")
+
+          # Print the body before judging it: on failure this is the only
+          # record of WHY, and a 401 here means the secret drifted from Vercel.
+          echo "HTTP ${code}"
+          cat body.json
+          echo
+
+          if [ "${code}" != "200" ]; then
+            echo "::error::sync returned HTTP ${code}"
+            exit 1
+          fi
+
+          # A 200 is not success on its own -- the route reports per-account
+          # outcomes in the body. Fail the run when the top-level flag is false
+          # so a broken provider surfaces as a red X rather than a silent green.
+          if ! grep -q '"ok":true' body.json; then
+            echo "::error::sync reported failure"
+            exit 1
+          fi
+
+          # Surface the counts in the run summary so the Actions list is
+          # readable at a glance without opening each job.
+          node -e '
+            const r = JSON.parse(require("fs").readFileSync("body.json", "utf8"));
+            const line = `synced ${r.synced}/${r.accounts} · ${r.postsCreated} new posts · ${r.snapshotsWritten} snapshots · ${r.failed} failed`;
+            console.log(line);
+            require("fs").appendFileSync(process.env.GITHUB_STEP_SUMMARY, line + "\n");
+          '
