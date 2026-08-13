@@ -70,6 +70,15 @@ jobs:
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
         run: node worker/enqueue.mjs
 
+      # Before draining, not after: a job whose cause was fixed by a deploy
+      # should get its next chance in THIS run rather than waiting six hours
+      # for the following one.
+      - name: Requeue recoverable failures
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: node worker/requeue.mjs
+
       - name: Drain the safe queue
         if: ${{ !inputs.enqueue_only }}
         env:
