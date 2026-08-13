@@ -110,7 +110,12 @@ export async function analyse({ db, job, log }) {
     system: SYSTEM_PROMPT,
     user: prompt,
     schema: COMMENT_THEMES_SCHEMA,
-    maxTokens: 1200,
+    // 1200 truncated the JSON mid-object on comment-heavy posts, which the
+    // validator could only report as "response was not valid JSON" -- the
+    // second most common cause of a permanently failed analyse job. The output
+    // is a theme list whose length scales with the comment count, so the
+    // ceiling has to clear the worst case, not the average.
+    maxTokens: 2400,
   });
 
   // The model grouped; the system counts.

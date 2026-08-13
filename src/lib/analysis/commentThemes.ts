@@ -20,7 +20,13 @@ export const COMMENT_THEMES_SCHEMA = {
   type: "object",
   required: ["themes", "overallSentiment"],
   properties: {
-    overallSentiment: { type: "string", enum: ["positive", "mixed", "negative"] },
+    // "neutral" belongs here because the per-theme enum below already allows
+    // it. Without it the two disagreed, and the model -- reasonably -- used
+    // the same word for both: half of all analyse jobs died on
+    // `$.overallSentiment: expected one of ["positive","mixed","negative"]`
+    // and were marked permanently failed. "mixed" is not a synonym; a thread
+    // of flat "first" comments is neutral, not mixed.
+    overallSentiment: { type: "string", enum: ["positive", "mixed", "neutral", "negative"] },
     themes: {
       type: "array",
       items: {
@@ -43,7 +49,7 @@ export type CommentInput = {
 };
 
 export type ModelThemes = {
-  overallSentiment: "positive" | "mixed" | "negative";
+  overallSentiment: "positive" | "mixed" | "neutral" | "negative";
   themes: { label: string; sentiment: "positive" | "neutral" | "negative"; commentIds: string[] }[];
 };
 
@@ -58,7 +64,7 @@ export type ThemeResult = {
 };
 
 export type CommentAnalysis = {
-  overallSentiment: "positive" | "mixed" | "negative";
+  overallSentiment: "positive" | "mixed" | "neutral" | "negative";
   themes: ThemeResult[];
   analysedCount: number;
   /** Comments the model placed in no theme at all. */
