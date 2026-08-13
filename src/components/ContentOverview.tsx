@@ -51,8 +51,14 @@ function exportVideos(rows: VideoSummary[]) {
   const out: unknown[][] = [];
   for (const v of rows) {
     if (v.platforms.length === 0) {
+      // Twelve cells, matching the header. This row used to push eleven --
+      // "Views gained" was written but the empty "Gain window" beside it was
+      // not -- so hours slid into the gain column and the status into hours.
+      // It affected two videos until the Socials Review backfill landed 158
+      // more that have no post, which is exactly the kind of latent bug that
+      // stays invisible until the data changes shape underneath it.
       out.push([v.title, v.clientName ?? "", v.producedAt ?? "", "", "", "", "",
-        v.bestIndex?.toFixed(2) ?? "", v.recentGain ?? "",
+        v.bestIndex?.toFixed(2) ?? "", "", "",
         (v.trackedSeconds / 3600).toFixed(2), "not posted"]);
       continue;
     }
