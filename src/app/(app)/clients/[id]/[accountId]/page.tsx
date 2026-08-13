@@ -1,3 +1,4 @@
+import { formatInstant } from "@/lib/tz";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import PageHeader from "@/components/PageHeader";
@@ -80,15 +81,18 @@ export default async function ChannelDashboardPage({
         />
         <Stat
           label="Last synced"
-          value={
+          // Rendered where the reader is. Unqualified toLocale* on a server
+          // component resolves to the SERVER's zone -- UTC on Vercel -- so
+          // this was hours off for every office.
+          value={formatInstant(account.lastSyncedAt, session.timezone, {
+            month: "short",
+            day: "numeric",
+          })}
+          hint={
             account.lastSyncedAt
-              ? new Date(account.lastSyncedAt).toLocaleDateString(undefined, {
-                  month: "short",
-                  day: "numeric",
-                })
-              : "—"
+              ? formatInstant(account.lastSyncedAt, session.timezone, { timeStyle: "short" })
+              : "never"
           }
-          hint={account.lastSyncedAt ? new Date(account.lastSyncedAt).toLocaleTimeString() : "never"}
         />
       </StatGrid>
 

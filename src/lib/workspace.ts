@@ -11,6 +11,15 @@ export type WorkspaceSummary = {
   slug: string;
   role: WorkspaceRole;
   seat: SeatType;
+  /**
+   * The workspace accounting zone, straight from the database.
+   *
+   * Carried so a page can notice when it disagrees with the app OPERATING_TZ.
+   * Two settings that must match will eventually not, and a one-hour
+   * disagreement between what buckets the data and what defaults the dates is
+   * invisible until someone reconciles an invoice.
+   */
+  timezone: string;
 };
 
 export type SessionContext = {
@@ -42,7 +51,7 @@ export async function requireSession(): Promise<SessionContext> {
 
   const { data: rows } = await supabase
     .from("memberships")
-    .select("role, seat, workspace:workspaces(id, name, slug)")
+    .select("role, seat, workspace:workspaces(id, name, slug, timezone)")
     .eq("user_id", user.id)
     .eq("is_active", true)
     .order("created_at", { ascending: true });
@@ -50,7 +59,7 @@ export async function requireSession(): Promise<SessionContext> {
   type Row = {
     role: WorkspaceRole;
     seat: SeatType;
-    workspace: { id: string; name: string; slug: string } | null;
+    workspace: { id: string; name: string; slug: string; timezone: string | null } | null;
   };
 
   const workspaces: WorkspaceSummary[] = ((rows ?? []) as unknown as Row[])
@@ -59,6 +68,10 @@ export async function requireSession(): Promise<SessionContext> {
       id: r.workspace!.id,
       name: r.workspace!.name,
       slug: r.workspace!.slug,
+      // Mirrors the column default rather than the app's OPERATING_TZ: this
+      // value is meant to report what the DATABASE thinks, so a drift check
+      // comparing the two is meaningful.
+      timezone: r.workspace!.timezone ?? "Asia/Dubai",
       role: r.role,
       seat: r.seat,
     }));

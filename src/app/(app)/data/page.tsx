@@ -1,3 +1,4 @@
+import { OPERATING_TZ, formatInstant } from "@/lib/tz";
 import PageHeader from "@/components/PageHeader";
 import DataPanel, { type PanelAccount } from "@/components/DataPanel";
 import AnalyticsImport from "@/components/AnalyticsImport";
@@ -171,6 +172,25 @@ export default async function DataPage() {
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-6">
+      {/* Two settings that must agree eventually will not, and a one-hour
+          disagreement between what buckets the data and what defaults the
+          dates is invisible until someone reconciles an invoice. So it is
+          stated on the page rather than left to be discovered. */}
+      {session.active.timezone !== OPERATING_TZ && (
+        <div
+          className="mb-4 rounded-[var(--radius-sm)] border px-3 py-2 text-xs"
+          style={{ borderColor: "var(--danger)", color: "var(--danger)" }}
+          role="alert"
+        >
+          <strong>Timezone mismatch.</strong> The database buckets this
+          workspace&apos;s days in <code>{session.active.timezone}</code>, but the app
+          is aggregating in <code>{OPERATING_TZ}</code>. To-do dates and budget
+          windows will disagree with reports by the difference between them. Set{" "}
+          <code>OPERATING_TZ={session.active.timezone}</code> in the deployment
+          environment.
+        </div>
+      )}
+
       <PageHeader
         title="Data sync"
         subtitle="Everything the pipeline fetches on its own, and the levers to refresh it by hand."
@@ -187,17 +207,17 @@ export default async function DataPage() {
         <Stat
           icon={RefreshCw}
           label="Last sync"
-          value={
-            lastSync
-              ? new Date(lastSync).toLocaleTimeString(undefined, {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })
-              : "—"
-          }
+          // toLocale* with no zone resolves to the SERVER's zone, which on
+          // Vercel is UTC -- so this read five hours behind a Karachi reader
+          // and four behind a Dubai one, while looking like a local time.
+          // formatInstant puts a moment where the person reading it is.
+          value={formatInstant(lastSync, session.timezone, {
+            hour: "2-digit",
+            minute: "2-digit",
+          })}
           hint={
             lastSync
-              ? new Date(lastSync).toLocaleDateString(undefined, {
+              ? formatInstant(lastSync, session.timezone, {
                   month: "short",
                   day: "numeric",
                 })

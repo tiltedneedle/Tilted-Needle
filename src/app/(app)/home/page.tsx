@@ -1,4 +1,4 @@
-import { OPERATING_TZ } from "@/lib/tz";
+import { OPERATING_TZ, formatInstant } from "@/lib/tz";
 import Link from "next/link";
 import PageHeader from "@/components/PageHeader";
 import HomeTodoList from "@/components/HomeTodoList";
@@ -476,8 +476,12 @@ export default async function HomePage() {
             <div className="min-w-0">
               <div className="text-sm font-semibold">Data pipeline</div>
               <div className="mt-0.5 text-xs text-[var(--muted)]">
+                {/* The viewer's clock, not the server's. Unqualified
+                    toLocaleTimeString on a server component resolves to UTC on
+                    Vercel, so this said 09:25 to someone whose clock read
+                    14:25. */}
                 {lastSync
-                  ? `last sync ${new Date(lastSync).toLocaleTimeString(undefined, {
+                  ? `last sync ${formatInstant(lastSync, session.timezone, {
                       hour: "2-digit",
                       minute: "2-digit",
                     })}`
