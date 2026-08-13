@@ -20,7 +20,7 @@ export default async function KiosksPage() {
     );
   }
 
-  const [kiosksRes, projectsRes, membersRes] = await Promise.all([
+  const [kiosksRes, projectsRes, membersRes, pinRes] = await Promise.all([
     supabase
       .from("kiosks")
       .select("id, name, device_token, project_id, is_active, project:projects(name)")
@@ -32,11 +32,18 @@ export default async function KiosksPage() {
       .eq("workspace_id", ws)
       .eq("is_archived", false)
       .order("name"),
+    // No kiosk_pin_hash here. Column-level SELECT on it is revoked, and
+    // PostgREST rejects the ENTIRE query when any requested column is -- 403,
+    // 42501 -- so asking for it did not hide the PIN column, it stopped the
+    // member list loading at all. Whether a PIN exists comes from the RPC
+    // below, which reads the hash inside SECURITY DEFINER and returns a
+    // boolean.
     supabase
       .from("memberships")
-      .select("id, kiosk_pin_hash, profile:profiles(full_name)")
+      .select("id, profile:profiles(full_name)")
       .eq("workspace_id", ws)
       .eq("is_active", true),
+    supabase.rpc("kiosk_pin_status", { ws }),
   ]);
 
   type KioskRow = {
@@ -49,9 +56,15 @@ export default async function KiosksPage() {
   };
   type MemberRow = {
     id: string;
-    kiosk_pin_hash: string | null;
     profile: { full_name: string | null } | { full_name: string | null }[] | null;
   };
+
+  const hasPinById = new Map(
+    ((pinRes.data ?? []) as { membership_id: string; has_pin: boolean }[]).map((r) => [
+      r.membership_id,
+      r.has_pin,
+    ]),
+  );
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-6">
@@ -72,7 +85,7 @@ export default async function KiosksPage() {
         members={((membersRes.data ?? []) as unknown as MemberRow[]).map((m) => ({
           id: m.id,
           name: one(m.profile)?.full_name ?? "Unknown",
-          hasPin: !!m.kiosk_pin_hash,
+          hasPin: hasPinById.get(m.id) ?? false,
         }))}
       />
     </div>
