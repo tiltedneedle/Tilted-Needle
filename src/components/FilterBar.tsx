@@ -67,7 +67,9 @@ function rangeChipLabel(r: RangeValue): string {
  * Only the first `primaryCount` filters show by default; the rest sit
  * behind "More filters", which opens automatically if a hidden one
  * already has a value -- a filter that is doing something must never be
- * invisibly collapsed.
+ * invisibly collapsed. A remainder of exactly one is never collapsed at
+ * all: the button is as wide as the control it hides, so it saves no
+ * space and costs a click.
  */
 export default function FilterBar({
   basePath,
@@ -103,8 +105,22 @@ export default function FilterBar({
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const primary = filters.slice(0, primaryCount);
-  const rest = filters.slice(primaryCount);
+  /**
+   * Never collapse a single filter.
+   *
+   * "More filters" exists to keep a long row from crowding the page. Hiding
+   * exactly one control does not do that -- it trades a visible filter for a
+   * button of identical width, so the row is no shorter and there is now a
+   * disclosure to learn, a click to spend, and a filter people do not know
+   * exists. Content was doing precisely this: five filters, primaryCount 4.
+   *
+   * Two or more is a real saving and keeps the toggle. One is not, so it is
+   * shown inline and the button drops out on its own (it already renders only
+   * when something is hidden).
+   */
+  const effectivePrimary = filters.length - primaryCount === 1 ? filters.length : primaryCount;
+  const primary = filters.slice(0, effectivePrimary);
+  const rest = filters.slice(effectivePrimary);
   const hasValue = (f: FilterDef) => (f.multi ? (f.values?.length ?? 0) > 0 : !!f.value);
   const [expanded, setExpanded] = useState(() => rest.some(hasValue));
   const [customOpen, setCustomOpen] = useState(false);

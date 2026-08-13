@@ -211,9 +211,11 @@ export default async function ContentPage({
       searchClears={["video"]}
       range={{ from: f.from, to: f.to }}
       rangeClears={["video"]}
-      // 4, not 3: role would otherwise sit behind "More filters", which only
-      // auto-opens when a hidden filter ALREADY has a value -- so on a fresh
-      // load the new filter would be invisible and read as missing.
+      // Moot on this page now -- there are five filters, so the single
+      // remainder is shown inline and "More filters" does not render at all.
+      // Kept because it is the floor if a sixth filter is ever added: role
+      // must stay visible on a fresh load, and the disclosure only auto-opens
+      // for a hidden filter that ALREADY has a value.
       primaryCount={4}
       // Sort is not a filter. "Clear all" clears what you filtered BY; it has
       // no business silently reordering the list you are looking at.
