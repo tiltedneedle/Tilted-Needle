@@ -96,6 +96,7 @@ export default function Popover({
     bottom?: number;
     left: number;
     width: number;
+    maxWidth: number;
     maxHeight: number;
   } | null>(null);
 
@@ -120,14 +121,20 @@ export default function Popover({
     let left = align === "right" ? r.right - w : r.left;
     // Never let a right-aligned or wide panel hang off the screen.
     left = Math.min(Math.max(EDGE, left), Math.max(EDGE, vw - w - EDGE));
+    // How far the panel may grow before it would leave the viewport. This is
+    // what makes the width below a FLOOR rather than a cap: a "Role" trigger
+    // is about 100px, and pinning its menu to that turned every option into
+    // "Ro...", "Sc...", "Ed..." -- a menu whose entries cannot be read is not
+    // a menu. It grows to fit its content and stops at the screen edge.
+    const maxW = Math.max(w, vw - left - EDGE);
 
     setPos(
       flip
         ? // Anchored by its BOTTOM edge when flipped: anchoring by top would
           // need the rendered height, and a panel shorter than its max would
           // float away from the trigger.
-          { bottom: vh - r.top + GAP, left, width: w, maxHeight: room }
-        : { top: r.bottom + GAP, left, width: w, maxHeight: room },
+          { bottom: vh - r.top + GAP, left, width: w, maxWidth: maxW, maxHeight: room }
+        : { top: r.bottom + GAP, left, width: w, maxWidth: maxW, maxHeight: room },
     );
     return true;
   }, [anchorRef, align, matchWidth, minWidth, width, maxHeight]);
@@ -210,8 +217,21 @@ export default function Popover({
         top: pos.top,
         bottom: pos.bottom,
         left: pos.left,
-        width: pos.width,
+        // max-content between a floor and a cap, instead of a fixed width.
+        //
+        // The trigger width is the FLOOR the panel must not drop below; the
+        // widest option decides the rest; the viewport edge is the cap.
+        // Pinning it to the trigger is what turned a 100px "Role" menu into
+        // "Ro...", "Sc...", "Ed...". max-content is needed explicitly because
+        // the options carry `truncate` with `min-w-0`, so they will happily
+        // shrink to nothing and never ask the panel to be wider.
+        width: "max-content",
+        minWidth: pos.width,
+        maxWidth: pos.maxWidth,
         maxHeight: pos.maxHeight,
+        // The options themselves must not wrap to two lines now that the
+        // panel can grow -- growing is the fix, wrapping would be a new bug.
+        whiteSpace: "nowrap",
         zIndex: "var(--z-dropdown)",
         borderRadius: "var(--radius-sm)",
         background: "var(--bg-elevated)",
