@@ -391,12 +391,19 @@ export default async function HomePage() {
                         +{formatCount(v.gained)}
                       </span>
                     </div>
-                    <div className="ml-6 mt-1 h-1 overflow-hidden rounded-full bg-[var(--bg-subtle)]">
+                    {/* A hairline, not a bar. This is a magnitude cue for a
+                        figure already printed beside it, so at 4px of
+                        saturated red it was the loudest thing on the page --
+                        five stacked read as an alert. 2px at 40% gives the
+                        same ranking at a glance and lets the numbers talk.
+                        The empty track is gone too: a rule that stops is
+                        legible without drawing the half that is missing. */}
+                    <div className="ml-6 mt-1.5 h-[2px]">
                       <div
                         className="bar-grow h-full rounded-full"
                         style={{
                           width: `${Math.max(4, (v.gained / maxMoverGain) * 100)}%`,
-                          background: "var(--accent)",
+                          background: "color-mix(in srgb, var(--accent) 40%, transparent)",
                           animationDelay: `${i * 60}ms`,
                           transformOrigin: "left",
                         }}

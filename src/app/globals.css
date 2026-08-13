@@ -189,6 +189,26 @@
   --z-toast: 1000;
   --z-skip: 1100;
 
+  /* ---- Frosted chrome ---------------------------------------------------
+     For surfaces that FLOAT above content: popovers, the sticky timer bar,
+     the mobile header, modals. Never a card, never a table, never anything
+     holding a number -- translucency over dense data is exactly the failure
+     mode that gave glassmorphism its reputation, and this app is hundreds of
+     rows of dense data.
+
+     The opacity is high (92%) on purpose. At the 60-70% that makes a
+     screenshot look impressive, text over a scrolling list underneath drops
+     below 4.5:1 depending on what happens to be behind it -- a contrast
+     ratio you cannot predict is one you cannot claim. At 92% the blur reads
+     as material and the contrast stays fixed.
+
+     saturate() is what stops the blur looking grey: backdrop-filter averages
+     the colour behind it toward neutral, and pushing saturation back up is
+     the difference between "frosted glass" and "smudged perspex". */
+  --glass-bg: color-mix(in srgb, var(--bg-elevated) 92%, transparent);
+  --glass-border: color-mix(in srgb, var(--border-strong) 70%, transparent);
+  --glass-filter: saturate(180%) blur(20px);
+
   --font-sans: Inter, "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
   /* Display numerals only. See the note in layout.tsx for why this is kept
      on a very short leash. */
@@ -833,7 +853,12 @@ h3 {
 :root[data-theme="dark"] .card-hero {
   /* Inverted from light mode: the page is already dark charcoal there, so
      in dark mode this becomes the one card that pops coral instead. */
-  background: linear-gradient(135deg, var(--coral-500), #e05a38);
+  /* Deep red into near-black, not red into orange. The old second stop was a
+     literal #e05a38, which is orange -- so the one card meant to carry the
+     brand was the one place the brand colour was wrong. Ending dark rather
+     than on a second hue keeps it a single colour with depth, which is the
+     whole idea. */
+  background: linear-gradient(140deg, var(--red-deep) 0%, #8f1d26 55%, #3d0d12 100%);
   border-color: transparent;
 }
 :root[data-theme="dark"] .card-hero::after {

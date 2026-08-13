@@ -99,7 +99,16 @@ export default function TimerBar({
   const isRunning = !!running;
 
   return (
-    <div className="card sticky top-0 mb-6 p-2" style={{ zIndex: "var(--z-sticky)" }}>
+    <div
+      className="card sticky top-0 mb-6 p-2"
+      style={{
+        zIndex: "var(--z-sticky)",
+        // Same reasoning as the mobile header: it pins over a scrolling page.
+        background: "var(--glass-bg)",
+        backdropFilter: "var(--glass-filter)",
+        WebkitBackdropFilter: "var(--glass-filter)",
+      }}
+    >
       <div className="flex flex-wrap items-center gap-2">
         <input
           className="input min-w-[200px] flex-1 border-transparent bg-transparent focus:border-[var(--border)]"

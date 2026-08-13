@@ -234,9 +234,15 @@ export default function Popover({
         whiteSpace: "nowrap",
         zIndex: "var(--z-dropdown)",
         borderRadius: "var(--radius-sm)",
-        background: "var(--bg-elevated)",
-        boxShadow: "var(--shadow-card-hover)",
-        border: "1px solid var(--border)",
+        // Frosted, because a popover is chrome: it floats over content and
+        // benefits from letting a little of it through. Kept at 92% opacity
+        // so the text contrast inside is fixed rather than depending on
+        // whatever happens to be scrolled underneath.
+        background: "var(--glass-bg)",
+        backdropFilter: "var(--glass-filter)",
+        WebkitBackdropFilter: "var(--glass-filter)",
+        boxShadow: "var(--shadow-overlay)",
+        border: "1px solid var(--glass-border)",
         ...style,
       }}
     >
