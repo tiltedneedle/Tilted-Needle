@@ -29,8 +29,26 @@ export default function RootLayout({
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        {/*
+          Two families, each doing one job.
+
+          Inter for the interface: it is drawn for screens at small sizes,
+          its numerals line up, and it is neutral enough to disappear --
+          which is the point. Plus Jakarta Sans has rounder, friendlier
+          shapes that read as "startup product" rather than as an instrument.
+
+          Instrument Serif for display numerals ONLY -- the four figures at
+          the top of a dashboard and nothing else. A serif against a neutral
+          sans is the oldest trick in editorial design and still the cheapest
+          way to make a number look considered rather than merely large. Used
+          anywhere else it would read as decoration, which is the failure
+          mode this brief is most at risk of.
+
+          One request for both, and still a runtime <link> rather than
+          next/font, for the build reason above.
+        */}
         <link
-          href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap"
           rel="stylesheet"
         />
         <ThemeScript />

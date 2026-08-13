@@ -166,7 +166,7 @@ export default function Sidebar({
   return (
     <aside
       className="flex h-dvh w-60 shrink-0 flex-col"
-      style={{ background: "var(--sidebar-bg)", color: "var(--white)" }}
+      style={{ background: "var(--sidebar-bg)", color: "var(--sidebar-fg)" }}
     >
       {/* Workspace switcher: the team runs several workspaces, so this is a
           high-frequency control, not a settings-page afterthought (PRD 7.1). */}
@@ -190,7 +190,7 @@ export default function Sidebar({
           <ChevronDown
             size={14}
             className={`shrink-0 transition-transform duration-150 ${open ? "rotate-180" : ""}`}
-            style={{ color: "var(--charcoal-400)" }}
+            style={{ color: "var(--sidebar-muted)" }}
           />
         </button>
 
@@ -219,7 +219,7 @@ export default function Sidebar({
                   }}
                 >
                   <span className="min-w-0 flex-1 truncate">{w.name}</span>
-                  {w.id === active.id && <Check size={14} style={{ color: "var(--accent)" }} />}
+                  {w.id === active.id && <Check size={14} style={{ color: "var(--sidebar-accent)" }} />}
                 </button>
               ))}
               <div className="my-1 h-px bg-[var(--border)]" />
@@ -245,7 +245,7 @@ export default function Sidebar({
             {section.group && (
               <div
                 className="mb-1.5 px-3 text-[11px] font-medium uppercase tracking-wide"
-                style={{ color: "var(--charcoal-400)" }}
+                style={{ color: "var(--sidebar-muted)" }}
               >
                 {section.group}
               </div>
@@ -261,8 +261,13 @@ export default function Sidebar({
                   style={{
                     height: 44,
                     borderRadius: "var(--radius-sm)",
-                    color: isActive ? "var(--white)" : "var(--charcoal-400)",
-                    background: isActive ? "rgb(240 112 74 / 0.16)" : "transparent",
+                    color: isActive ? "var(--sidebar-fg)" : "var(--sidebar-muted)",
+                    // A wash rather than a fill, and the accent rail below
+                    // does the actual work of saying "you are here". A solid
+                    // red block for every visited page would make the nav the
+                    // loudest thing on screen, which it never is in a product
+                    // that trusts you to know where you are.
+                    background: isActive ? "rgb(229 72 77 / 0.12)" : "transparent",
                     fontWeight: isActive ? 600 : 500,
                   }}
                   onMouseEnter={(e) => {
@@ -275,7 +280,7 @@ export default function Sidebar({
                   {isActive && (
                     <span
                       className="absolute left-0 top-1/2 h-[18px] w-[3px] -translate-y-1/2 rounded-full"
-                      style={{ background: "var(--accent)" }}
+                      style={{ background: "var(--sidebar-accent)" }}
                     />
                   )}
                   <Icon size={16} strokeWidth={1.8} />
@@ -291,7 +296,7 @@ export default function Sidebar({
         <div className="mb-2 flex items-center justify-between px-2">
           <span
             className="text-[11px] font-medium uppercase tracking-wide"
-            style={{ color: "var(--charcoal-400)" }}
+            style={{ color: "var(--sidebar-muted)" }}
           >
             Theme
           </span>
@@ -306,14 +311,14 @@ export default function Sidebar({
           </span>
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-medium text-white">{fullName}</div>
-            <div className="truncate text-xs capitalize" style={{ color: "var(--charcoal-400)" }}>
+            <div className="truncate text-xs capitalize" style={{ color: "var(--sidebar-muted)" }}>
               {active.role}
             </div>
           </div>
           <form action={signOut}>
             <button
               className="grid size-7 shrink-0 place-items-center rounded-md transition-colors hover:bg-white/10"
-              style={{ color: "var(--charcoal-400)" }}
+              style={{ color: "var(--sidebar-muted)" }}
               title="Sign out"
               aria-label="Sign out"
             >

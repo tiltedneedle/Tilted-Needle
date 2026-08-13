@@ -52,8 +52,12 @@ export function Stat({
           />
         )}
       </div>
+      {/* The one place the display serif is allowed. Bigger than before
+          (30px, up from 24) because a serif carries scale better than a bold
+          sans does, and because the figure is the reason this card exists --
+          everything else on it is a label for the number. */}
       <div
-        className="tabular relative mt-1.5 text-2xl font-semibold leading-none"
+        className="numeral relative mt-2 text-[30px] leading-[1.05]"
         style={{ color: hero ? "var(--white)" : "var(--fg)" }}
       >
         {value}

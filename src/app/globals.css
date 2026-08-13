@@ -1,10 +1,25 @@
 @import "tailwindcss";
 
 /* ---------------------------------------------------------------------------
-   Design system: "premium SaaS" -- calm, card-based, one disciplined accent.
-   Cream page background, white cards, charcoal-900 reserved for the sidebar
-   and one hero stat card per dashboard. Coral appears only on primary
-   actions, key metrics, and active states.
+   Design system: understated luxury. Ink and paper, one red, hairline rules.
+
+   The governing rule is RESTRAINT, and it is a rule rather than a mood: the
+   accent appears on primary actions, live metrics and the active nav item,
+   and nowhere else. A second red on a screen halves the meaning of the first.
+   Depth is a hairline and a shallow contact shadow, never a glow. Weight is
+   600, never 700 -- bold is the loudest lever in typography and this is not
+   a product that raises its voice.
+
+   Colour is withheld until it means something. A dashboard that tints every
+   card is a dashboard where nothing is urgent, so the neutrals do the layout
+   and the red does the pointing.
+
+   GLASS, deliberately limited. Frosted surfaces are applied to CHROME only --
+   the sticky bar, popovers, modals, the mobile header. Never to a card, a
+   table or anything holding a number. The research is unambiguous that
+   translucency over dense data wrecks contrast, and this app is 293 rows of
+   dense data; the places glass IS used are ones that float above content and
+   benefit from letting it show through.
 
    Every existing page references these variable NAMES directly (var(--accent),
    var(--muted), etc.) rather than a Tailwind utility class -- so replacing
@@ -20,44 +35,86 @@
    light mode, but must go one shade darker still in dark mode); each
    defaults to whatever already renders today, so light mode is untouched. */
 :root {
-  /* Charcoal scale -- primary text, and the sidebar/hero dark surfaces */
-  --charcoal-900: #1b2431;
-  --charcoal-800: #232e3f;
-  --charcoal-400: #7a8699;
+  /* ---- Neutral scale ---------------------------------------------------
+     Near-black rather than pure #000. Pure black leaves nowhere to go: every
+     elevated surface has to get LIGHTER, and against #000 the first step
+     already looks grey. Starting at #0a0a0b keeps four legible steps above
+     it, which is what carries depth in dark mode -- premium dark UIs signal
+     elevation by lightness, not by stacking shadows nobody can see. */
+  --ink-950: #0a0a0b;
+  --ink-900: #141416;
+  --ink-850: #18181b;
+  --ink-800: #1c1c20;
+  --ink-700: #27272b;
+  --ink-600: #3a3a41;
+  --ink-400: #9a9aa4;
+  --ink-100: #f4f4f6;
+  --ink-50: #fbfbfc;
 
-  /* Coral -- the one accent, used with discipline */
-  --coral-500: #f0704a;
-  --coral-400: #f58a68;
-  --coral-100: #fde8e1;
+  /* ---- The one accent --------------------------------------------------
+     Two reds, not one, and the reason is measured rather than aesthetic.
+     A red bright enough to read as TEXT on near-black (#e5484d, 5.06:1) is
+     too light to carry white text on a button (3.91:1 -- a fail). A red dark
+     enough for white text (#d92d38, 4.79:1) disappears against a dark page.
+     So each theme picks the one that works and pairs it with a foreground
+     that clears 4.5:1: light mode gets white on deep red, dark mode gets
+     near-black on bright red. */
+  --red-bright: #e5484d;
+  --red-deep: #d92d38;
+  --red-tint: #fdeaeb;
 
-  /* Page surfaces */
-  --cream-50: #faf8f5;
   --white: #ffffff;
 
-  /* Status pairs: -500 for text/dot, -100 for the pill fill */
-  --success-500: #2e9e6b;
+  /* Status pairs: -500 for text/dot, -100 for the pill fill. Every -500 is
+     darkened until it clears 4.5:1 on its own surface -- the previous
+     green and amber sat at 4.34 and 4.39, which is the kind of miss that
+     only shows up when someone measures. */
+  --success-500: #157a4e;
   --success-100: #e3f4ec;
-  --warning-500: #e8a23d;
+  --warning-500: #8a5a12;
   --warning-100: #fbf1de;
-  --danger-500: #e05252;
+  --danger-500: #c92a34;
   --danger-100: #fbe7e7;
-  --info-500: #4a7cf0;
+  --info-500: #2f5fd0;
   --info-100: #e6edfd;
 
-  /* ---- Stable names every existing component already references ------- */
-  --bg: var(--cream-50);
+  /* Legacy aliases. Components still reference these names directly, so they
+     are kept pointing at the new scale rather than renamed across 40 files. */
+  --charcoal-900: var(--ink-950);
+  --charcoal-800: var(--ink-900);
+  --charcoal-400: var(--ink-400);
+  --coral-500: var(--red-deep);
+  --coral-400: var(--red-bright);
+  --coral-100: var(--red-tint);
+  --cream-50: var(--ink-50);
+
+  /* ---- Stable names every existing component already references -------
+     Light mode is a warm-neutral near-white, not cream. Cream reads as
+     "friendly product"; the restraint here is meant to read as stationery --
+     paper white, hairline rules, and colour withheld until it means
+     something. */
+  --bg: var(--ink-50);
   /* A touch off-white rather than identical to --bg: a neutral chip sitting
      on a white --panel card needs to read as filled, not just "page-colored
      rectangle floating on a card." Row-hover on a white table still reads
      correctly against this. */
-  --bg-subtle: #f5f2ee;
+  --bg-subtle: var(--ink-100);
   --panel: var(--white);
-  --border: #ece8e2;
-  --border-strong: #ddd6cc;
-  --fg: var(--charcoal-900);
-  --muted: var(--charcoal-400);
-  --accent: var(--coral-500);
+  /* Hairlines. A 1px rule at this weight separates without drawing a box
+     around everything -- the difference between a document and a form. */
+  --border: #e6e6ea;
+  --border-strong: #c2c2cc;
+  --fg: #16161a;
+  --muted: #6b6b76;
+  --accent: var(--red-deep);
   --accent-fg: var(--white);
+  /* The sidebar is a dark surface in BOTH themes, so its text can never be
+     --fg -- that pair would be dark-on-dark in light mode. It carries its
+     own foreground, and its accent is the BRIGHT red, because the deep one
+     measures 4.13:1 against near-black and fails. */
+  --sidebar-fg: #fafafa;
+  --sidebar-muted: #9a9aa4;
+  --sidebar-accent: var(--red-bright);
   --success: var(--success-500);
   --danger: var(--danger-500);
   --warning: var(--warning-500);
@@ -67,23 +124,46 @@
      (modals, dropdowns) or a table row's hover -- identical to --panel in
      light mode today, so introducing it changes nothing here. */
   --bg-elevated: var(--panel);
-  /* The sidebar is already the dark charcoal surface in light mode; only
-     dark mode pushes it one shade darker still, so it can't just inherit
-     --charcoal-900 the way it used to. */
-  --sidebar-bg: var(--charcoal-900);
+  --sidebar-bg: var(--ink-950);
   /* Inputs sit flush with --panel today; dark mode gives them a recessed
      "well" look one shade darker than the card they sit in. */
   --input-bg: var(--panel);
 
   /* Radius scale: nothing sharp-cornered anywhere */
-  --radius-sm: 12px; /* buttons, inputs */
-  --radius-md: 20px; /* cards */
+  /* ---- Radii ------------------------------------------------------------
+     Tightened from 12/20. A 20px card corner is soft and consumer-app; 14
+     still reads as considered but has an edge to it. The rule kept from the
+     old scale: nothing is ever square, because a hard 0 corner in a UI this
+     dense looks unfinished rather than precise.
+
+     Nesting matters more than the numbers. An inner element inside a 14px
+     card wants ~4px less, or the two curves fight -- which is why the small
+     radius is 10 and not, say, 12. */
+  --radius-sm: 10px; /* buttons, inputs, chips */
+  --radius-md: 14px; /* cards */
   --radius-pill: 999px;
   --radius: var(--radius-sm); /* legacy alias -- a few older inline styles */
 
-  --shadow-card: 0 1px 3px rgb(27 36 49 / 0.06);
-  --shadow-card-hover: 0 8px 24px rgb(27 36 49 / 0.08);
-  --shadow-coral: 0 4px 14px rgb(240 112 74 / 0.28);
+  /* ---- Depth ------------------------------------------------------------
+     Two stacked shadows rather than one. A single soft blur reads as a glow;
+     a tight near-opaque contact shadow under a wider diffuse one reads as an
+     object resting on a surface. That difference is most of what separates
+     "card with a shadow" from something that looks made.
+
+     Kept deliberately shallow. Restraint is the brief: depth should be
+     noticed only if you look for it, and a dashboard with forty cards on it
+     cannot afford forty pools of shade. */
+  --shadow-card:
+    0 1px 1px rgb(16 16 22 / 0.04),
+    0 2px 6px rgb(16 16 22 / 0.04);
+  --shadow-card-hover:
+    0 1px 1px rgb(16 16 22 / 0.05),
+    0 8px 24px rgb(16 16 22 / 0.08);
+  /* Modals and popovers sit above everything, so they earn a longer throw. */
+  --shadow-overlay:
+    0 1px 2px rgb(16 16 22 / 0.08),
+    0 16px 48px rgb(16 16 22 / 0.16);
+  --shadow-coral: 0 2px 10px rgb(217 45 56 / 0.22);
 
   /* Layer scale. One place, so "what sits above what" is a decision rather
      than whatever number the last person happened to type.
@@ -109,7 +189,10 @@
   --z-toast: 1000;
   --z-skip: 1100;
 
-  --font-sans: "Plus Jakarta Sans", Inter, ui-sans-serif, system-ui, sans-serif;
+  --font-sans: Inter, "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  /* Display numerals only. See the note in layout.tsx for why this is kept
+     on a very short leash. */
+  --font-display: "Instrument Serif", ui-serif, Georgia, serif;
 }
 
 /* Native controls (scrollbars, date pickers, autofill) render dark too. */
@@ -164,12 +247,38 @@ body {
 h1,
 h2,
 h3 {
-  font-weight: 700;
+  /* 600, not 700. At display sizes a bold weight shouts; semibold with
+     tighter tracking reads as confident instead. Weight is the loudest
+     lever in typography and the one restraint should reach for first. */
+  font-weight: 600;
   /* Was a hardcoded var(--charcoal-900) -- fine while there was only one
      theme, but that stays dark-on-dark once dark mode exists. Routed
      through --fg instead: identical value in light mode, correct in dark. */
   color: var(--fg);
+  /* Optical tracking: the larger the type, the tighter it wants to be.
+     Inter at 24px with default spacing looks gappy; -0.02em closes it up
+     without touching the small sizes, which need every bit of their
+     spacing to stay legible. */
+  letter-spacing: -0.021em;
+  line-height: 1.2;
+}
+
+/**
+ * Display numerals: the four figures at the top of a dashboard.
+ *
+ * A serif here does the work that a bigger, bolder sans cannot -- it makes a
+ * number look composed rather than merely loud, which is the whole difference
+ * between a metric and a headline. Deliberately not applied to any other
+ * number in the app: the moment it appears in a table it stops being a
+ * signal and becomes a theme.
+ */
+.numeral {
+  font-family: var(--font-display);
+  font-weight: 400;
   letter-spacing: -0.01em;
+  /* Instrument Serif's default figures are proportional, which makes a
+     column of numbers wobble as it counts up. */
+  font-variant-numeric: tabular-nums lining;
 }
 
 /* Eyebrow labels: tiny uppercase metadata, per the type scale in the spec. */
@@ -199,9 +308,20 @@ h3 {
    150-250ms, ease-out, animating only transform/opacity/background-color.
    Smooth and expensive-feeling, not bouncy. */
 :root {
+  /* ---- Motion -----------------------------------------------------------
+     One expressive curve and one plain one. --ease decelerates hard, which
+     is what makes a panel feel like it settles rather than stops; --ease-out
+     is for colour and opacity, where an overshoot-ish curve just looks
+     nervous.
+
+     Durations stay short. Slow is not the same as considered -- a 400ms
+     hover is something you wait for, and waiting is the opposite of the
+     impression this is meant to give. */
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
-  --dur-fast: 150ms;
-  --dur-base: 220ms;
+  --ease-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-fast: 130ms;
+  --dur-base: 200ms;
+  --dur-slow: 320ms;
 }
 
 @keyframes fade-rise {
@@ -528,7 +648,7 @@ h3 {
   content: "";
   position: absolute;
   inset: 0;
-  background: radial-gradient(120px 120px at 100% 0%, rgb(240 112 74 / 0.16), transparent 70%);
+  background: radial-gradient(140px 140px at 100% 0%, rgb(229 72 77 / 0.14), transparent 70%);
   pointer-events: none;
   animation: hero-breathe 6s ease-in-out infinite;
 }
@@ -544,7 +664,7 @@ h3 {
 }
 
 .panel-shadow {
-  box-shadow: 0 1px 2px rgb(27 36 49 / 0.08), 0 8px 24px rgb(27 36 49 / 0.12);
+  box-shadow: var(--shadow-overlay);
 }
 
 /* Hover-revealed row actions -- no permanent button clutter. */
@@ -654,36 +774,60 @@ h3 {
    above) only ever plays when a real toggle happens afterward, and already
    inherits the site-wide prefers-reduced-motion rule. --------------------- */
 :root[data-theme="dark"] {
-  --coral-500: #f57c57;
-  --coral-400: #f79375;
-  --coral-100: #3a2a26;
-
+  /* Status colours lighten in dark mode -- the light-mode values were
+     darkened to clear 4.5:1 on white, and the same ink on near-black is the
+     wrong direction entirely. */
   --success-500: #3fb57f;
-  --success-100: #16302a;
+  --success-100: #10261d;
   --warning-500: #edb25a;
-  --warning-100: #33291a;
-  --danger-500: #e96a6a;
-  --danger-100: #331d20;
+  --warning-100: #2a2114;
+  --danger-500: #f0666b;
+  --danger-100: #2b1618;
   --info-500: #6b93f2;
-  --info-100: #1c2740;
+  --info-100: #161e33;
 
-  --bg: #131a24;
-  /* Same value as --bg-elevated: on a dark card, a chip or a hovered row
-     needs to read as "one step lighter," not "identical to the card." */
-  --bg-subtle: #232e3f;
-  --panel: #1b2431;
-  --bg-elevated: #232e3f;
-  --sidebar-bg: #0e141c;
-  --input-bg: #0e141c;
-  --border: #2c3949;
-  --border-strong: #3e4c61;
-  --fg: #f2f4f7;
-  --muted: #a9b4c4;
-  --accent-fg: #f2f4f7;
+  /* ---- The elevation ladder -------------------------------------------
+     Page → card → elevated → hover, each one step lighter than its parent.
+     This is what carries depth on a dark screen: a shadow against near-black
+     is invisible, so the surface itself has to say how high it sits. The
+     steps are small on purpose -- 4-6 points of lightness reads as a
+     material change, 20 reads as a different colour. */
+  --bg: var(--ink-950);
+  --panel: var(--ink-900);
+  --bg-subtle: var(--ink-850);
+  --bg-elevated: var(--ink-800);
+  /* Below the page, not above it. The sidebar is the one surface that should
+     feel like a recess rather than a card -- it anchors the layout, and
+     anything darker than the page reads as behind it. */
+  --sidebar-bg: #08080a;
+  /* Inputs are wells: recessed relative to the card they sit in, which is
+     how a form field reads as something to fill rather than something to
+     look at. */
+  --input-bg: #0e0e10;
 
-  --shadow-card: 0 1px 3px rgb(0 0 0 / 0.4);
-  --shadow-card-hover: 0 8px 24px rgb(0 0 0 / 0.4);
-  --shadow-coral: 0 4px 16px rgb(245 124 87 / 0.35);
+  --border: var(--ink-700);
+  --border-strong: var(--ink-600);
+  --fg: #fafafa;
+  --muted: var(--ink-400);
+
+  /* The bright red, and near-black ON it. White on this red measures 3.91:1
+     and fails; the ink reads 5.06:1. Dark-on-bright is also simply what an
+     expensive dark interface does with a saturated accent. */
+  --accent: var(--red-bright);
+  --accent-fg: var(--ink-950);
+  --coral-100: #2b1618;
+
+  /* Shadows survive in dark mode only as a contact line -- the diffuse half
+     is doing nothing against near-black, so the lightness ladder above is
+     the real depth cue and these just stop edges floating. */
+  --shadow-card: 0 1px 1px rgb(0 0 0 / 0.6);
+  --shadow-card-hover:
+    0 1px 1px rgb(0 0 0 / 0.6),
+    0 8px 24px rgb(0 0 0 / 0.45);
+  --shadow-overlay:
+    0 1px 2px rgb(0 0 0 / 0.7),
+    0 16px 48px rgb(0 0 0 / 0.55);
+  --shadow-coral: 0 2px 12px rgb(229 72 77 / 0.28);
 }
 
 :root[data-theme="dark"] .card-hero {
@@ -706,11 +850,11 @@ h3 {
   box-shadow: 0 0 0 3px rgb(245 124 87 / 0.25);
 }
 :root[data-theme="dark"] ::selection {
-  background: rgb(245 124 87 / 0.35);
+  background: rgb(229 72 77 / 0.32);
 }
 
 ::selection {
-  background: rgb(240 112 74 / 0.22);
+  background: rgb(217 45 56 / 0.18);
 }
 
 /* ---- Touch targets ------------------------------------------------------ */
