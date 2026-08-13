@@ -1,3 +1,4 @@
+import { OPERATING_TZ, operatingDate } from "@/lib/tz";
 /**
  * Loaders for the Home command center -- the aggregates the landing page
  * charts read. Kept out of the page file because each one has a rule worth
@@ -17,9 +18,7 @@ type Db = any;
 const DAY_MS = 86400000;
 
 /** YYYY-MM-DD of an instant, in the company's operating timezone. */
-function dubaiDate(d: Date): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai" }).format(d);
-}
+const dubaiDate = (d: Date): string => operatingDate(d);
 
 /** Short axis label ("28 Jul") for a Dubai date string. */
 function shortLabel(iso: string): string {
@@ -320,11 +319,11 @@ export async function loadWeekHoursByDay(
   for (let i = 0; i < 7; i++) {
     const d = new Date(weekStart.getTime() + i * DAY_MS);
     days.push({
-      label: d.toLocaleDateString("en-GB", { weekday: "short", timeZone: "Asia/Dubai" }),
+      label: d.toLocaleDateString("en-GB", { weekday: "short", timeZone: OPERATING_TZ }),
       hint: d.toLocaleDateString("en-GB", {
         day: "numeric",
         month: "short",
-        timeZone: "Asia/Dubai",
+        timeZone: OPERATING_TZ,
       }),
       seconds: 0,
     });

@@ -1,3 +1,4 @@
+import { OPERATING_TZ, operatingDate } from "@/lib/tz";
 /**
  * The Content page's filter state, parsed from the URL -- pure and
  * dependency-free so Node's native loader can test it directly (the same
@@ -47,9 +48,7 @@ function parseIdList(raw: string | undefined): string[] {
   return [...new Set(raw.split(",").map((s) => s.trim()).filter(Boolean))].sort();
 }
 
-function dubaiDate(d: Date): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai" }).format(d);
-}
+const dubaiDate = (d: Date): string => operatingDate(d);
 
 export function parseFilters(
   sp: Record<string, string | undefined>,

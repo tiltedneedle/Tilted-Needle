@@ -1,3 +1,4 @@
+import { operatingDate, startOfOperatingDay } from "@/lib/tz";
 /**
  * Aggregate loaders and filtering behind the two single-page dashboards.
  *
@@ -325,10 +326,16 @@ export async function loadContentOverview(
       .push({ at: new Date(s.captured_at).getTime(), views: s.views });
   }
 
-  // Range bounds as instants: from 00:00 Dubai on `from` through 24:00
-  // Dubai on `to` (both inclusive). Dubai is fixed UTC+4, no DST.
-  const rangeStart = filters.from ? new Date(`${filters.from}T00:00:00+04:00`).getTime() : null;
-  const rangeEnd = filters.to ? new Date(`${filters.to}T00:00:00+04:00`).getTime() + 86400000 : null;
+  // Range bounds as instants: from 00:00 on `from` through the end of `to`,
+  // both inclusive, in the operating timezone.
+  //
+  // The end is the START of the following day rather than start-of-`to` plus
+  // 86,400,000ms, because a day is not always 24 hours -- on a DST boundary
+  // the arithmetic version either loses an hour of a client's posts or counts
+  // an extra one. The literal +04:00 this replaces was only safe while the
+  // zone could never shift.
+  const rangeStart = filters.from ? startOfOperatingDay(filters.from).getTime() : null;
+  const rangeEnd = filters.to ? startOfOperatingDay(nextDay(filters.to)).getTime() : null;
 
   /**
    * A post's growth. Without a range: the delta between its last two
@@ -763,15 +770,39 @@ export async function loadMemberOptions(supabase: Db, ws: string) {
 }
 
 /**
- * Monday 00:00 in Asia/Dubai -- the company's operating timezone, matching
- * the To-dos sheet's definition of "today". Server-local math here (UTC on
- * Vercel) started the week 4 hours late: hours tracked between midnight
- * and 4am Dubai on a Monday counted into the previous week. Dubai is fixed
- * UTC+4 with no DST, so the instant can be built literally.
+ * The calendar date after `dateISO`, as a date string.
+ *
+ * UTC date arithmetic on a NOON anchor, not 86,400,000ms added to an instant.
+ * Noon is far enough from either boundary that no DST shift can push it into
+ * the wrong day, whereas adding a fixed 24 hours to a midnight instant lands
+ * on the same date twice in the autumn and skips one in the spring.
+ */
+function nextDay(dateISO: string): string {
+  const d = new Date(`${dateISO}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Monday 00:00 in the operating timezone, matching the To-dos sheet's
+ * definition of "today".
+ *
+ * Server-local maths here (UTC on Vercel) started the week hours late: time
+ * tracked between local midnight and the UTC rollover counted into the
+ * previous week. The fix used to hardcode +04:00, which was safe only while
+ * the zone was permanently Dubai; it now resolves the offset for whatever
+ * OPERATING_TZ is, at that date.
  */
 export function startOfWeek(now = new Date()): Date {
-  const dubaiDate = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai" }).format(now);
+  const today = operatingDate(now);
   // That calendar date's weekday; noon UTC sidesteps any rollover edge.
-  const dow = (new Date(`${dubaiDate}T12:00:00Z`).getUTCDay() + 6) % 7; // Monday = 0
-  return new Date(new Date(`${dubaiDate}T00:00:00+04:00`).getTime() - dow * 86400000);
+  const dow = (new Date(`${today}T12:00:00Z`).getUTCDay() + 6) % 7; // Monday = 0
+  // Subtract whole days from the DATE, then resolve midnight -- not the other
+  // way round. Resolving first and subtracting 86,400,000ms per day assumes
+  // every day is exactly 24 hours, which is false in any zone with DST: the
+  // week would start an hour out for half the year. The old code could write
+  // +04:00 literally because Dubai never shifts; a configurable zone cannot.
+  const monday = new Date(`${today}T12:00:00Z`);
+  monday.setUTCDate(monday.getUTCDate() - dow);
+  return startOfOperatingDay(operatingDate(monday));
 }

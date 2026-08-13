@@ -1,3 +1,4 @@
+import { OPERATING_TZ } from "@/lib/tz";
 import PageHeader from "@/components/PageHeader";
 import FilterBar from "@/components/FilterBar";
 import TodoBoard from "@/components/TodoBoard";
@@ -38,7 +39,7 @@ export default async function TodosPage({
   // the Vercel server runs UTC, where Dubai's early morning is still
   // yesterday's date.
   const today = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Dubai",
+    timeZone: OPERATING_TZ,
   }).format(new Date());
   const date = /^\d{4}-\d{2}-\d{2}$/.test(sp.date ?? "") ? sp.date! : today;
 

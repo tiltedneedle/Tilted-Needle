@@ -1,3 +1,4 @@
+import { OPERATING_TZ } from "@/lib/tz";
 import Link from "next/link";
 import PageHeader from "@/components/PageHeader";
 import HomeTodoList from "@/components/HomeTodoList";
@@ -45,13 +46,13 @@ export const metadata = { title: "Home" };
 
 /** The company runs on Dubai time; "today" must not roll over at UTC midnight. */
 function todayDubai(): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai" }).format(new Date());
+  return new Intl.DateTimeFormat("en-CA", { timeZone: OPERATING_TZ }).format(new Date());
 }
 
 function greetingDubai(): string {
   const hour = Number(
     new Intl.DateTimeFormat("en-GB", {
-      timeZone: "Asia/Dubai",
+      timeZone: OPERATING_TZ,
       hour: "2-digit",
       hour12: false,
     }).format(new Date()),
@@ -83,7 +84,7 @@ export default async function HomePage() {
   const firstName = session.fullName.split(" ")[0] || session.fullName;
 
   const dateLabel = new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Asia/Dubai",
+    timeZone: OPERATING_TZ,
     weekday: "long",
     day: "numeric",
     month: "long",
