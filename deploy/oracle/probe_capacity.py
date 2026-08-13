@@ -110,9 +110,57 @@ def main() -> int:
         with open(args.ssh_key, "r", encoding="utf-8") as fh:
             pubkey = fh.read().strip()
 
+        # ---- Always Free ceiling, enforced before ANY launch --------------
+        #
+        # This guard did not exist, and provision.py's version does not help:
+        # the scheduled workflow calls THIS script, not that one. On Always
+        # Free the omission was invisible, because every launch bounced off
+        # "out of capacity" and nothing was ever created. On Pay As You Go the
+        # same request succeeds -- and this runs every 30 minutes, with no
+        # memory of the instance it made half an hour ago.
+        #
+        # Two 2-OCPU A1s are each individually "Always Free eligible" and
+        # together are double the ceiling, which is billed. So the check is on
+        # the TENANCY TOTAL, not on the shape being asked for, and it counts
+        # every A1 regardless of name -- an instance created by hand spends the
+        # same allowance as one created here.
+        live = [i for i in compute.list_instances(compartment_id=tenancy).data
+                if i.lifecycle_state in ("RUNNING", "PROVISIONING", "STARTING")]
+        used_ocpu = sum(int(i.shape_config.ocpus or 0)
+                        for i in live if i.shape == A1 and i.shape_config)
+        used_mem = sum(int(i.shape_config.memory_in_gbs or 0)
+                       for i in live if i.shape == A1 and i.shape_config)
+        micros = sum(1 for i in live if i.shape == MICRO)
+
+        if used_ocpu >= CEIL_OCPU or used_mem >= CEIL_MEM:
+            print(f"REFUSED: tenancy already uses {used_ocpu} OCPU / {used_mem} GB "
+                  f"of A1, at or above the Always Free ceiling of "
+                  f"{CEIL_OCPU} OCPU / {CEIL_MEM} GB. Nothing launched.",
+                  file=sys.stderr)
+            return 2
+        if micros >= 2:
+            print(f"REFUSED: {micros} E2.1.Micro instances already exist "
+                  f"(Always Free allows 2). Nothing launched.", file=sys.stderr)
+            return 2
+        # Headroom is what is LEFT, so a second launch can only ever top up to
+        # the ceiling rather than start again from zero.
+        sizes_cap = (CEIL_OCPU - used_ocpu, CEIL_MEM - used_mem)
+        print(f"Always Free headroom: {sizes_cap[0]} OCPU / {sizes_cap[1]} GB", flush=True)
+
     # Smallest first: an easier ask is likelier to land, and a 1-OCPU A1 still
     # runs this workload comfortably.
+    #
+    # Filtered to what the remaining headroom can actually hold, so a partly
+    # used tenancy cannot be topped up past the ceiling by asking for the
+    # bigger size. With nothing running this is the full list, unchanged.
     sizes = [(1, 6), (2, 12)]
+    if args.launch:
+        sizes = [(o, m) for (o, m) in sizes
+                 if o <= sizes_cap[0] and m <= sizes_cap[1]]
+        if not sizes:
+            print("REFUSED: no A1 size fits the remaining Always Free headroom.",
+                  file=sys.stderr)
+            return 2
     combos = []
     for fd in fds:
         for o, m in sizes:
