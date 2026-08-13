@@ -156,6 +156,55 @@ try {
       (budgets ?? []).length ? `LEAK: saw ${(budgets ?? []).length} budget rows` : "");
   }
 
+  /* -- A manager cannot promote themselves to owner ------------------------ */
+  //
+  // The rules against this were written only in the Server Action. The repo is
+  // public and the publishable key ships in the browser, so a manager can call
+  // PostgREST directly and never reach that code. These assertions are against
+  // the database, which is the only place the rule actually binds.
+  {
+    const manager = await makeUser(`scope-mgr-${stamp}@tiltedneedle.test`);
+    userIds.push(manager.id);
+    const { error: addErr } = await staff.client.from("memberships").insert({
+      workspace_id: wsId, user_id: manager.id, role: "manager", seat: "full",
+    });
+    check("a manager can be added to the workspace", !addErr, addErr?.message ?? "");
+
+    const { data: own } = await manager.client
+      .from("memberships").select("id").eq("user_id", manager.id).maybeSingle();
+
+    if (own) {
+      const { data: promoted } = await manager.client
+        .from("memberships").update({ role: "owner" }).eq("id", own.id).select("id");
+      check("a manager cannot promote THEMSELVES to owner",
+        (promoted ?? []).length === 0,
+        (promoted ?? []).length ? "ESCALATION: became owner" : "");
+    }
+
+    const { data: ownerRow } = await staff.client
+      .from("memberships").select("id").eq("user_id", staff.id).maybeSingle();
+    if (ownerRow) {
+      const { data: demoted } = await manager.client
+        .from("memberships").update({ role: "member" }).eq("id", ownerRow.id).select("id");
+      check("a manager cannot demote the owner",
+        (demoted ?? []).length === 0,
+        (demoted ?? []).length ? "ESCALATION: demoted the owner" : "");
+    }
+
+    // The guard must not break ordinary team admin, which edits other people's
+    // rates and capacity through this same policy.
+    const { data: portalRow } = await staff.client
+      .from("memberships").select("id").eq("user_id", portal.id).maybeSingle();
+    if (portalRow) {
+      const { data: rated, error: rateErr } = await manager.client
+        .from("memberships").update({ weekly_capacity_hours: 30 })
+        .eq("id", portalRow.id).select("id");
+      check("a manager can still edit a non-owner's capacity",
+        !rateErr && (rated ?? []).length === 1,
+        rateErr?.message ?? `${(rated ?? []).length} rows`);
+    }
+  }
+
   // Staff must still see everything -- a fix that locks out the agency is a
   // regression, not a fix.
   const { data: staffSees } = await staff.client

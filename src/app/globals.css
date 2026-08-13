@@ -557,6 +557,23 @@ h3 {
   opacity: 1;
 }
 
+/**
+ * Always visible where there is no hover.
+ *
+ * opacity: 0 hides a control without removing it from hit-testing, and a touch
+ * device never fires the hover that reveals it. So on a phone these were
+ * invisible AND fully tappable -- including "Remove", which destroys a post
+ * and its entire metrics history. An invisible destructive button is the worst
+ * possible combination: nothing to aim at, and no way to know you hit it.
+ *
+ * Revealing them costs a little density on touch, which is the correct trade.
+ */
+@media (pointer: coarse) {
+  .row-actions {
+    opacity: 1;
+  }
+}
+
 /* ---- Status pills ---------------------------------------------------------
    Always the -500/-100 pair: dot + label, pill radius, never colour alone
    (the label text is the accessible signal; the dot is a reinforcing cue). */

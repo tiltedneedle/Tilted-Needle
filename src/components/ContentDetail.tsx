@@ -476,6 +476,17 @@ export default function ContentDetail({
                     <button
                       className="row-actions rounded px-2 py-1 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--danger)]"
                       onClick={async () => {
+                        // Deleting the post takes its snapshot history with
+                        // it, which is the one thing here that cannot be
+                        // re-fetched -- a re-added post starts its metric
+                        // series from today. Worth a question.
+                        if (
+                          !confirm(
+                            "Remove this post? Its metrics history goes too, and re-adding it starts the series from scratch.",
+                          )
+                        ) {
+                          return;
+                        }
                         const res = await deletePlatformPost(p.id);
                         if (res.error) setError(res.error);
                         refresh();
