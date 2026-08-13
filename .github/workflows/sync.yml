@@ -141,7 +141,7 @@ jobs:
             cat body.json
             echo
 
-            if [ "${code}" != "200" ] || ! grep -q '"ok":true' body.json; then
+            if [ "${code}" != "200" ]; then
               echo "::error::${platform} sync failed (HTTP ${code})"
               fail=1
               # Give up on THIS platform but keep going with the others. One
@@ -150,21 +150,42 @@ jobs:
               break
             fi
 
-            # Two reasons to stop asking. A short batch means the platform is
-            # finished. Zero synced means nothing moved -- every account came
-            # back skipped, so another identical request would return the same
-            # accounts forever.
             node -e '
               const fs = require("fs");
               const r = JSON.parse(fs.readFileSync("body.json", "utf8"));
               const line = `'"${platform}"' batch '"${batch}"': synced ${r.synced}/${r.accounts} · ${r.postsCreated} new posts · ${r.snapshotsWritten} snapshots · ${r.failed} failed`;
               console.log(line);
               fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, line + "\n");
-              fs.writeFileSync("counts.txt", `${r.accounts} ${r.synced} ${r.eligible ?? 0}`);
+              fs.writeFileSync("counts.txt", `${r.accounts} ${r.synced} ${r.eligible ?? 0} ${r.failed ?? 0}`);
             '
             processed=$(cut -d" " -f1 counts.txt)
             synced=$(cut -d" " -f2 counts.txt)
             eligible=$(cut -d" " -f3 counts.txt)
+            errored=$(cut -d" " -f4 counts.txt)
+
+            # Partial and total failure are different events and must not share
+            # a signal.
+            #
+            # The route's `ok` is now honest -- false whenever ANY account
+            # errored -- so keying the run on it would paint the workflow
+            # permanently red for one deleted Instagram page and train everyone
+            # to ignore the colour. That is how the old always-true version did
+            # its damage in reverse.
+            #
+            # So: a batch where nothing synced but something errored is a real
+            # outage and fails the run. Anything less is a warning, which
+            # annotates the run and the summary without crying wolf. The
+            # accounts that failed are retried on the next pass anyway, because
+            # a failure leaves last_synced_at alone and stalest-first puts them
+            # at the front.
+            if [ "${errored}" -gt 0 ] && [ "${synced}" -eq 0 ]; then
+              echo "::error::${platform}: every account in this batch failed (${errored})"
+              fail=1
+              break
+            fi
+            if [ "${errored}" -gt 0 ]; then
+              echo "::warning::${platform}: ${errored} of ${processed} accounts failed this batch"
+            fi
 
             # How many requests a full pass actually needs, from the platform's
             # own account count. A short batch cannot be the signal: every

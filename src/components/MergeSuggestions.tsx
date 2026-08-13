@@ -2,10 +2,10 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronRight, Merge } from "lucide-react";
+import { ChevronRight, Merge, Undo2 } from "lucide-react";
 import PlatformIcon from "@/components/PlatformIcon";
 import { useToast } from "@/components/ui/Toast";
-import { mergeContentItems } from "@/app/actions";
+import { mergeContentItems, undoContentMerge } from "@/app/actions";
 import {
   findMergeCandidates,
   suggestSurvivor,
@@ -39,12 +39,19 @@ export default function MergeSuggestions({
   const toast = useToast();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
-  // Groups already acted on this render, so a merged pair leaves immediately
-  // rather than sitting there looking un-merged until the refresh lands.
-  const [done, setDone] = useState<Set<string>>(new Set());
+  // group key -> the merge id the database handed back.
+  //
+  // Keeping the id rather than just "this one is done" is what makes the undo
+  // reachable at all. undo_content_merge and its server action both existed
+  // already and nothing called either, so merge -- the most destructive action
+  // in the product -- was advertised as reversible while being one-way.
+  const [done, setDone] = useState<Map<string, string>>(new Map());
 
   const groups = useMemo(() => findMergeCandidates(videos), [videos]);
-  const remaining = groups.filter((g) => !done.has(g.key));
+  // Merged groups stay in the list showing an Undo, rather than vanishing.
+  // A row that disappears the instant you act on it is exactly the row you
+  // cannot get back when you realise it was the wrong call.
+  const remaining = groups.filter((g) => !done.has(g.key) || done.get(g.key));
 
   if (!canManage || groups.length === 0) return null;
 
@@ -61,8 +68,10 @@ export default function MergeSuggestions({
           style={{ color: "var(--muted)" }}
         />
         <span className="text-sm font-medium">Possible duplicates</span>
+        {/* Counts what is still UNMERGED. Merged rows stay listed so their
+            Undo stays reachable, but they are no longer work to do. */}
         <span className="text-xs text-[var(--muted)]">
-          {remaining.length} look like the same video on two platforms
+          {groups.filter((g) => !done.has(g.key)).length} look like the same video on two platforms
         </span>
       </button>
 
@@ -88,30 +97,64 @@ export default function MergeSuggestions({
                       {g.clientName ?? "No client"} · {g.videos.length} rows
                     </div>
                   </div>
-                  <button
-                    className="btn flex shrink-0 items-center gap-1.5 px-2.5 py-1 text-xs"
-                    disabled={busy === g.key}
-                    title="Combine these into one video, keeping both platforms' numbers"
-                    onClick={async () => {
-                      setBusy(g.key);
-                      const res = await mergeContentItems({
-                        survivorId: survivor,
-                        loserIds: g.videos.map((v) => v.id).filter((id) => id !== survivor),
-                        title: g.videos.find((v) => v.id === survivor)?.title,
-                      });
-                      setBusy(null);
-                      // The database refuses with a sentence written for a
-                      // person -- "these are different videos: two of them are
-                      // posted to the same account" -- so it is shown as-is.
-                      if (res.error) return toast("danger", res.error);
-                      setDone((s) => new Set(s).add(g.key));
-                      toast("success", "Merged. Undo from the video's History.");
-                      router.refresh();
-                    }}
-                  >
-                    <Merge size={13} />
-                    {busy === g.key ? "Merging…" : "Merge"}
-                  </button>
+                  {done.has(g.key) ? (
+                    <button
+                      className="flex shrink-0 items-center gap-1.5 rounded px-2.5 py-1 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--fg)]"
+                      disabled={busy === g.key}
+                      title="Split these back into separate videos"
+                      onClick={async () => {
+                        const mergeId = done.get(g.key);
+                        if (!mergeId) return;
+                        setBusy(g.key);
+                        const res = await undoContentMerge(mergeId);
+                        setBusy(null);
+                        if (res.error) return toast("danger", res.error);
+                        setDone((m) => {
+                          const next = new Map(m);
+                          next.delete(g.key);
+                          return next;
+                        });
+                        toast("success", "Split back into separate videos.");
+                        router.refresh();
+                      }}
+                    >
+                      <Undo2 size={13} />
+                      {busy === g.key ? "Undoing…" : "Merged · Undo"}
+                    </button>
+                  ) : (
+                    <button
+                      className="btn flex shrink-0 items-center gap-1.5 px-2.5 py-1 text-xs"
+                      disabled={busy === g.key}
+                      title="Combine these into one video, keeping both platforms' numbers"
+                      onClick={async () => {
+                        setBusy(g.key);
+                        const res = await mergeContentItems({
+                          survivorId: survivor,
+                          loserIds: g.videos.map((v) => v.id).filter((id) => id !== survivor),
+                          title: g.videos.find((v) => v.id === survivor)?.title,
+                        });
+                        setBusy(null);
+                        // The database refuses with a sentence written for a
+                        // person -- "these are different videos: two of them
+                        // are posted to the same account" -- so it is shown
+                        // as-is.
+                        if (res.error) return toast("danger", res.error);
+                        if (!res.mergeId) {
+                          // No id means no way back, so say that rather than
+                          // offering an Undo that would do nothing.
+                          toast("warning", "Merged, but this one cannot be undone.");
+                          router.refresh();
+                          return;
+                        }
+                        setDone((m) => new Map(m).set(g.key, res.mergeId as string));
+                        toast("success", "Merged.");
+                        router.refresh();
+                      }}
+                    >
+                      <Merge size={13} />
+                      {busy === g.key ? "Merging…" : "Merge"}
+                    </button>
+                  )}
                 </div>
               );
             })

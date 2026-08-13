@@ -106,8 +106,19 @@ export async function GET(req: Request) {
       revalidateTag("rankings", "max");
     }
 
+    const failedCount = results.filter((r) => r.status === "error").length;
+
     return NextResponse.json({
-      ok: true,
+      // Honest: "nothing failed", not "the handler reached the end".
+      //
+      // This used to be a literal true, which made the field worse than
+      // useless -- the scheduled workflow checks exactly this value, so a run
+      // where all 32 accounts errored reported success four times a day. A
+      // health signal that cannot go red is not a health signal.
+      //
+      // Callers that want to tolerate a partial failure should read `failed`
+      // and `synced` and decide for themselves; that is why both are returned.
+      ok: failedCount === 0,
       durationMs: Date.now() - started,
       accounts: results.length,
       eligible,

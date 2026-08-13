@@ -1,0 +1,64 @@
+# Build, type-check, lint and test every push.
+#
+# Until now nothing verified a commit before it reached production. Every gate
+# was somebody remembering to run it locally, which means the gates held only
+# as long as attention did -- and two test suites were already red without
+# anyone noticing.
+#
+# Node 22, not the 23 on the author's desktop: 23 is a non-LTS line with a
+# libuv teardown race on Windows that makes `npm test` exit 127 partway through
+# for reasons that have nothing to do with the tests. pipeline.yml already
+# pins 22 for the same reason.
+#
+# No secrets are used. Everything here is offline -- type-check, lint, pure
+# unit tests, and a build. The suites that need live credentials (test:rls,
+# test:selects) are deliberately NOT run here: they would either leak a service
+# key into a public repo's CI or fail closed and train everyone to ignore red.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A newer push makes an in-flight run irrelevant, and unlike the sync workflow
+# there is nothing to corrupt by stopping early.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - run: npm ci
+
+      # Ordered cheapest-first so an obvious break reports in seconds rather
+      # than after a four-minute build.
+      - name: Type-check
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+        env:
+          # The build only needs these to exist -- pages are dynamically
+          # rendered and nothing is prerendered against real data. Dummy values
+          # keep a public fork's CI green without handing it credentials.
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: build-time-placeholder
