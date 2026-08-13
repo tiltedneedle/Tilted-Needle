@@ -2735,11 +2735,33 @@ export async function scrapePostNow(
   };
 }
 
-/** Current scrape allowance for a platform, for the counter beside the button. */
+/**
+ * Current scrape allowance for a platform, for the counter beside the button.
+ *
+ * The membership check below is load-bearing and was missing. Being signed in
+ * was the only requirement, and the workspaceId is supplied by the CALLER and
+ * then handed to a service client, which bypasses RLS by design -- so any
+ * signed-in user could read any workspace's spend by passing its id. Self-serve
+ * signup is open on production, so "any signed-in user" means anyone.
+ *
+ * It is checked through the user's own RLS-bound client rather than by asking
+ * the service client, because that is the check that cannot be got wrong: a
+ * non-member simply cannot see the row. Client-role users are excluded too --
+ * vendor spend is the agency's business, not the client's.
+ */
 export async function getScrapeBudget(workspaceId: string, platformSlug: string) {
   const supabase = await createClient();
   const { data: auth } = await supabase.auth.getUser();
   if (!auth?.user) return null;
+
+  const { data: membership } = await supabase
+    .from("memberships")
+    .select("role")
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", auth.user.id)
+    .eq("is_active", true)
+    .maybeSingle();
+  if (!membership || membership.role === "client") return null;
 
   const { serviceClient } = await import("@/lib/syncRunner");
   const { isMetered, status } = await import("@/lib/scrapeBudget");

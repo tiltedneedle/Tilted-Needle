@@ -137,6 +137,25 @@ try {
     !(assets ?? []).some((r) => r.client_id === clientB),
     (assets ?? []).some((r) => r.client_id === clientB) ? "LEAK: read Client B assets" : "");
 
+
+  /* -- Vendor spend is not the client's business ---------------------------- */
+  //
+  // getScrapeBudget had the same shape of bug as the guidelines leak: a
+  // caller-supplied workspaceId handed to a service client, which bypasses
+  // RLS, gated only on being signed in. That guard now lives in the server
+  // action and cannot be reached from here.
+  //
+  // What IS assertable at this layer is the policy underneath it, which is the
+  // thing that has to hold if the app-level check is ever bypassed or
+  // refactored away: scrape_budgets excludes client-role members outright.
+  {
+    const { data: budgets } = await portal.client
+      .from("scrape_budgets").select("platform_slug,used_discovery");
+    check("a client user cannot read the workspace's vendor spend",
+      (budgets ?? []).length === 0,
+      (budgets ?? []).length ? `LEAK: saw ${(budgets ?? []).length} budget rows` : "");
+  }
+
   // Staff must still see everything -- a fix that locks out the agency is a
   // regression, not a fix.
   const { data: staffSees } = await staff.client
