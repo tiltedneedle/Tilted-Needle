@@ -1,0 +1,96 @@
+# Turn a failed scheduled run into something that reaches a human.
+#
+# Every failure mode in this system was silent. The sync could fail four times
+# a day, the pipeline could fail every six hours, and the only way to find out
+# was to open /data and notice a stale timestamp. A red tick in the Actions tab
+# is not a notification -- nobody opens the Actions tab of a repo that is
+# working.
+#
+# GitHub emails the repo owner when an issue is opened or commented on, so an
+# issue IS the notification path. No third-party service, no webhook to
+# configure, no cost.
+#
+# One issue, reopened and commented rather than one per failure: a scheduled
+# job that breaks tends to break every run, and forty identical issues is the
+# same silence with more noise. The issue closes itself on the next green run,
+# so its state is the current state.
+
+name: alert
+
+on:
+  workflow_run:
+    workflows: [sync, pipeline]
+    types: [completed]
+
+permissions:
+  issues: write
+
+# One at a time, or a sync failure and a pipeline failure landing together can
+# both find "no open issue" and each create one.
+concurrency:
+  group: alert
+  cancel-in-progress: false
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Open, comment on, or close the alert issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const run = context.payload.workflow_run;
+            const failed = run.conclusion === 'failure';
+            const title = `[alert] scheduled "${run.name}" is failing`;
+
+            // Find our own issue by its exact title. A label would need
+            // creating first and this repo has none, so the title is the key.
+            const { data: open } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              per_page: 100,
+            });
+            const existing = open.find((i) => i.title === title);
+
+            const body = [
+              `**${run.name}** finished with \`${run.conclusion}\`.`,
+              '',
+              `- run: ${run.html_url}`,
+              `- branch: \`${run.head_branch}\``,
+              `- commit: ${run.head_sha.slice(0, 7)}`,
+              '',
+              'This issue closes itself on the next successful run.',
+            ].join('\n');
+
+            if (failed && !existing) {
+              await github.rest.issues.create({
+                owner: context.repo.owner, repo: context.repo.repo, title, body,
+              });
+              core.notice(`opened alert issue for ${run.name}`);
+              return;
+            }
+
+            if (failed && existing) {
+              // Comment rather than open a second issue, so repeated failures
+              // read as one ongoing problem with a history.
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: existing.number, body,
+              });
+              core.notice(`commented on #${existing.number}`);
+              return;
+            }
+
+            if (!failed && existing) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: existing.number,
+                body: `Recovered — ${run.name} succeeded (${run.html_url}).`,
+              });
+              await github.rest.issues.update({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: existing.number, state: 'closed',
+              });
+              core.notice(`closed #${existing.number}`);
+            }

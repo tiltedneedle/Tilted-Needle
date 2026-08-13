@@ -124,15 +124,34 @@ export default async function DataPage() {
     used_discovery: number;
     used_manual: number;
   };
-  const budget = ((budgetRes.data ?? []) as Budget[]).find(
-    (b) => b.platform_slug === "instagram",
-  );
-  const budgetUsed = budget
-    ? budget.used_auto + budget.used_discovery + budget.used_manual
-    : null;
-  const budgetLimit = budget
-    ? budget.limit_auto + budget.limit_discovery + budget.limit_manual
-    : null;
+  /**
+   * DISCOVERY only, and every metered platform -- not a pooled total for one.
+   *
+   * This tile used to read "Instagram budget 301/1800" by summing auto,
+   * discovery and manual. Both halves of that hid the thing that matters.
+   * Discovery is the pool that finds NEW videos, it is a tenth the size of the
+   * refresh pool, and it is the one that runs out: Instagram sat at 143/200
+   * while the tile said 301/1800, which reads as comfortable. Meanwhile TikTok
+   * was at 200/200 -- completely exhausted, discovery silently stopped -- and
+   * the tile did not mention TikTok at all.
+   *
+   * Worst-off platform first, so the tile shows the problem rather than an
+   * average that hides it.
+   */
+  const budgets = ((budgetRes.data ?? []) as Budget[])
+    .filter((b) => b.limit_discovery > 0)
+    .map((b) => ({
+      platform: b.platform_slug,
+      used: b.used_discovery,
+      limit: b.limit_discovery,
+      pct: b.limit_discovery > 0 ? b.used_discovery / b.limit_discovery : 0,
+      resets: b.period_end,
+    }))
+    .sort((a, b) => b.pct - a.pct);
+
+  const worst = budgets[0] ?? null;
+  // 80% is where "keep an eye on it" becomes "this will stop before the reset".
+  const tightBudgets = budgets.filter((b) => b.pct >= 0.8);
 
   // The optional TikTok discovery box: /health is unauthenticated by design,
   // so the panel can say "up" or "down" without spending a discovery call.
@@ -194,11 +213,17 @@ export default async function DataPage() {
         />
         <Stat
           icon={Wallet}
-          label="Instagram budget"
-          value={budgetUsed != null ? `${budgetUsed}/${budgetLimit}` : "—"}
+          label={worst ? `${worst.platform} discovery` : "Discovery budget"}
+          value={worst ? `${worst.used}/${worst.limit}` : "—"}
+          // Accented once a platform is within a fifth of its ceiling, because
+          // the number alone did not read as urgent: 143/200 looks fine until
+          // you know it stops finding new videos at 200 and says nothing.
+          accent={!!worst && worst.pct >= 0.8}
           hint={
-            budget
-              ? `resets ${new Date(budget.period_end).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
+            worst
+              ? worst.pct >= 1
+                ? "exhausted — no new videos until reset"
+                : `${tightBudgets.length > 1 ? `${tightBudgets.length} platforms low · ` : ""}resets ${new Date(worst.resets).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
               : "no window open yet"
           }
         />
@@ -224,11 +249,13 @@ export default async function DataPage() {
       <DataPanel
         workspaceId={ws}
         accounts={accounts}
-        instagramBudget={
-          budget && budgetUsed != null && budgetLimit != null
-            ? { used: budgetUsed, limit: budgetLimit, resetsOn: budget.period_end }
-            : null
-        }
+        // Discovery, not the pooled total. This panel is about finding new
+        // videos, and the refresh pool is seven times larger -- summing them
+        // made a nearly-spent discovery allowance look like plenty.
+        instagramBudget={(() => {
+          const ig = budgets.find((b) => b.platform === "instagram");
+          return ig ? { used: ig.used, limit: ig.limit, resetsOn: ig.resets } : null;
+        })()}
         tiktokBox={tiktokBox}
         clients={clients}
         platforms={platforms}

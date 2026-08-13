@@ -14,6 +14,7 @@
  */
 import {
   configFromEnv, callModel, digestOf, budgetState, assertWithinBudget, LlmError,
+  llmMonthlyTokenLimit,
 } from "../../src/lib/llm.ts";
 import {
   buildEvidence, tallyThemes, summaryLine, SYSTEM_PROMPT, COMMENT_THEMES_SCHEMA,
@@ -88,7 +89,10 @@ export async function analyse({ db, job, log }) {
     return { stats: { cached: true, comments: comments.length } };
   }
 
-  const limit = Number(process.env.LLM_MONTHLY_TOKEN_LIMIT ?? 0);
+  // Defaulted in llm.ts rather than to 0 here: the env var is set nowhere, so
+  // "absent means unlimited" left the only spend guard off in every
+  // environment.
+  const limit = llmMonthlyTokenLimit();
   if (limit > 0) {
     const used = await monthTokens(db, job.workspace_id);
     const state = budgetState(used, limit);

@@ -1,4 +1,5 @@
 import type { PipelineStatus } from "@/components/PipelineHealth";
+import { llmMonthlyTokenLimit } from "@/lib/llm";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Db = any;
@@ -61,7 +62,9 @@ export async function loadPipelineStatus(db: Db, ws: string): Promise<PipelineSt
   }[])
     .filter((a) => new Date(a.created_at) >= monthStart)
     .reduce((s, a) => s + (a.input_tokens ?? 0) + (a.output_tokens ?? 0), 0);
-  const limit = Number(process.env.LLM_MONTHLY_TOKEN_LIMIT ?? 0);
+  // Shared with the worker so the panel cannot report a ceiling the job does
+  // not enforce, which is what happened while both defaulted to "unlimited".
+  const limit = llmMonthlyTokenLimit();
 
   const allItems = (items.data ?? []) as { id: string; client_id: string | null }[];
   const withText = new Set(

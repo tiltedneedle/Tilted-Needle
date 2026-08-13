@@ -74,6 +74,32 @@ export class LlmError extends Error {
 
 /* ---- Configuration -------------------------------------------------------- */
 
+/**
+ * Monthly token ceiling, defaulted in code rather than left to an env var.
+ *
+ * Both readers of LLM_MONTHLY_TOKEN_LIMIT treated absent as 0 and 0 as
+ * "no limit". The variable is set nowhere -- not in Vercel, not in GitHub, not
+ * in .env.example -- so the only guard against a runaway bill on the project's
+ * one recurring cost was disabled everywhere, quietly, by default. A ceiling
+ * that has to be opted into is not a ceiling.
+ *
+ * Two million is measured, not guessed: analyses to date average ~3,160 tokens
+ * each, so a full pass over all 282 videos is ~890k. This allows roughly two
+ * complete passes a month plus re-analysis as comments arrive, and still stops
+ * a loop long before it becomes expensive.
+ *
+ * Setting the env var overrides it; setting it to 0 still means unlimited, for
+ * a deliberate backfill.
+ */
+export const DEFAULT_LLM_MONTHLY_TOKEN_LIMIT = 2_000_000;
+
+export function llmMonthlyTokenLimit(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env.LLM_MONTHLY_TOKEN_LIMIT;
+  if (raw === undefined || raw === "") return DEFAULT_LLM_MONTHLY_TOKEN_LIMIT;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : DEFAULT_LLM_MONTHLY_TOKEN_LIMIT;
+}
+
 export function configFromEnv(env: NodeJS.ProcessEnv = process.env): LlmConfig {
   const baseUrl = env.LLM_BASE_URL;
   const apiKey = env.LLM_API_KEY;
