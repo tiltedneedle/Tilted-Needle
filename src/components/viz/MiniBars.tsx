@@ -45,12 +45,22 @@ export default function MiniBars({
             onMouseEnter={() => setHover(i)}
             onMouseLeave={() => setHover(null)}
           >
+            {/* A tinted column with a solid cap, not a solid column.
+                A week with one working day renders as a single saturated
+                slab, which made the quietest card on the dashboard the
+                loudest thing on it -- for a figure already printed in the
+                header. The 2px cap keeps the exact height readable while the
+                body recedes, which is the whole trick: precision at the
+                boundary, restraint everywhere else. */}
             <div
-              className="bar-grow w-full rounded-t-[4px] transition-opacity"
+              className="bar-grow w-full rounded-t-[3px] transition-opacity"
               style={{
                 height: `${Math.max(d.value > 0 ? 4 : 1, (d.value / max) * 100)}%`,
-                background: color,
-                opacity: hover == null || hover === i ? 0.9 : 0.35,
+                background:
+                  d.value > 0
+                    ? `linear-gradient(to bottom, ${color} 0 2px, color-mix(in srgb, ${color} 16%, transparent) 2px)`
+                    : color,
+                opacity: hover == null || hover === i ? 1 : 0.4,
                 animationDelay: `${i * 45}ms`,
               }}
             />

@@ -9,7 +9,7 @@ type IconType = ComponentType<{ size?: number; strokeWidth?: number; className?:
  */
 export function StatGrid({ children }: { children: ReactNode }) {
   return (
-    <div className="stagger mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">{children}</div>
+    <div className="stagger mb-9 grid grid-cols-2 gap-3.5 sm:grid-cols-4">{children}</div>
   );
 }
 
@@ -33,7 +33,7 @@ export function Stat({
 }) {
   return (
     <div
-      className={`animate-rise relative p-4 transition-colors ${
+      className={`animate-rise relative p-5 transition-colors ${
         hero ? "card-hero" : "card"
       } ${accent && !hero ? "border-[var(--accent)]/40" : ""}`}
     >
@@ -91,8 +91,8 @@ export function SectionHeading({
   children?: ReactNode;
 }) {
   return (
-    <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-      <h2 className="text-sm font-semibold">{title}</h2>
+    <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+      <h2 className="text-sm font-semibold tracking-[-0.006em]">{title}</h2>
       {note && <span className="text-xs text-[var(--muted)]">{note}</span>}
       {children}
     </div>
