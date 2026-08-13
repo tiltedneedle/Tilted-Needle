@@ -63,8 +63,30 @@ export async function GET(req: Request) {
   // accounts are ~27s each through Apify and returned 504 every time -- so
   // the caller asks for a few at a time and repeats until a batch comes back
   // short. Absent means "everything", which is what a manual run wants.
-  const maxRaw = Number(url.searchParams.get("max"));
-  const maxAccounts = Number.isFinite(maxRaw) && maxRaw > 0 ? Math.floor(maxRaw) : undefined;
+  //
+  // The DEFAULT is bounded, and that is the important part. Vercel Cron calls
+  // this path with no parameters at all -- it is the documented fallback for
+  // when GitHub's schedules are disabled -- and an unbounded run cannot finish
+  // inside maxDuration. It was dying at 300s every night, leaving 19 sync_runs
+  // stranded in 'running' for up to 14 days. A fallback that cannot complete
+  // is not a fallback.
+  //
+  // Twelve accounts is comfortably inside the limit even at Instagram's ~27s
+  // each. It does not finish the workspace in one call, which is fine:
+  // stalest-first ordering means consecutive daily runs walk the whole list,
+  // and the GitHub workflow does a full pass four times a day anyway.
+  //
+  // max=0 is the explicit escape hatch for an operator who genuinely wants
+  // everything and is willing to wait.
+  const DEFAULT_MAX_ACCOUNTS = 12;
+  const maxParam = url.searchParams.get("max");
+  const maxRaw = Number(maxParam);
+  const maxAccounts =
+    maxParam === null
+      ? DEFAULT_MAX_ACCOUNTS
+      : Number.isFinite(maxRaw) && maxRaw > 0
+        ? Math.floor(maxRaw)
+        : undefined;
   // What makes the batching terminate. The caller pins this to the moment it
   // started, so accounts it has already synced drop out of the queue instead
   // of rotating back to the front -- see runSync's staleBefore.
