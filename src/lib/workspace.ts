@@ -17,6 +17,12 @@ export type SessionContext = {
   userId: string;
   email: string;
   fullName: string;
+  /**
+   * Where this person is, for rendering instants only. Null until their
+   * browser reports it. Day boundaries and periods use the WORKSPACE zone --
+   * see profiles.timezone.
+   */
+  timezone: string | null;
   workspaces: WorkspaceSummary[];
   active: WorkspaceSummary;
 };
@@ -67,7 +73,7 @@ export async function requireSession(): Promise<SessionContext> {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("full_name")
+    .select("full_name, timezone")
     .eq("id", user.id)
     .maybeSingle();
 
@@ -75,6 +81,7 @@ export async function requireSession(): Promise<SessionContext> {
     userId: user.id,
     email: user.email ?? "",
     fullName: profile?.full_name ?? user.email?.split("@")[0] ?? "User",
+    timezone: profile?.timezone ?? null,
     workspaces,
     active,
   };

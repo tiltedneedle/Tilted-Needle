@@ -89,5 +89,34 @@ check("the default is unchanged, so history is not reinterpreted",
   T.OPERATING_TZ === (process.env.OPERATING_TZ || process.env.NEXT_PUBLIC_OPERATING_TZ || "Asia/Dubai"),
   T.OPERATING_TZ);
 
+/* -- Display, per viewer --------------------------------------------------- */
+//
+// The hybrid's other half. These assert the OPPOSITE of everything above: the
+// same instant is SUPPOSED to read differently depending on who is looking,
+// because it is a moment in time rather than a bucket. The rule that keeps the
+// two apart is that nothing here may ever produce a date used for grouping.
+{
+  const iso = "2026-08-13T22:30:00Z";
+  const london = T.formatInstant(iso, "Europe/London");
+  const karachi = T.formatInstant(iso, "Asia/Karachi");
+  const dubai = T.formatInstant(iso, "Asia/Dubai");
+
+  check("the same instant reads differently in each office",
+    london !== karachi && karachi !== dubai, `${london} | ${karachi} | ${dubai}`);
+  check("Karachi has already rolled into the next day", karachi.includes("14 Aug"), karachi);
+  check("London is still on the same evening", london.includes("13 Aug"), london);
+
+  eq("an unknown viewer zone falls back rather than throwing",
+    T.formatInstant(iso, "Not/AZone"), T.formatInstant(iso, T.OPERATING_TZ));
+  eq("no viewer zone yet falls back too",
+    T.formatInstant(iso, null), T.formatInstant(iso, T.OPERATING_TZ));
+  eq("null renders as a dash", T.formatInstant(null, "Asia/Karachi"), "—");
+  eq("an unparseable date renders as a dash",
+    T.formatInstant("not-a-date", "Asia/Karachi"), "—");
+}
+
+eq("the zone label is the city", T.operatingZoneLabel("Asia/Dubai"), "Dubai");
+eq("underscores become spaces", T.operatingZoneLabel("America/New_York"), "New York");
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
+import TimezoneSync from "@/components/TimezoneSync";
 import AppShell from "@/components/AppShell";
 import { ToastProvider } from "@/components/ui/Toast";
 import { requireSession } from "@/lib/workspace";
@@ -53,6 +54,10 @@ export default async function AppLayout({
 
   return (
     <ToastProvider>
+      {/* Renders nothing; reports the browser's zone when it differs from what
+          is stored, so a settled user costs no requests. Display only -- day
+          boundaries stay on the workspace zone. */}
+      <TimezoneSync stored={session.timezone} />
       <AppShell
         workspaces={session.workspaces}
         active={session.active}

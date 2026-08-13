@@ -105,3 +105,41 @@ export function zoneOffsetMs(at: Date, tz: string = OPERATING_TZ): number {
   const asUtc = Date.UTC(get("year"), get("month") - 1, get("day"), hour, get("minute"), get("second"));
   return asUtc - Math.floor(at.getTime() / 1000) * 1000;
 }
+
+/**
+ * Render an instant in the VIEWER's zone.
+ *
+ * The hybrid rule in one function: a moment in time is shown where the person
+ * reading it is, because "synced at 09:15" should mean 09:15 on their clock.
+ * Falls back to the operating zone when we do not know yet -- a first visit,
+ * or a browser that refused to say.
+ *
+ * Never use this to derive a DATE for grouping. A timestamp rendered in
+ * London and the same timestamp rendered in Karachi are the same instant, but
+ * `.slice(0, 10)` of the two would be different days, and that is precisely
+ * the disagreement the workspace zone exists to prevent.
+ */
+export function formatInstant(
+  iso: string | Date | null | undefined,
+  viewerTz: string | null | undefined,
+  opts: Intl.DateTimeFormatOptions = { dateStyle: "medium", timeStyle: "short" },
+): string {
+  if (!iso) return "—";
+  const d = typeof iso === "string" ? new Date(iso) : iso;
+  if (Number.isNaN(d.getTime())) return "—";
+  const tz = viewerTz && isValidZone(viewerTz) ? viewerTz : OPERATING_TZ;
+  return new Intl.DateTimeFormat("en-GB", { ...opts, timeZone: tz }).format(d);
+}
+
+/**
+ * Short label naming the zone a shared figure was bucketed in, e.g. "Dubai".
+ *
+ * Shown next to weeks and periods. The point is not decoration: a UK manager
+ * looking at "Week of 10-16 Aug" has no way to know whose Monday that is, and
+ * silently showing them a Dubai week is how an approval covers hours the
+ * submitter thought were in a different week.
+ */
+export function operatingZoneLabel(tz: string = OPERATING_TZ): string {
+  const city = tz.split("/").pop() ?? tz;
+  return city.replace(/_/g, " ");
+}

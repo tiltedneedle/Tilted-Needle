@@ -3097,3 +3097,35 @@ export async function confirmExtraction(input: {
   revalidatePath("/data");
   return {};
 }
+
+/**
+ * Record where this person is, from their browser.
+ *
+ * DISPLAY ONLY. It changes how an instant is rendered and must never reach a
+ * date bucket or a period boundary -- those belong to workspaces.timezone,
+ * because a week submitted in Karachi has to be the same week approved in
+ * London.
+ *
+ * Validated here as well as by the column constraint: a bad zone written once
+ * would break every page that formats a time, and the caller is a browser we
+ * do not control.
+ */
+export async function saveMyTimezone(tz: string): Promise<Result> {
+  const clean = String(tz ?? "").trim();
+  if (!clean || clean.length > 64) return { error: "Not a timezone." };
+  try {
+    new Intl.DateTimeFormat("en-CA", { timeZone: clean }).format(new Date());
+  } catch {
+    return { error: "Not a recognised timezone." };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+
+  const { error } = await supabase.from("profiles").update({ timezone: clean }).eq("id", user.id);
+  if (error) return { error: error.message };
+  return {};
+}

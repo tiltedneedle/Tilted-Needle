@@ -1,3 +1,4 @@
+import { operatingZoneLabel } from "@/lib/tz";
 import PageHeader from "@/components/PageHeader";
 import TimesheetGrid from "@/components/TimesheetGrid";
 import { createClient } from "@/lib/supabase/server";
@@ -63,7 +64,11 @@ export default async function TimesheetPage({
     <div className="mx-auto max-w-6xl px-6 py-6">
       <PageHeader
         title="Timesheet"
-        subtitle="Weekly view of your tracked time, grouped by project and task."
+        // The zone is named because the week is a SHARED boundary, not the
+        // reader's. Someone in London seeing "Mon-Sun" has no way to know
+        // whose Monday it is, and a week silently shown in another zone is how
+        // an approval ends up covering hours the submitter filed elsewhere.
+        subtitle={`Weekly view of your tracked time, grouped by project and task. Weeks run Mon–Sun in ${operatingZoneLabel()} time.`}
       />
       <TimesheetGrid
         weekStartIso={weekStart.toISOString()}
