@@ -107,6 +107,47 @@ Nested elements take ~4px less than their parent or the two curves fight.
 
 ---
 
+## Chart colour — validated, not assumed
+
+Platform brand colours were treated as exempt from the design rules on the
+grounds that a platform's colour is *data*. That is true of **identity** and
+false of a **chart mark**, and running the palette validator rather than
+reasoning about it made the difference obvious:
+
+```
+[FAIL] Lightness band   outside band: [["#00f2ea", 0.868]]
+```
+
+TikTok's brand cyan is measurably too light for a dark surface. It was the
+brightest thing on the home page, pulling the eye off every other series.
+
+So the two jobs are two constants:
+
+| Constant | Used for | TikTok |
+|---|---|---|
+| `PLATFORM_COLORS` | dots, chips, icons — identity | `#00f2ea` (brand) |
+| `CHART_COLORS` | lines, bars, meters — marks | `#1aa9a3` (validated) |
+
+A 6px dot at any lightness is recognisable and comfortable; a 200px line is
+not. YouTube and Instagram passed unaltered, so a chart still reads as the
+platform it describes.
+
+On white the new teal lands at **2.9:1 against a 3:1 bar**. That WARN is
+discharged rather than waved through — the checker permits it where charts
+carry visible labels, and every chart here is directly labelled. Darkening
+further to win the point outright **fails the chroma floor** instead, and the
+teal starts reading grey.
+
+## Regression check
+
+The risk this pass carried: bigger type, a 30px serif, wider tracking and more
+padding are each capable of pushing a layout back over the edge fixed earlier.
+
+**24 routes swept at 360px with phone emulation — zero overflow, zero clipped
+elements.** The token architecture held.
+
+---
+
 ## Needs your attention
 
 Nothing here is blocking, but these are judgement calls you may want to
