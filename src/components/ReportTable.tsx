@@ -17,6 +17,23 @@ import { reportToCsv, type Report } from "@/lib/reports";
  * Sorting happens here rather than in the URL: it changes nothing about
  * which rows exist, so it does not belong in the shareable filter state.
  */
+/**
+ * A row with nothing in it under the current filters.
+ *
+ * Derived rather than flagged upstream, because "empty" is a property of the
+ * VIEW, not of the person: the same row is blank under one filter and full
+ * under another, so a field on the data would be wrong half the time.
+ *
+ * Reads the numeric cells only. A text cell always has content -- the name --
+ * so counting it would make every row non-blank.
+ */
+function isBlank(row: Report["rows"][number]): boolean {
+  if (row.platforms.length > 0) return false;
+  return Object.values(row.cells).every(
+    (c) => c.sort === 0 || c.sort === "" || c.text === "—" || typeof c.sort === "string",
+  );
+}
+
 export default function ReportTable({ report }: { report: Report }) {
   const [sort, setSort] = useState(report.defaultSort);
 
@@ -105,7 +122,25 @@ export default function ReportTable({ report }: { report: Report }) {
 
             <tbody className="divide-y divide-[var(--border)]">
               {rows.map((r) => (
-                <tr key={r.id} className="transition-colors hover:bg-[var(--bg-subtle)]">
+                /**
+                 * A person with nothing in the current filter recedes.
+                 *
+                 * Ten rows of em-dashes and "nothing published" were taking
+                 * up most of the table and crowding out the four people who
+                 * actually did something -- the eye has to work to find the
+                 * data because the noise is the same weight as the signal.
+                 *
+                 * Dimmed rather than hidden, and it lifts to full on hover.
+                 * Their absence from a filter is itself information ("nobody
+                 * on the team touched TikTok in June"), so removing the rows
+                 * would answer a different question than the one asked.
+                 */
+                <tr
+                  key={r.id}
+                  className={`transition-[background-color,opacity] hover:bg-[var(--bg-subtle)] ${
+                    isBlank(r) ? "opacity-45 hover:opacity-100" : ""
+                  }`}
+                >
                   {report.columns.map((c) => {
                     if (c.kind === "platforms") {
                       return (
