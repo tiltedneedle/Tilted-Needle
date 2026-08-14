@@ -54,25 +54,47 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-dvh items-center justify-center px-4">
-      <div className="animate-rise w-full max-w-sm">
-        <div className="mb-8">
+    <div className="relative flex min-h-dvh items-center justify-center px-4">
+      {/* One barely-there wash behind the panel.
+          A login screen is the only place in this product with nothing to
+          read, so it can carry a little atmosphere -- but at 5% it registers
+          as "this surface is not flat" rather than as a gradient. Anything
+          stronger would be the first thing anyone sees announcing itself,
+          which is the opposite of the brief. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            "radial-gradient(60% 50% at 50% 0%, color-mix(in srgb, var(--accent) 5%, transparent), transparent 70%)",
+        }}
+      />
+
+      <div className="animate-rise relative w-full max-w-[380px]">
+        {/* The mark and wordmark sit OUTSIDE the panel, centred. Inside it
+            they compete with the fields for the same vertical space; above
+            it they read as a letterhead, which is the register this is
+            aiming for. */}
+        <div className="mb-7 flex flex-col items-center text-center">
           {/* The real brand mark, same asset the Guidelines grid serves. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="/clients/tilted-needle.jpg"
             alt=""
-            width={44}
-            height={44}
-            className="mb-3 rounded-xl"
+            width={48}
+            height={48}
+            className="mb-4 rounded-[14px]"
+            style={{ boxShadow: "var(--shadow-card)" }}
           />
-          <div className="mb-1 text-lg font-semibold tracking-tight">Tilted Needle</div>
+          <div className="mb-1.5 text-[17px] font-semibold tracking-[-0.02em]">
+            Tilted Needle
+          </div>
           <p className="text-sm text-[var(--muted)]">
             {mode === "signin" ? "Sign in to your workspace." : "Create your account."}
           </p>
         </div>
 
-        <form onSubmit={onSubmit} className="space-y-3">
+        <form onSubmit={onSubmit} className="card space-y-3 p-6">
           {mode === "signup" && (
             <input
               className="input"
@@ -118,7 +140,9 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1">
+        {/* Secondary routes sit outside the panel and centred under it --
+            they are a footnote to the form, not another field in it. */}
+        <div className="mt-5 flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
           <button
             type="button"
             className="text-sm text-[var(--muted)] transition-colors hover:text-[var(--fg)]"
