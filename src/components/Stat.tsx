@@ -75,9 +75,23 @@ export function Stat({
 }
 
 /** A muted "nothing here yet" panel, so empty states never read as broken. */
+/**
+ * Nothing to show.
+ *
+ * A dashed outline rather than a solid card, because an empty state is a gap
+ * in the page and should read as one -- a fully rendered card containing a
+ * sentence about absence looks like a component that failed rather than a
+ * space waiting to be filled. Dashed is the oldest convention for "this is a
+ * placeholder" and it still costs nothing to read.
+ */
 export function Empty({ children }: { children: ReactNode }) {
   return (
-    <div className="card p-10 text-center text-sm text-[var(--muted)]">{children}</div>
+    <div
+      className="rounded-[var(--radius-md)] px-8 py-12 text-center text-sm text-[var(--muted)]"
+      style={{ border: "1px dashed var(--border-strong)" }}
+    >
+      {children}
+    </div>
   );
 }
 

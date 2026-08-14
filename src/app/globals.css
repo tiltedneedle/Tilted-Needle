@@ -510,7 +510,7 @@ h3 {
 }
 .input:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--coral-100);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 .input:disabled {
   opacity: 0.4;
@@ -542,7 +542,6 @@ h3 {
 .btn:hover {
   border-color: var(--border-strong);
   background: var(--bg-subtle);
-  box-shadow: var(--shadow-card);
 }
 .btn:focus-visible {
   outline: 2px solid var(--accent);
@@ -606,12 +605,15 @@ h3 {
     box-shadow var(--dur-fast) var(--ease);
 }
 .btn-primary:hover {
-  background: var(--coral-400);
-  transform: translateY(-1px);
+  background: color-mix(in srgb, var(--accent) 88%, var(--fg));
+  /* No lift. A button that jumps toward the cursor is a personality, and
+     this one is not supposed to have one -- the colour shift and the shadow
+     already say "live". Movement is reserved for press, where it maps to a
+     real physical idea. */
   box-shadow: var(--shadow-coral);
 }
 .btn-primary:focus-visible {
-  outline: 2px solid var(--charcoal-900);
+  outline: 2px solid var(--fg);
   outline-offset: 2px;
 }
 .btn-primary:active {
@@ -726,6 +728,16 @@ h3 {
   font-size: 0.75rem;
   font-weight: 500;
   white-space: nowrap;
+  /* A hairline in the pill's own hue, at low alpha.
+     A flat tinted lozenge reads as a highlighter mark; the same tint with a
+     defined edge reads as a printed label. currentColor means each variant
+     gets its own border for free -- success green edges green, danger red
+     edges red -- without four more rules to keep in sync. */
+  border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+  /* Small text set in a coloured box wants a fraction more spacing than the
+     same text on a plain background, or it looks cramped inside its own
+     container. */
+  letter-spacing: 0.005em;
 }
 .pill-success {
   background: var(--success-100);
