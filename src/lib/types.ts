@@ -179,7 +179,15 @@ export function one<T>(embedded: T | T[] | null | undefined): T | null {
   return embedded ?? null;
 }
 
-/** Platform brand colours, for chips and legends only -- never for data encoding. */
+/**
+ * Brand identity. Dots, icons, chips -- anything whose job is "which platform
+ * is this".
+ *
+ * NOT for chart marks. See CHART_COLORS below: TikTok's brand cyan measures
+ * L 0.868, which is outside the usable band on a dark surface, so as a line on
+ * a near-black card it glares and out-shouts every other series. A 6px dot at
+ * that lightness is fine and instantly recognisable; a 200px line is not.
+ */
 export const PLATFORM_COLORS: Record<string, string> = {
   instagram: "#e1306c",
   tiktok: "#00f2ea",
@@ -239,3 +247,36 @@ export const MANAGER_ROLES: WorkspaceRole[] = ["owner", "admin", "manager"];
 export function canManage(role: WorkspaceRole | undefined): boolean {
   return !!role && MANAGER_ROLES.includes(role);
 }
+
+/**
+ * The same platforms, as CHART MARKS.
+ *
+ * Separate from PLATFORM_COLORS because identity and legibility are different
+ * jobs with different constraints. A brand colour only has to be recognisable;
+ * a chart mark has to sit in a lightness band, hold its chroma, stay apart from
+ * its neighbours under colour-blind simulation, and clear 3:1 against the
+ * surface it is drawn on.
+ *
+ * Validated with the dataviz palette checker rather than by eye. TikTok's
+ * #00f2ea failed the lightness band on a dark surface at L 0.868 -- it was the
+ * brightest thing on the home page and pulled the eye off every other series.
+ * #1aa9a3 passes every check on the dark surface and all but contrast on
+ * white, where it lands at 2.9:1 against a 3:1 bar.
+ *
+ * That remaining WARN is discharged rather than ignored: the checker allows a
+ * sub-3:1 mark when the chart carries visible labels, and every chart here is
+ * directly labelled -- "TikTok +498k" on the momentum cards, "TikTok
+ * 59,823,484 views" on the reach rows. Darkening it further to win the point
+ * outright fails the chroma floor instead and the teal starts reading grey,
+ * which is the worse trade.
+ *
+ * YouTube and Instagram passed unchanged, so they keep their brand values and
+ * a chart still reads as the platform it describes.
+ */
+export const CHART_COLORS: Record<string, string> = {
+  instagram: "#e1306c",
+  tiktok: "#1aa9a3",
+  youtube: "#ff0000",
+  youtube_shorts: "#ff0000",
+  facebook: "#1877f2",
+};

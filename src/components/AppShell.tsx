@@ -68,9 +68,20 @@ export default function AppShell({
           role="dialog"
           aria-modal="true"
         >
+          {/* Scrim, not a blackout. A flat 50% black hides the page; a
+              lighter wash with a small blur pushes it out of focus while
+              leaving it legible as context -- you can still see WHERE you
+              were, which is the difference between a drawer over your work
+              and a new screen. This is chrome floating over content, so the
+              blur belongs here for the same reason it does not belong on a
+              table. */}
           <div
             className="absolute inset-0"
-            style={{ background: "rgb(0 0 0 / 0.5)" }}
+            style={{
+              background: "rgb(0 0 0 / 0.42)",
+              backdropFilter: "blur(3px)",
+              WebkitBackdropFilter: "blur(3px)",
+            }}
             onClick={() => setOpen(false)}
           />
           <div className="animate-slide-in relative">

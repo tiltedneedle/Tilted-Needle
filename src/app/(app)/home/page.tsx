@@ -35,6 +35,7 @@ import { formatCount, formatDurationShort } from "@/lib/format";
 import {
   canManage,
   one,
+  CHART_COLORS,
   PLATFORM_COLORS,
   PLATFORM_LABEL,
   type Todo,
@@ -313,7 +314,7 @@ export default async function HomePage() {
                   <div className="mt-2">
                     <Sparkline
                       data={m.points}
-                      color={PLATFORM_COLORS[m.slug] ?? "var(--accent)"}
+                      color={CHART_COLORS[m.slug] ?? "var(--accent)"}
                       valuePrefix="+" valueSuffix=" views"
                     />
                   </div>

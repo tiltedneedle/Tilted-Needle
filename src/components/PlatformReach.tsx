@@ -1,4 +1,4 @@
-import { PLATFORM_COLORS, PLATFORM_LABEL } from "@/lib/types";
+import { CHART_COLORS, PLATFORM_LABEL } from "@/lib/types";
 import PlatformIcon from "@/components/PlatformIcon";
 import { engagementRate, type PlatformTotals } from "@/lib/rollup";
 
@@ -28,7 +28,11 @@ export default function PlatformReach({
     <div className="card divide-y divide-[var(--border)] overflow-hidden">
       {totals.map((t) => {
         const eng = engagementRate(t);
-        const color = PLATFORM_COLORS[t.platform] ?? "var(--muted)";
+        // The METER uses the chart step; the icon beside it keeps the
+        // brand value. A 200px bar of TikTok's #00f2ea glares on a dark
+        // surface (L 0.868, outside the band); a 14px icon at the same
+        // value is instantly recognisable and perfectly comfortable.
+        const color = CHART_COLORS[t.platform] ?? "var(--muted)";
         return (
           <div key={t.platform} className="px-3 py-2.5">
             {/* items-baseline stays: the big view count and the small labels

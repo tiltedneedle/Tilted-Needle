@@ -685,10 +685,6 @@ h3 {
   }
 }
 
-.panel-shadow {
-  box-shadow: var(--shadow-overlay);
-}
-
 /* Hover-revealed row actions -- no permanent button clutter. */
 .row-actions {
   opacity: 0;
