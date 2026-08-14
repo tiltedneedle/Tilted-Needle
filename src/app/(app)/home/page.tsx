@@ -243,7 +243,7 @@ export default async function HomePage() {
                 Today&apos;s sheet
               </div>
               <div
-                className="tabular mt-1.5 text-2xl font-semibold leading-none"
+                className="numeral mt-2 text-[30px] leading-[1.05]"
                 style={{ color: "var(--white)" }}
               >
                 {todos.length ? (
@@ -630,7 +630,7 @@ export default async function HomePage() {
               Today
             </div>
             <div
-              className="tabular mt-1.5 text-2xl font-semibold leading-none"
+              className="numeral mt-2 text-[30px] leading-[1.05]"
               style={{ color: "var(--white)" }}
             >
               {todos.length ? (

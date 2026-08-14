@@ -137,7 +137,7 @@ export default async function DashboardPage({
           <div className="text-xs uppercase tracking-wide text-[var(--muted)]">
             Total time
           </div>
-          <div className="tabular mt-1 text-2xl font-semibold">
+          <div className="numeral mt-2 text-[30px] leading-[1.05]">
             {formatDuration(total)}
           </div>
         </div>
@@ -145,13 +145,13 @@ export default async function DashboardPage({
           <div className="text-xs uppercase tracking-wide text-[var(--muted)]">
             Top project
           </div>
-          <div className="mt-1 truncate text-2xl font-semibold">{topProject}</div>
+          <div className="mt-2 truncate text-[19px] font-medium leading-tight">{topProject}</div>
         </div>
         <div className="card p-4">
           <div className="text-xs uppercase tracking-wide text-[var(--muted)]">
             Top client
           </div>
-          <div className="mt-1 truncate text-2xl font-semibold">{topClient}</div>
+          <div className="mt-2 truncate text-[19px] font-medium leading-tight">{topClient}</div>
         </div>
       </div>
 
@@ -162,10 +162,15 @@ export default async function DashboardPage({
             {days.map((d) => (
               <div key={d.key} className="group relative flex-1" title={`${d.label}: ${formatDurationShort(d.secs)}`}>
                 <div
-                  className="w-full rounded-t bg-[var(--accent)] transition-[height] duration-300"
+                  className="w-full rounded-t-[3px] transition-[height] duration-300"
                   style={{
                     height: `${Math.round((d.secs / maxDay) * 160)}px`,
                     minHeight: d.secs ? 2 : 0,
+                    // Matches MiniBars on the home page: precision at the
+                    // boundary, restraint through the body.
+                    background: d.secs
+                      ? "linear-gradient(to bottom, var(--accent) 0 2px, color-mix(in srgb, var(--accent) 16%, transparent) 2px)"
+                      : "transparent",
                   }}
                 />
               </div>
@@ -178,7 +183,7 @@ export default async function DashboardPage({
 
           <div className="mt-5 space-y-1.5">
             {projectRows.length === 0 && (
-              <p className="py-6 text-center text-sm text-[var(--muted)]">
+              <p className="empty">
                 No time tracked this month.
               </p>
             )}
@@ -193,7 +198,12 @@ export default async function DashboardPage({
                     className="h-full rounded-full transition-[width] duration-500"
                     style={{
                       width: `${total ? (p.secs / total) * 100 : 0}%`,
-                      background: p.color,
+                      // Accent, not the project's own colour. Every row here
+                      // is a share of the SAME total, so this is a magnitude
+                      // scale rather than a set of categories -- and the
+                      // project palette rendered a grey bar that matched
+                      // nothing else on the page.
+                      background: "color-mix(in srgb, var(--accent) 55%, transparent)",
                     }}
                   />
                 </div>
@@ -208,7 +218,7 @@ export default async function DashboardPage({
         <div className="card p-4">
           <div className="mb-3 text-sm font-medium">Most tracked activities</div>
           {activities.length === 0 && (
-            <p className="py-6 text-center text-sm text-[var(--muted)]">Nothing yet.</p>
+            <p className="empty">Nothing yet.</p>
           )}
           <div className="space-y-2.5">
             {activities.map((a) => (

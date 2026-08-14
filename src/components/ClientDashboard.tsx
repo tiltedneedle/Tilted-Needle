@@ -192,7 +192,7 @@ function Stat({ label, value }: { label: string; value: string }) {
       <div className="text-[11px] font-medium uppercase tracking-wide text-[var(--muted)]">
         {label}
       </div>
-      <div className="tabular mt-1.5 text-2xl font-semibold leading-none">{value}</div>
+      <div className="numeral mt-2 text-[30px] leading-[1.05]">{value}</div>
     </div>
   );
 }
