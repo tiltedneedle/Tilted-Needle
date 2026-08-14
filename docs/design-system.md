@@ -161,16 +161,18 @@ overrule:
    real change of character, not just a palette swap.
 3. **`OPERATING_TZ` is still unset in Vercel**, so `/data` shows a red drift
    banner until it is. Unrelated to design, but visible.
-4. **Charts still use platform brand colours** (TikTok cyan, Instagram pink).
-   They are deliberately exempt from the one-accent rule — a platform's colour
-   is data, not decoration — but it does mean the momentum row is the most
-   colourful thing on the home page.
+4. **Chart marks no longer use TikTok's brand cyan** — see the chart-colour
+   section above. Icons and dots still do, so identity is unchanged, but a
+   TikTok *line* is now teal rather than cyan. This is the change most likely
+   to look like a mistake to someone who knows the brand, and the one place
+   the measured answer and the expected answer differ.
 
 ---
 
 ## What was left alone, on purpose
 
-- **Platform brand colours**, per above.
+- **Platform brand colours for IDENTITY** — dots, chips and icons keep the
+  real brand values. Only chart marks moved, and only TikTok's.
 - **Status colours** (success/warning/danger/info). They are semantic; making
   them all red for brand consistency would destroy the meaning.
 - **Density.** This is an instrument used all day. Generous whitespace was
