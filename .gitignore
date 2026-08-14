@@ -41,3 +41,9 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .playwright-mcp/
+
+# Screenshots taken while verifying UI work. They belong in a scratch dir, not
+# in a public repo -- four of them were committed by a `git add -A` before this
+# rule existed.
+/*.png
+/.playwright-mcp/
