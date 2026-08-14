@@ -85,14 +85,10 @@ export function Stat({
  * placeholder" and it still costs nothing to read.
  */
 export function Empty({ children }: { children: ReactNode }) {
-  return (
-    <div
-      className="rounded-[var(--radius-md)] px-8 py-12 text-center text-sm text-[var(--muted)]"
-      style={{ border: "1px dashed var(--border-strong)" }}
-    >
-      {children}
-    </div>
-  );
+  // Deliberately thin: the appearance lives in the .empty class, so this
+  // component and the eighteen files that hand-rolled the same thing before
+  // it now render identically and change together.
+  return <div className="empty">{children}</div>;
 }
 
 export function SectionHeading({

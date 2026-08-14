@@ -396,7 +396,7 @@ export default function ContentDetail({
 
       <div className="mb-3 space-y-2">
         {posts.length === 0 && (
-          <div className="card p-8 text-center text-sm text-[var(--muted)]">
+          <div className="empty">
             Not posted anywhere yet.
           </div>
         )}

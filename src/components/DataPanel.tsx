@@ -199,7 +199,7 @@ export default function DataPanel({
               </div>
 
               {mine.length === 0 ? (
-                <div className="card p-5 text-center text-xs text-[var(--muted)]">
+                <div className="empty">
                   No {s.label} accounts connected.
                 </div>
               ) : (

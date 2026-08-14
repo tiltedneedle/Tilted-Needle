@@ -33,7 +33,7 @@ export default function ClientDashboard({
 }) {
   if (itemCount === 0) {
     return (
-      <div className="card p-10 text-center text-sm text-[var(--muted)]">
+      <div className="empty">
         No content assigned to this client yet.
       </div>
     );
@@ -65,7 +65,7 @@ export default function ClientDashboard({
       </div>
 
       {totals.length === 0 ? (
-        <div className="card mb-6 p-8 text-center text-sm text-[var(--muted)]">
+        <div className="mb-6 empty">
           Nothing published yet.
         </div>
       ) : (

@@ -276,7 +276,7 @@ export default function TrainingAdmin({
         </div>
 
         {assignments.length === 0 ? (
-          <div className="card p-6 text-center text-sm text-[var(--muted)]">
+          <div className="empty">
             Nobody has access yet.
           </div>
         ) : (

@@ -50,7 +50,7 @@ export default function CoursePlayer({
 
   if (videos.length === 0) {
     return (
-      <div className="card p-8 text-center text-sm text-[var(--muted)]">
+      <div className="empty">
         No videos in this module yet.
       </div>
     );

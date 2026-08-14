@@ -123,7 +123,7 @@ export default function RatesManager({
       <section>
         <h2 className="mb-2 text-sm font-semibold">Projects</h2>
         {projects.length === 0 ? (
-          <div className="card p-8 text-center text-sm text-[var(--muted)]">
+          <div className="empty">
             No active projects.
           </div>
         ) : (

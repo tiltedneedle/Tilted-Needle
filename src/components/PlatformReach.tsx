@@ -18,7 +18,7 @@ export default function PlatformReach({
 }) {
   if (totals.length === 0) {
     return (
-      <div className="card p-8 text-center text-sm text-[var(--muted)]">{emptyText}</div>
+      <div className="empty">{emptyText}</div>
     );
   }
 

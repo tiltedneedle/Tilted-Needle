@@ -66,7 +66,7 @@ export default function ApprovalsManager({ rows }: { rows: Row[] }) {
       )}
 
       {visible.length === 0 ? (
-        <div className="card p-10 text-center text-sm text-[var(--muted)]">
+        <div className="empty">
           {filter === "pending" ? "Nothing waiting for review." : "No submissions yet."}
         </div>
       ) : (

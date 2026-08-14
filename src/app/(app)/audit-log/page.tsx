@@ -45,7 +45,7 @@ export default async function AuditLogPage() {
         subtitle="Rate changes, approvals, and invoice actions. Append-only -- nothing here can be edited or deleted."
       />
       {rows.length === 0 ? (
-        <div className="card p-10 text-center text-sm text-[var(--muted)]">
+        <div className="empty">
           Nothing recorded yet.
         </div>
       ) : (

@@ -48,7 +48,7 @@ export default function ReportTable({ report }: { report: Report }) {
 
   if (report.rows.length === 0) {
     return (
-      <div className="card p-10 text-center text-sm text-[var(--muted)]">{report.empty}</div>
+      <div className="empty">{report.empty}</div>
     );
   }
 

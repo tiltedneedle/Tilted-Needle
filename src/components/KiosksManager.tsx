@@ -85,7 +85,7 @@ export default function KiosksManager({
         )}
 
         {kiosks.length === 0 ? (
-          <div className="card p-8 text-center text-sm text-[var(--muted)]">
+          <div className="empty">
             No kiosk devices yet.
           </div>
         ) : (

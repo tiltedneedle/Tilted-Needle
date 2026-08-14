@@ -719,6 +719,28 @@ h3 {
 /* ---- Status pills ---------------------------------------------------------
    Always the -500/-100 pair: dot + label, pill radius, never colour alone
    (the label text is the accessible signal; the dot is a reinforcing cue). */
+/**
+ * Nothing to show.
+ *
+ * There were eighteen versions of this across seventeen files -- `card p-10
+ * text-center`, `card p-8`, `card p-6`, `card p-5` -- each a hand-rolled
+ * variant of the same idea, so "empty" looked slightly different depending on
+ * which screen you happened to be on. One class, one appearance.
+ *
+ * Dashed rather than a solid card, because an empty state IS a gap in the
+ * page and should read as one. A fully rendered card containing a sentence
+ * about absence looks like a component that failed; a dashed outline is the
+ * oldest convention for "space waiting to be filled" and still the clearest.
+ */
+.empty {
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  padding: 3rem 2rem;
+  text-align: center;
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+
 .pill {
   display: inline-flex;
   align-items: center;

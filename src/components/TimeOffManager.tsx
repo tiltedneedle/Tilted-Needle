@@ -177,7 +177,7 @@ export default function TimeOffManager({
       )}
 
       {policies.length === 0 ? (
-        <div className="card mb-6 p-8 text-center text-sm text-[var(--muted)]">
+        <div className="mb-6 empty">
           {isManager
             ? "No time-off policies yet. Create one above."
             : "No time-off policies configured for this workspace."}

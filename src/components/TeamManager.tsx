@@ -368,7 +368,7 @@ function GroupsPanel({
       )}
 
       {groups.length === 0 ? (
-        <div className="card p-8 text-center text-sm text-[var(--muted)]">
+        <div className="empty">
           No groups yet. Groups let reports and filters target a set of
           people at once instead of picking each person individually.
         </div>

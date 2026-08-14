@@ -34,7 +34,7 @@ export default function EntryList({
 
   if (finished.length === 0) {
     return (
-      <div className="card p-10 text-center text-sm text-[var(--muted)]">
+      <div className="empty">
         No time tracked yet. Start the timer above, or type a duration like
         <span className="mx-1 rounded bg-[var(--bg-subtle)] px-1.5 py-0.5 tabular">
           1:30
