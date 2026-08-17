@@ -2,7 +2,8 @@ import { OPERATING_TZ, formatInstant } from "@/lib/tz";
 import Link from "next/link";
 import PageHeader from "@/components/PageHeader";
 import HomeTodoList from "@/components/HomeTodoList";
-import Avatar from "@/components/Avatar";
+import LeaderCard from "@/components/LeaderCard";
+import { buildLeaderboards } from "@/lib/buildLeaderboards";
 import CountUp from "@/components/CountUp";
 import Sparkline from "@/components/viz/Sparkline";
 import MiniBars from "@/components/viz/MiniBars";
@@ -17,7 +18,6 @@ import {
   ListChecks,
   RefreshCw,
   TrendingUp,
-  Trophy,
   Users,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
@@ -96,7 +96,6 @@ export default async function HomePage() {
 
   /* ---- Manager: the command center --------------------------------------- */
   if (manages) {
-    const weekStart = startOfWeek();
     // PRD v0.5 §9: Home is the picture of the business as it stands, so an
     // archived client's back catalogue is excluded from every aggregate
     // below. Nothing is deleted -- /content?client=… still has all of it.
@@ -233,10 +232,11 @@ export default async function HomePage() {
       // holds the most ROLES outranks whoever did the most work.
       creditsByUser.get(a.user_id)!.videos.add(a.content_item_id);
     }
-    const performers = [...creditsByUser.entries()]
-      .map(([userId, u]) => ({ userId, name: u.name, videos: u.videos.size }))
-      .sort((a, b) => b.videos - a.videos)
-      .slice(0, 3);
+    // Both leaderboards, over all four windows, in one pass. The workspace
+    // read behind this is already cached and shared with /content, so the
+    // extra windows cost arithmetic rather than queries -- which is what
+    // makes the card's window switch instant.
+    const leaders = await buildLeaderboards(ws, rankings.assignments);
 
     const weekTotalSeconds = weekHours.reduce((s, d) => s + d.seconds, 0);
     const maxMoverGain = Math.max(...movers.map((m) => m.gained), 1);
@@ -437,39 +437,12 @@ export default async function HomePage() {
         </div>
 
         {/* ---- Performers, training, pipeline ------------------------------ */}
-        <div className="mb-7 grid gap-3 [&>*]:min-w-0 sm:grid-cols-3">
-          <div className="card animate-rise p-4">
-            <div className="mb-3 flex items-center gap-2">
-              <Trophy size={15} className="text-[var(--muted)]" />
-              <span className="text-sm font-semibold">Most credited</span>
-            </div>
-            {performers.length === 0 ? (
-              <p className="text-xs text-[var(--muted)]">
-                Nobody is credited on a video yet.
-              </p>
-            ) : (
-              <div className="space-y-2.5">
-                {performers.map((p) => (
-                  <Link
-                    key={p.userId}
-                    href={`/content?person=${p.userId}`}
-                    className="group flex items-center gap-2.5"
-                  >
-                    <Avatar name={p.name} seed={p.userId} size={26} />
-                    <span className="min-w-0 flex-1 truncate text-sm transition-colors group-hover:text-[var(--accent)]">
-                      {p.name}
-                    </span>
-                    <span className="tabular text-sm font-semibold">
-                      {p.videos}
-                      <span className="ml-1 text-xs font-normal text-[var(--muted)]">
-                        video{p.videos === 1 ? "" : "s"}
-                      </span>
-                    </span>
-                  </Link>
-                ))}
-              </div>
-            )}
-          </div>
+        {/* Four columns now: the two leaderboards sit side by side because
+            they are a pair -- volume next to reach -- and reading one without
+            the other is how a credit count gets mistaken for a verdict. */}
+        <div className="mb-7 grid gap-3 [&>*]:min-w-0 sm:grid-cols-2 xl:grid-cols-4">
+          <LeaderCard kind="credits" data={leaders} />
+          <LeaderCard kind="views" data={leaders} />
 
           <Link href="/training" className="card card-interactive animate-rise flex items-center gap-4 p-4">
             <ProgressRing
