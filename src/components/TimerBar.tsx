@@ -107,6 +107,9 @@ export default function TimerBar({
         background: "var(--glass-bg)",
         backdropFilter: "var(--glass-filter)",
         WebkitBackdropFilter: "var(--glass-filter)",
+        // Overrides .card's panel-tier shadow: this bar is chrome, not a
+        // card, and chrome earns the longer throw.
+        boxShadow: "var(--shadow-overlay)",
       }}
     >
       <div className="flex flex-wrap items-center gap-2">

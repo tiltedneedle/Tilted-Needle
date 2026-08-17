@@ -34,6 +34,7 @@ import Popover from "@/components/ui/Popover";
 import type { ComponentType } from "react";
 import { switchWorkspace, signOut } from "@/app/actions";
 import ThemeToggle from "@/components/ui/ThemeToggle";
+import GlassToggle from "@/components/ui/GlassToggle";
 import type { WorkspaceSummary } from "@/lib/workspace";
 
 type IconType = ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
@@ -301,6 +302,19 @@ export default function Sidebar({
             Theme
           </span>
           <ThemeToggle />
+        </div>
+        {/* Directly under Theme, because they are the same kind of decision --
+            how the product looks to this person on this screen -- and someone
+            who came here to turn the brightness down should not have to guess
+            that transparency lives somewhere else. */}
+        <div className="mb-2 flex items-center justify-between px-2">
+          <span
+            className="text-[11px] font-medium uppercase tracking-wide"
+            style={{ color: "var(--sidebar-muted)" }}
+          >
+            Glass
+          </span>
+          <GlassToggle />
         </div>
         <div className="flex items-center gap-2.5 rounded-[var(--radius-sm)] px-2 py-2">
           <span

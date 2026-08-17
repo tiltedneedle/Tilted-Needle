@@ -53,7 +53,19 @@ export default function RootLayout({
         />
         <ThemeScript />
       </head>
-      <body className="min-h-full">{children}</body>
+      <body className="min-h-full">
+        {/* The field. Fixed, behind everything, inert -- see globals.css for
+            why it is three soft blobs and why it never moves. It lives here
+            rather than in the app layout so that auth, the kiosk and the
+            client portal sit on the same ground; a glass product whose login
+            page is flat grey announces itself as a reskin. */}
+        <div className="field" aria-hidden="true">
+          <span className="fa" />
+          <span className="fb" />
+          <span className="fc" />
+        </div>
+        {children}
+      </body>
     </html>
   );
 }

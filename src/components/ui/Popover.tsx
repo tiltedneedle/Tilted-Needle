@@ -233,11 +233,11 @@ export default function Popover({
         // panel can grow -- growing is the fix, wrapping would be a new bug.
         whiteSpace: "nowrap",
         zIndex: "var(--z-dropdown)",
-        borderRadius: "var(--radius-sm)",
-        // Frosted, because a popover is chrome: it floats over content and
-        // benefits from letting a little of it through. Kept at 92% opacity
-        // so the text contrast inside is fixed rather than depending on
-        // whatever happens to be scrolled underneath.
+        borderRadius: "var(--radius-md)",
+        // Chrome tier: a popover floats over content, which is exactly the
+        // case that earns the strongest glass. Its opacity is no longer fixed
+        // here -- it follows the transparency mode, and every value is gated
+        // by the composite contrast test against both extremes of the field.
         background: "var(--glass-bg)",
         backdropFilter: "var(--glass-filter)",
         WebkitBackdropFilter: "var(--glass-filter)",

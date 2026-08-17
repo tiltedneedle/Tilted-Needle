@@ -14,12 +14,30 @@
    card is a dashboard where nothing is urgent, so the neutrals do the layout
    and the red does the pointing.
 
-   GLASS, deliberately limited. Frosted surfaces are applied to CHROME only --
-   the sticky bar, popovers, modals, the mobile header. Never to a card, a
-   table or anything holding a number. The research is unambiguous that
-   translucency over dense data wrecks contrast, and this app is 293 rows of
-   dense data; the places glass IS used are ones that float above content and
-   benefit from letting it show through.
+   GLASS, in three tiers. Chrome floats (sidebar, popovers, modals, sticky
+   bars) and earns the strongest material; PANELS contain (every .card);
+   anything holding a number stays near-opaque. A surface's tier is decided by
+   WHAT IT HOLDS, never by how important it is.
+
+   This supersedes the earlier "chrome only" rule, and the reason is that the
+   earlier rule was solving the right problem the blunt way. Translucency over
+   dense data does wreck contrast -- that finding stands, and the data tier is
+   what honours it. What the old rule missed is that a container is not its
+   contents: a card can be glass while the rows inside it are not, which is
+   how the app reads as glass throughout without a single number ever sitting
+   on a moving gradient.
+
+   Two things make it survive contact:
+
+   - The blur budget. blur() is the most expensive filter and backdrop-filter
+     is heavier still. Mobile handles 3-5 at once; /content renders hundreds of
+     rows. So `.card .card` drops to the data tier -- the budget enforced by
+     the cascade rather than by anyone remembering it.
+   - The composite contrast gate. Text on glass sits on ground + field + tint,
+     and the middle layer varies across the page, so scripts/contrast-test.mjs
+     now checks every token against the BRIGHTEST and DARKEST point the field
+     can produce, in all three transparency modes, in both themes. It has
+     already caught one failure at 4.46:1 that no eye would have found.
 
    Every existing page references these variable NAMES directly (var(--accent),
    var(--muted), etc.) rather than a Tailwind utility class -- so replacing
@@ -53,15 +71,38 @@
 
   /* ---- The one accent --------------------------------------------------
      Two reds, not one, and the reason is measured rather than aesthetic.
-     A red bright enough to read as TEXT on near-black (#e5484d, 5.06:1) is
-     too light to carry white text on a button (3.91:1 -- a fail). A red dark
-     enough for white text (#d92d38, 4.79:1) disappears against a dark page.
-     So each theme picks the one that works and pairs it with a foreground
-     that clears 4.5:1: light mode gets white on deep red, dark mode gets
-     near-black on bright red. */
-  --red-bright: #e5484d;
-  --red-deep: #d92d38;
-  --red-tint: #fdeaeb;
+     A red bright enough to read as TEXT on near-black is too light to carry
+     white text on a button; a red dark enough for white text disappears
+     against a dark page. So each theme picks the one that works and pairs it
+     with a foreground that clears 4.5:1: light mode gets white on the deep
+     one, dark mode gets near-black on the bright one.
+
+     CLARET, not the old signal red, and this was decided by measurement.
+     The brand accent used to be #d92d38 while --danger-500 was #c92a34 --
+     a perceptual distance of dE 5.7, which is to say they were the same
+     colour. A primary button and a destructive one must never be, because
+     the only thing separating "save" from "delete for good" was the word on
+     it. Candidates were scored on four contrast pairs AND on distance from
+     danger in both themes; this ramp clears 4.5:1 on all four (5.06:1 on
+     both dark pairs, matching the proven old bright red exactly) and moves
+     to dE 24.8 in light mode.
+
+     Worth noting: the first value I proposed, #c02338, measured dE 6.1 --
+     it would have shipped the very defect it was chosen to fix. */
+  --red-bright: #e14a66;
+  --red-deep: #a01f42;
+  --red-tint: #fcebef;
+
+  /* ---- Champagne -------------------------------------------------------
+     The metallic, and it earns its place by doing two jobs with one value.
+     Glass needs a SPECULAR RIM -- the bright hairline along a lit edge --
+     and that single detail is most of what separates a surface that reads
+     as glass from one that reads as a grey panel. Luxury palettes want a
+     metallic accent referencing a real material. They are the same pixel.
+
+     It is never used for text or as a fill. Only as light on an edge. */
+  --champagne-300: #d9c9a3;
+  --champagne-200: #eadfc4;
 
   --white: #ffffff;
 
@@ -93,7 +134,11 @@
      "friendly product"; the restraint here is meant to read as stationery --
      paper white, hairline rules, and colour withheld until it means
      something. */
-  --bg: var(--ink-50);
+  /* Alabaster, not the old near-white. A warm ground is what the field's
+     garnet and champagne sit on without turning grey, and it is the light
+     half of the same design rather than a separate one. */
+  --alabaster: #f7f5f1;
+  --bg: var(--alabaster);
   /* A touch off-white rather than identical to --bg: a neutral chip sitting
      on a white --panel card needs to read as filled, not just "page-colored
      rectangle floating on a card." Row-hover on a white table still reads
@@ -129,18 +174,22 @@
      "well" look one shade darker than the card they sit in. */
   --input-bg: var(--panel);
 
-  /* Radius scale: nothing sharp-cornered anywhere */
   /* ---- Radii ------------------------------------------------------------
-     Tightened from 12/20. A 20px card corner is soft and consumer-app; 14
-     still reads as considered but has an edge to it. The rule kept from the
-     old scale: nothing is ever square, because a hard 0 corner in a UI this
-     dense looks unfinished rather than precise.
+     Nothing sharp-cornered anywhere: a hard 0 corner in a UI this dense looks
+     unfinished rather than precise.
 
-     Nesting matters more than the numbers. An inner element inside a 14px
-     card wants ~4px less, or the two curves fight -- which is why the small
-     radius is 10 and not, say, 12. */
-  --radius-sm: 10px; /* buttons, inputs, chips */
-  --radius-md: 14px; /* cards */
+     Raised for glass, having previously been TIGHTENED to 10/14 for the ink-
+     and-paper direction. Both were right for their brief. Larger, softer
+     corners are most of what actually reads as "iPhone" in a glass interface
+     -- far more than refraction does -- and unlike refraction they cost
+     nothing and work in every browser.
+
+     Nesting matters more than the absolute numbers: an inner element inside a
+     card wants ~4px less or the two curves fight. That gap is preserved
+     across the change -- 12 inside 18 inside 22. */
+  --radius-sm: 12px; /* buttons, inputs, chips */
+  --radius-md: 18px; /* cards */
+  --radius-lg: 22px; /* chrome: sidebar, modals, menus */
   --radius-pill: 999px;
   --radius: var(--radius-sm); /* legacy alias -- a few older inline styles */
 
@@ -160,10 +209,14 @@
     0 1px 1px rgb(16 16 22 / 0.05),
     0 8px 24px rgb(16 16 22 / 0.08);
   /* Modals and popovers sit above everything, so they earn a longer throw. */
+  /* The specular rim rides on this token, so every floating surface that
+     already used --shadow-overlay gains the highlight without being touched.
+     Inset first: it is a light on the edge, not a shadow under it. */
   --shadow-overlay:
-    0 1px 2px rgb(16 16 22 / 0.08),
-    0 16px 48px rgb(16 16 22 / 0.16);
-  --shadow-coral: 0 2px 10px rgb(217 45 56 / 0.22);
+    inset 0 1px 0 var(--rim),
+    0 1px 2px rgb(16 16 22 / 0.1),
+    0 16px 48px -8px rgb(16 16 22 / 0.22);
+  --shadow-coral: 0 2px 10px rgb(160 31 66 / 0.22);
 
   /* Layer scale. One place, so "what sits above what" is a decision rather
      than whatever number the last person happened to type.
@@ -189,25 +242,74 @@
   --z-toast: 1000;
   --z-skip: 1100;
 
-  /* ---- Frosted chrome ---------------------------------------------------
-     For surfaces that FLOAT above content: popovers, the sticky timer bar,
-     the mobile header, modals. Never a card, never a table, never anything
-     holding a number -- translucency over dense data is exactly the failure
-     mode that gave glassmorphism its reputation, and this app is hundreds of
-     rows of dense data.
+  /* ---- The field --------------------------------------------------------
+     Three large, soft, heavily blurred blobs behind everything. This is the
+     single change the whole redesign rests on, and the reason the previous
+     glass read as grey: --bg was a flat colour, and glass is a LENS. A lens
+     over a flat surface shows a flat surface. Every ingredient was already
+     present -- blur, translucency, saturate(180%) -- and none of them had
+     anything to act on.
 
-     The opacity is high (92%) on purpose. At the 60-70% that makes a
-     screenshot look impressive, text over a scrolling list underneath drops
-     below 4.5:1 depending on what happens to be behind it -- a contrast
-     ratio you cannot predict is one you cannot claim. At 92% the blur reads
-     as material and the contrast stays fixed.
+     LOW FREQUENCY is not a style preference, it is the constraint that makes
+     the rest legal. Text contrast over glass varies with whatever sits behind
+     that particular glyph, so a busy field makes contrast unpredictable
+     WITHIN a single panel, which no amount of blur fixes. Hence: three soft
+     ellipses, blurred 90px, and nothing else. Rich in hue, flat in detail.
 
-     saturate() is what stops the blur looking grey: backdrop-filter averages
-     the colour behind it toward neutral, and pushing saturation back up is
-     the difference between "frosted glass" and "smudged perspex". */
-  --glass-bg: color-mix(in srgb, var(--bg-elevated) 92%, transparent);
-  --glass-border: color-mix(in srgb, var(--border-strong) 70%, transparent);
-  --glass-filter: saturate(180%) blur(20px);
+     The teal is load-bearing rather than decorative. saturate(180%) amplifies
+     whatever hue it finds, and a field of only warm reds saturates toward
+     something closer to raw meat than to luxury; a cool counterpoint keeps
+     the amplified result balanced. It is also what stops the entire app
+     reading as one red wash. */
+  --field-a: 155 28 46; /* garnet  */
+  --field-b: 59 30 70; /* plum    */
+  --field-c: 14 59 69; /* teal    */
+  --field-a-alpha: 0.1;
+  --field-b-alpha: 0.07;
+  --field-c-alpha: 0.07;
+  --field-blur: 90px;
+
+  /* ---- Material tiers ---------------------------------------------------
+     A surface's tier is decided by WHAT IT HOLDS, never by how important it
+     is. Chrome floats above content and earns the strongest glass; panels
+     contain; anything holding a number stays near-opaque.
+
+     The blur count is a hard budget, not a taste question. blur() is the most
+     expensive filter -- every output pixel samples a wide kernel -- and
+     backdrop-filter is heavier still because it must first read what is
+     behind. Mobile handles 3-5 at once. This app renders hundreds of content
+     rows, so glass per row is not available at any price; shadcn/ui hit this
+     exact wall in issue #327. Containers blur, contents do not.
+
+     That restriction is also better design: nobody ever sees a number sitting
+     directly on a moving gradient, yet glass is visible everywhere -- the
+     sidebar, every card edge, every menu.
+
+     These are the CLEAR values. The Tinted and Solid modes below rewrite
+     them; Tinted is the default. See --mode. */
+  --chrome-alpha: 0.72;
+  --chrome-blur: 40px;
+  --panel-alpha: 0.84;
+  --panel-blur: 28px;
+  --data-alpha: 0.96;
+
+  /* The tint glass is mixed FROM. Kept as a raw triplet so alpha can be
+     composed per tier with rgb(var(--surface) / var(--x-alpha)) -- color-mix
+     cannot take a variable percentage. */
+  --surface: 255 255 255;
+
+  /* Legacy: several components still say var(--glass-bg). Kept pointing at
+     the chrome tier so they inherit the new material with no edits. */
+  --glass-bg: rgb(var(--surface) / var(--chrome-alpha));
+  --glass-border: var(--rim-line);
+  --glass-filter: saturate(180%) blur(var(--chrome-blur));
+
+  /* The specular rim, and the hairline that replaces borders on glass. A 1px
+     solid border on a translucent surface is the most common tell of cheap
+     glass -- real glass is defined by light catching its edge, not by a drawn
+     line. */
+  --rim: rgb(255 255 255 / 0.55);
+  --rim-line: rgb(23 22 26 / 0.07);
 
   --font-sans: Inter, "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
   /* Display numerals only. See the note in layout.tsx for why this is kept
@@ -627,12 +729,46 @@ h3 {
   box-shadow: none;
 }
 
+/* The PANEL tier. Every card in the app is one of these, which is the whole
+   reason the token architecture was worth keeping: one rule re-skins forty
+   files.
+
+   Borders become light rather than lines. A 1px solid border on a translucent
+   surface is the most reliable tell of cheap glass -- real glass is defined by
+   light catching its edge, so the rim highlight does the defining and the
+   border drops to a near-invisible hairline. */
 .card {
-  background: var(--panel);
-  border: 1px solid var(--border);
+  background: rgb(var(--surface) / var(--panel-alpha));
+  -webkit-backdrop-filter: saturate(180%) blur(var(--panel-blur));
+  backdrop-filter: saturate(180%) blur(var(--panel-blur));
+  border: 1px solid var(--rim-line);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow-card);
+  box-shadow:
+    inset 0 1px 0 var(--rim),
+    0 1px 2px rgb(0 0 0 / 0.18),
+    0 12px 32px -10px rgb(0 0 0 / 0.28);
   transition: box-shadow var(--dur-base) var(--ease), transform var(--dur-base) var(--ease);
+}
+
+/* A card INSIDE a card drops to the data tier, and this is the blur budget
+   enforced by the cascade rather than by anyone remembering.
+
+   The pattern is everywhere in this app -- a platform-post row is a .card
+   inside the .card that lists them, and /content renders hundreds of rows. Let
+   those inherit the panel tier and a single screen asks for hundreds of
+   stacked backdrop-filters, each one reading the already-blurred output of its
+   parent. Mobile manages 3-5. shadcn/ui hit this exact wall in issue #327.
+
+   It is also the correct design independently: the inner surface is the one
+   holding numbers, and blur haloes small glyphs. Containers blur; contents do
+   not. */
+.card .card {
+  background: rgb(var(--surface) / var(--data-alpha));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border-radius: var(--radius-sm);
+  box-shadow: none;
+  border-color: var(--border);
 }
 
 /* Opt-in: only cards that are themselves an interactive target (a whole-card
@@ -670,7 +806,7 @@ h3 {
   content: "";
   position: absolute;
   inset: 0;
-  background: radial-gradient(140px 140px at 100% 0%, rgb(229 72 77 / 0.14), transparent 70%);
+  background: radial-gradient(140px 140px at 100% 0%, rgb(225 74 102 / 0.14), transparent 70%);
   pointer-events: none;
   animation: hero-breathe 6s ease-in-out infinite;
 }
@@ -875,9 +1011,29 @@ h3 {
     0 1px 1px rgb(0 0 0 / 0.6),
     0 8px 24px rgb(0 0 0 / 0.45);
   --shadow-overlay:
+    inset 0 1px 0 var(--rim),
     0 1px 2px rgb(0 0 0 / 0.7),
-    0 16px 48px rgb(0 0 0 / 0.55);
-  --shadow-coral: 0 2px 12px rgb(229 72 77 / 0.28);
+    0 16px 48px -8px rgb(0 0 0 / 0.55);
+  --shadow-coral: 0 2px 12px rgb(225 74 102 / 0.28);
+
+  /* The field is the same three hues at roughly double the opacity -- on
+     near-black a 7% wash is invisible. Same design, not a second one. */
+  --field-a-alpha: 0.2;
+  --field-b-alpha: 0.17;
+  --field-c-alpha: 0.15;
+
+  /* 22 21 24, not the 26 25 28 I first wrote. The composite gate caught it:
+     accent text measured 4.46:1 against the brightest point of the field --
+     under the 4.5 bar at every tier, in every mode, including Solid. A four
+     hundredths miss, invisible by eye, and illegible only in the top-left
+     corner of the page where the garnet blob sits. Exactly the failure mode
+     the extremes model exists to find. Still clearly lighter than the page
+     ground, so the elevation ladder is intact. */
+  --surface: 22 21 24;
+  /* Champagne rather than white: on a dark ground a white rim reads as a
+     hard edge, and the warm metallic is the whole point of the token. */
+  --rim: rgb(217 201 163 / 0.28);
+  --rim-line: rgb(255 255 255 / 0.07);
 }
 
 :root[data-theme="dark"] .card-hero {
@@ -888,7 +1044,7 @@ h3 {
      brand was the one place the brand colour was wrong. Ending dark rather
      than on a second hue keeps it a single colour with depth, which is the
      whole idea. */
-  background: linear-gradient(140deg, var(--red-deep) 0%, #8f1d26 55%, #3d0d12 100%);
+  background: linear-gradient(140deg, var(--red-deep) 0%, #6d1430 55%, #2c0817 100%);
   border-color: transparent;
 }
 :root[data-theme="dark"] .card-hero::after {
@@ -902,14 +1058,162 @@ h3 {
   outline-color: var(--fg);
 }
 :root[data-theme="dark"] .input:focus {
-  box-shadow: 0 0 0 3px rgb(245 124 87 / 0.25);
+  box-shadow: 0 0 0 3px rgb(225 74 102 / 0.25);
 }
 :root[data-theme="dark"] ::selection {
-  background: rgb(229 72 77 / 0.32);
+  background: rgb(225 74 102 / 0.32);
 }
 
 ::selection {
-  background: rgb(217 45 56 / 0.18);
+  background: rgb(160 31 66 / 0.18);
+}
+
+/* ---------------------------------------------------------------------------
+   TRANSPARENCY MODES
+
+   Not a preference panel nicety -- a P0 deliverable, and the thing that makes
+   a glass interface defensible rather than merely liked.
+
+   Nielsen Norman Group asks for a user control over transparency. Apple was
+   FORCED into one: iOS 26 shipped uniform Liquid Glass, drew sustained
+   accessibility criticism (legibility, eye strain, outdoor readability), and
+   26.1 added a Clear/Tinted switch where Tinted "increases opacity while
+   adding more contrast". 26.2 went further still. If Apple could not ship
+   uniform glass to a billion devices without an escape hatch, neither can we.
+
+   TINTED IS THE DEFAULT, deliberately -- it is where Apple landed after
+   shipping Clear. Clear stays available for anyone who wants the full effect
+   on their own screen. Solid is the floor.
+
+   Applied as [data-glass] on <html>, set before first paint alongside the
+   existing theme script so there is no flash of the wrong material. -------- */
+:root[data-glass="tinted"] {
+  --chrome-alpha: 0.84;
+  --chrome-blur: 32px;
+  --panel-alpha: 0.93;
+  --panel-blur: 20px;
+  --data-alpha: 0.99;
+}
+:root[data-glass="solid"] {
+  --chrome-alpha: 1;
+  --chrome-blur: 0px;
+  --panel-alpha: 1;
+  --panel-blur: 0px;
+  --data-alpha: 1;
+  --field-a-alpha: 0;
+  --field-b-alpha: 0;
+  --field-c-alpha: 0;
+}
+
+/* The OS-level requests win over the stored preference, in both directions.
+   Someone who has asked their system for less transparency has asked every
+   app, and should not have to find our setting to be heard. */
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --chrome-alpha: 1;
+    --chrome-blur: 0px;
+    --panel-alpha: 1;
+    --panel-blur: 0px;
+    --data-alpha: 1;
+    --field-a-alpha: 0;
+    --field-b-alpha: 0;
+    --field-c-alpha: 0;
+  }
+}
+@media (prefers-contrast: more) {
+  :root {
+    --chrome-alpha: 1;
+    --chrome-blur: 0px;
+    --panel-alpha: 1;
+    --panel-blur: 0px;
+    --data-alpha: 1;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   THE FIELD
+
+   Fixed, behind everything, pointer-transparent. Three ellipses at 90px blur.
+
+   STATIC on purpose. Drifting blobs are the obvious temptation and they are
+   the wrong call twice over: sustained peripheral motion under a page people
+   read for hours is precisely the "cognitive drag" complaint iOS 26 drew, and
+   an animated backdrop repaints the full viewport every frame -- which the
+   blur budget above has no room for. ------------------------------------- */
+.field {
+  position: fixed;
+  inset: -20vmax;
+  z-index: -1;
+  pointer-events: none;
+  filter: blur(var(--field-blur));
+  /* Isolates the blur into its own layer so it is rasterised once rather
+     than recomputed against page content on every scroll. */
+  contain: strict;
+  will-change: transform;
+}
+.field span {
+  position: absolute;
+  display: block;
+  border-radius: 50%;
+}
+.field .fa {
+  top: 8%;
+  left: 2%;
+  width: 46vmax;
+  height: 46vmax;
+  background: rgb(var(--field-a));
+  opacity: var(--field-a-alpha);
+}
+.field .fb {
+  top: 26%;
+  right: 4%;
+  width: 42vmax;
+  height: 42vmax;
+  background: rgb(var(--field-b));
+  opacity: var(--field-b-alpha);
+}
+.field .fc {
+  bottom: 4%;
+  left: 32%;
+  width: 44vmax;
+  height: 44vmax;
+  background: rgb(var(--field-c));
+  opacity: var(--field-c-alpha);
+}
+
+/* ---------------------------------------------------------------------------
+   THE THREE TIERS
+
+   Depth is three layers, always, because glass without correct light is
+   plastic: a specular rim, a tight contact shadow that anchors the surface,
+   and a wide ambient one that gives it height. A single soft shadow reads as
+   a sticker. ------------------------------------------------------------- */
+.glass-chrome {
+  background: rgb(var(--surface) / var(--chrome-alpha));
+  -webkit-backdrop-filter: saturate(180%) blur(var(--chrome-blur));
+  backdrop-filter: saturate(180%) blur(var(--chrome-blur));
+  border: 1px solid var(--rim-line);
+  border-radius: var(--radius-lg);
+  box-shadow:
+    inset 0 1px 0 var(--rim),
+    0 1px 2px rgb(0 0 0 / 0.22),
+    0 16px 40px -12px rgb(0 0 0 / 0.34);
+}
+.glass-panel {
+  background: rgb(var(--surface) / var(--panel-alpha));
+  -webkit-backdrop-filter: saturate(180%) blur(var(--panel-blur));
+  backdrop-filter: saturate(180%) blur(var(--panel-blur));
+  border: 1px solid var(--rim-line);
+  border-radius: var(--radius-md);
+  box-shadow:
+    inset 0 1px 0 var(--rim),
+    0 1px 2px rgb(0 0 0 / 0.18),
+    0 12px 32px -10px rgb(0 0 0 / 0.28);
+}
+/* No blur and no backdrop-filter, by design -- see the tier note above. */
+.glass-data {
+  background: rgb(var(--surface) / var(--data-alpha));
+  border-radius: var(--radius-sm);
 }
 
 /* ---- Touch targets ------------------------------------------------------ */

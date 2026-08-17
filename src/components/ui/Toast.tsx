@@ -76,7 +76,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             key={t.id}
             className="animate-rise pointer-events-auto flex w-80 items-start gap-3 overflow-hidden p-3.5 pl-4 text-sm"
             style={{
-              borderRadius: "var(--radius-sm)",
+              borderRadius: "var(--radius-md)",
               // Frosted, like every other floating surface. A toast sits over
               // whatever you were reading, and letting a little of it through
               // is the difference between a layer and a sticker.

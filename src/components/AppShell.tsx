@@ -107,6 +107,9 @@ export default function AppShell({
             background: "var(--glass-bg)",
             backdropFilter: "var(--glass-filter)",
             WebkitBackdropFilter: "var(--glass-filter)",
+            // Carries the specular rim; without it a translucent bar reads as
+            // a flat wash rather than as an edge catching light.
+            boxShadow: "var(--shadow-overlay)",
           }}
         >
           <button
