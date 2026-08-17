@@ -92,7 +92,7 @@ const LIGHT = {
   border: "#e6e6ea",
   borderStrong: "#c2c2cc",
   fg: "#16161a",
-  muted: "#6b6b76",
+  muted: "#67676f",
   accent: "#a01f42",
   accentFg: "#ffffff",
   success: "#157a4e",
@@ -103,9 +103,9 @@ const LIGHT = {
   sidebarAccent: "#e14a66",
   surface: [255, 255, 255],
   field: [
-    { rgb: [155, 28, 46], a: 0.16 },
-    { rgb: [59, 30, 70], a: 0.12 },
-    { rgb: [14, 59, 69], a: 0.11 },
+    { rgb: [155, 28, 46], a: 0.24 },
+    { rgb: [59, 30, 70], a: 0.18 },
+    { rgb: [14, 59, 69], a: 0.165 },
   ],
 };
 

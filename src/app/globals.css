@@ -150,7 +150,14 @@
   --border: #e6e6ea;
   --border-strong: #c2c2cc;
   --fg: #16161a;
-  --muted: #6b6b76;
+  /* #67676f, not #6b6b76. This one token was the ONLY thing capping the
+     light field: at the old value the gate failed above 1.41x, and muted-on-
+     chrome was the binding pair every time. Darkening it by dE 2.5 -- below
+     the threshold where two greys are distinguishable side by side -- moves
+     the ceiling to 1.61x, and past this value the ceiling stops moving
+     because a different token takes over as binding. So it is the whole of
+     the available headroom, bought for no visible change. */
+  --muted: #67676f;
   --accent: var(--red-deep);
   --accent-fg: var(--white);
   /* The sidebar is a dark surface in BOTH themes, so its text can never be
@@ -287,9 +294,18 @@
      These are the values the composite gate allows. It is the binding
      constraint in light mode rather than taste: the ground is already bright,
      so every point of field pushes muted text closer to its floor. */
-  --field-a-alpha: 0.16;
-  --field-b-alpha: 0.12;
-  --field-c-alpha: 0.11;
+  /* Raised 1.5x, and the number was solved for rather than chosen.
+     Light mode read as dull next to dark, and the cause was measurable: the
+     light field was running WEAKER alphas (0.16/0.12/0.11) than dark's
+     (0.20/0.17/0.15), so the colour wash that makes dark read as glass was
+     nearly absent here.
+     The ceiling is set by the composite gate -- every token must clear 4.5:1
+     against the darkest point the field can produce. Binary search put that
+     ceiling at 1.61x once --muted moved (see below); 1.50x sits a step inside
+     it so a future token nudge cannot tip the gate. */
+  --field-a-alpha: 0.24;
+  --field-b-alpha: 0.18;
+  --field-c-alpha: 0.165;
   --field-blur: 90px;
 
   /* ---- Material tiers ---------------------------------------------------
@@ -396,7 +412,12 @@
      surface is the most common tell of cheap glass. --rim-line is deliberately
      a hairline, not a border. */
   --rim: rgb(255 255 255 / 0.55);
-  --rim-line: rgb(23 22 26 / 0.09);
+  /* Strengthened from 0.09. Measurement said the specular --rim moves a
+     light panel by dL* 0.13 while this hairline moves it 7.24 -- roughly 24x
+     -- so in light mode the EDGE is the glass cue and the rim is nearly
+     decorative. If light glass is to read more clearly, this is the lever
+     that actually moves it. */
+  --rim-line: rgb(23 22 26 / 0.13);
 
   /* The wash behind a modal or drawer. Tinted toward the ink rather than pure
      black for the same reason the glass shadows are: a neutral black veil over
