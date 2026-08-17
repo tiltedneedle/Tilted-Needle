@@ -29,6 +29,11 @@ function revalidateTeam() {
   revalidatePath("/content");
   revalidatePath("/team-admin");
   revalidateTag("rankings", "max");
+  // The raw content read is cached too, and it reads overlapping tables. The
+  // two must be busted together: invalidating one alone would leave /content
+  // rendering a coherent-looking blend of two different moments, which is
+  // harder to notice than either being plainly stale.
+  revalidateTag("content", "max");
 }
 
 /** Shape consumed by useActionState-driven forms. */

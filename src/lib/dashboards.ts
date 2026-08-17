@@ -19,6 +19,7 @@ import { operatingDate, startOfOperatingDay } from "@/lib/tz";
  */
 import { one } from "@/lib/types";
 import { selectAll } from "@/lib/selectAll";
+import { cachedContentData } from "@/lib/cachedContentData";
 import { countsTowardPerformance } from "@/lib/excludedItems";
 import { totalsByPlatform, type MetricRow, type PlatformTotals } from "@/lib/rollup";
 import {
@@ -224,52 +225,25 @@ export async function loadContentOverview(
   rankings: RankingsResult,
   filters: ContentFilters = {},
 ): Promise<ContentOverview> {
-  // Anything reading a whole unbounded table pages -- a 1000-row cap would
-  // silently drop videos, posts and hours off the dashboard (see selectAll).
-  const [itemsRes, postsRes, timeRes, clientsRes, platformsRes, snapsRes] = await Promise.all([
-    selectAll(() =>
-      supabase
-        .from("content_items")
-        .select(
-          "id, title, produced_at, length_seconds, client_id, review_state, client:clients(id, name)",
-        )
-        .eq("workspace_id", ws)
-        .order("produced_at", { ascending: false, nullsFirst: false })
-        .order("id"),
-    ),
-    selectAll(() =>
-      supabase
-        .from("platform_posts")
-        .select(
-          "id, content_item_id, posted_at, thumbnail_url, external_id, account:accounts(platform_slug, last_synced_at), metrics:post_current_metrics(views, likes, comments)",
-        )
-        .eq("workspace_id", ws)
-        .order("id"),
-    ),
-    selectAll(() =>
-      supabase
-        .from("time_entries")
-        .select("id, duration_seconds, content_item_id")
-        .eq("workspace_id", ws)
-        .not("content_item_id", "is", null)
-        .not("ended_at", "is", null)
-        .order("id"),
-    ),
-    supabase.from("clients").select("id, name, is_archived").eq("workspace_id", ws).order("name"),
-    supabase
-      .from("platforms")
-      .select("slug, display_name")
-      .eq("is_enabled", true)
-      .order("sort_order"),
-    selectAll(() =>
-      supabase
-        .from("post_snapshots")
-        .select("id, platform_post_id, captured_at, views")
-        .eq("workspace_id", ws)
-        .order("captured_at")
-        .order("id"),
-    ),
-  ]);
+  /**
+   * The raw read is cached per workspace; only the derivation below re-runs.
+   *
+   * This is the whole optimisation. The rows fetched here do not depend on the
+   * filters -- filtering happens in TypeScript further down -- so a filter
+   * change was re-fetching 464 items, 371 posts and 3009 snapshots to produce
+   * a differently-sliced view of identical data. Measured: a filter matching
+   * ZERO videos still cost 3.6s.
+   *
+   * See cachedContentData for why it uses the service client and why it
+   * carries a revalidate ceiling as well as a tag.
+   */
+  const raw = await cachedContentData(ws);
+  const itemsRes = { data: raw.items };
+  const postsRes = { data: raw.posts };
+  const timeRes = { data: raw.times };
+  const clientsRes = { data: raw.clients };
+  const platformsRes = { data: raw.platforms };
+  const snapsRes = { data: raw.snapshots };
 
   type Item = {
     id: string;

@@ -126,6 +126,9 @@ export async function GET(req: Request) {
       revalidatePath("/content");
       revalidatePath("/accounts");
       revalidateTag("rankings", "max");
+      // A sync writes posts and snapshots, which is precisely what the raw
+      // content cache holds.
+      revalidateTag("content", "max");
     }
 
     const failedCount = results.filter((r) => r.status === "error").length;
