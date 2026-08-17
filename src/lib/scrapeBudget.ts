@@ -42,13 +42,38 @@ type ScheduleBand = {
   interval_days: number;
 };
 
-/** Whether this platform is metered at all. */
-export async function isMetered(db: Db, platformSlug: string): Promise<boolean> {
-  const { count } = await db
-    .from("scrape_schedule")
-    .select("id", { count: "exact", head: true })
-    .eq("platform_slug", platformSlug);
-  return (count ?? 0) > 0;
+/**
+ * Whether reading a post on this platform COSTS MONEY.
+ *
+ * It used to answer a different question -- "does this platform have rows in
+ * scrape_schedule?" -- and the two happened to give the same answer for as
+ * long as Instagram was the only platform with a refresh cadence. It is the
+ * kind of proxy that is correct until the moment it silently is not.
+ *
+ * That moment arrived when youtube and tiktok were given cadences. Adding
+ * schedule bands reclassified both as "metered", which routed them down
+ * syncMeteredAccount and made every free read claim from a budget that exists
+ * to cap Apify spend. limit_auto defaults to 1400/month; twice-daily refreshes
+ * are ~8,600/month for tiktok and ~4,800 for youtube, so the new cadence would
+ * have worked for about five days and then reported "Scrape budget exhausted"
+ * every run until the period rolled over.
+ *
+ * The provider capability is the actual answer, and it always was -- the Data
+ * sync page has been rendering its "metered"/"free" pill from
+ * PROVIDERS[slug].capability.isMetered this whole time. So the UI and the
+ * budget were reading two different sources, and only one of them was right.
+ *
+ * Note this is deliberately about the REFRESH. TikTok carries a separate
+ * `discoveryMetered` flag because finding a new video does cost Apify credit
+ * while re-reading a known one never does; discovery claims from its own pool
+ * regardless of what this returns.
+ *
+ * `db` is retained so the signature does not churn at ~6 call sites, and
+ * because a future per-workspace override would need it.
+ */
+export async function isMetered(_db: Db, platformSlug: string): Promise<boolean> {
+  const { PROVIDERS } = await import("@/lib/providers");
+  return PROVIDERS[platformSlug]?.capability.isMetered ?? false;
 }
 
 /**

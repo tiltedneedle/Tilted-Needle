@@ -1,0 +1,52 @@
+-- Reverts 20260817190000. That migration was based on a misreading, and it
+-- made the system worse rather than better. Kept as a pair rather than
+-- rewritten, because the mistake is more instructive than the fix.
+--
+-- WHAT I GOT WRONG
+--
+-- I read platform_posts.last_scraped_at and found it set on 145/145 Instagram
+-- posts but only 2/144 TikTok and 3/80 YouTube, and concluded those platforms
+-- had never been refreshed on a schedule.
+--
+-- last_scraped_at is only stamped on the METERED path. The free path never
+-- writes it. So the column measures "has this post been through the budgeted
+-- refresh", not "has this post been refreshed" -- and reading it as the latter
+-- turned a naming artefact into a phantom outage.
+--
+-- What the data actually shows, counting snapshots per day:
+--
+--     tiktok      187-412 rows/day
+--     youtube      28- 90 rows/day
+--     instagram     1- 47 rows/day   (its taper, working as designed)
+--
+-- TikTok and YouTube were on the FREE path all along, which refreshes every
+-- tracked post on every run -- four times a day, already more often than the
+-- twice-daily this was meant to deliver. Snapshot volume is lower than that
+-- implies because step 5 of the free path only appends a row when a value
+-- actually CHANGED; an unchanged reading writes nothing.
+--
+-- HOW IT MADE THINGS WORSE
+--
+-- isMetered() decided meteredness by asking "does this platform have rows in
+-- scrape_schedule?". Adding bands therefore reclassified youtube and tiktok as
+-- metered, which would have:
+--   - routed them down syncMeteredAccount,
+--   - made every free read claim from limit_auto (1400/month), against
+--     ~8,600/month for tiktok and ~4,800 for youtube,
+--   - so refreshes would have RUN OUT after roughly five days and reported
+--     "Scrape budget exhausted" every run until the period rolled over,
+--   - and in the meantime cut the cadence from 4x/day to 2x.
+--
+-- A change asking for more frequent refreshes would have produced fewer.
+--
+-- The proxy itself is fixed separately in src/lib/scrapeBudget.ts: isMetered
+-- now reads PROVIDERS[slug].capability.isMetered, which is what the Data sync
+-- page's metered/free pill has always used. The UI and the budget were reading
+-- two different sources and only one was right.
+--
+-- These bands are removed rather than left inert. scrape_schedule is never
+-- consulted on the free path, so rows here would be dead config that reads as
+-- live -- which is the same class of trap as the column that started this.
+
+delete from scrape_schedule
+where platform_slug in ('youtube', 'youtube_shorts', 'tiktok');
