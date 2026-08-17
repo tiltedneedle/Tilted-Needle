@@ -165,14 +165,27 @@
   --warning: var(--warning-500);
   --info: var(--info-500);
 
-  /* Elevation tier beyond --panel, for surfaces that float above a card
-     (modals, dropdowns) or a table row's hover -- identical to --panel in
-     light mode today, so introducing it changes nothing here. */
+  /* Elevation tier beyond --panel, for surfaces that float above a card.
+     Identical to --panel in light mode, and that is CORRECT rather than an
+     oversight: the card is already pure white, so there is nowhere lighter to
+     go. An audit flagged this as "the elevated tier does not exist in light
+     mode" -- true, and unavoidable. Light mode signals elevation with shadow,
+     which --shadow-glass-chrome and --shadow-overlay already do. Dark mode
+     gets a real lightness ladder because near-black leaves room above it. */
   --bg-elevated: var(--panel);
   --sidebar-bg: var(--ink-950);
-  /* Inputs sit flush with --panel today; dark mode gives them a recessed
-     "well" look one shade darker than the card they sit in. */
-  --input-bg: var(--panel);
+  /* A well: recessed relative to the card it sits in, which is how a form
+     field reads as something to fill rather than something to look at.
+     Dark mode had this and light mode did not -- --input-bg was var(--panel),
+     i.e. identical to the card, so the metaphor was inverted in exactly the
+     theme where a white-on-white field is hardest to find. Unlike the
+     elevated tier above, this one CAN be fixed, because a well goes DOWN and
+     white has plenty of room below it.
+
+     Warm, not the cool --ink-100: the ground is alabaster, and a cool grey
+     well on a warm card is the "neutrals cast against the ground" defect the
+     audit found across the light palette. Gated by contrast-test.mjs. */
+  --input-bg: #f2efe9;
 
   /* ---- Radii ------------------------------------------------------------
      Nothing sharp-cornered anywhere: a hard 0 corner in a UI this dense looks
@@ -397,10 +410,15 @@
     inset 0 1px 0 var(--rim),
     0 1px 2px rgb(30 24 28 / 0.05),
     0 10px 28px -12px rgb(30 24 28 / 0.12);
-  --shadow-glass-chrome:
+  /* The hover state has to restate the rim, because box-shadow replaces the
+     whole stack rather than merging with it. .card-interactive:hover used
+     --shadow-card-hover, which carries no inset -- so every interactive card
+     LOST its specular highlight at the exact moment the cursor drew attention
+     to it, and gained a shadow tuned for the pre-glass design. */
+  --shadow-glass-panel-hover:
     inset 0 1px 0 var(--rim),
-    0 1px 2px rgb(30 24 28 / 0.06),
-    0 16px 40px -14px rgb(30 24 28 / 0.16);
+    0 1px 2px rgb(30 24 28 / 0.07),
+    0 18px 40px -14px rgb(30 24 28 / 0.18);
 
   --font-sans: Inter, "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
   /* Display numerals only. See the note in layout.tsx for why this is kept
@@ -883,13 +901,15 @@ h3 {
    not visually "float" on hover just because the cursor passed over it. */
 .card-interactive:hover {
   transform: translateY(-2px);
-  box-shadow: var(--shadow-card-hover);
+  box-shadow: var(--shadow-glass-panel-hover);
 }
 /* Press feedback: the lifted card settles back under the click, so the tap
    reads as physical rather than the hover state simply persisting. */
 .card-interactive:active {
   transform: translateY(0) scale(0.995);
-  box-shadow: var(--shadow-card);
+  /* Back to the resting glass stack, not the pre-glass --shadow-card, so the
+     rim survives the press too. */
+  box-shadow: var(--shadow-glass-panel);
 }
 
 /* The one dark surface pattern besides the sidebar: a "hero" KPI card. In
@@ -1152,10 +1172,10 @@ h3 {
     inset 0 1px 0 var(--rim),
     0 1px 2px rgb(0 0 0 / 0.18),
     0 12px 32px -10px rgb(0 0 0 / 0.28);
-  --shadow-glass-chrome:
+  --shadow-glass-panel-hover:
     inset 0 1px 0 var(--rim),
     0 1px 2px rgb(0 0 0 / 0.22),
-    0 16px 40px -12px rgb(0 0 0 / 0.34);
+    0 20px 44px -12px rgb(0 0 0 / 0.4);
 }
 
 :root[data-theme="dark"] .card-hero {
@@ -1338,27 +1358,7 @@ h3 {
    plastic: a specular rim, a tight contact shadow that anchors the surface,
    and a wide ambient one that gives it height. A single soft shadow reads as
    a sticker. ------------------------------------------------------------- */
-.glass-chrome {
-  background: rgb(var(--surface) / var(--chrome-alpha));
-  -webkit-backdrop-filter: saturate(180%) blur(var(--chrome-blur));
-  backdrop-filter: saturate(180%) blur(var(--chrome-blur));
-  border: 1px solid var(--rim-line);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-glass-chrome);
-}
-.glass-panel {
-  background: rgb(var(--surface) / var(--panel-alpha));
-  -webkit-backdrop-filter: saturate(180%) blur(var(--panel-blur));
-  backdrop-filter: saturate(180%) blur(var(--panel-blur));
-  border: 1px solid var(--rim-line);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-glass-panel);
-}
 /* No blur and no backdrop-filter, by design -- see the tier note above. */
-.glass-data {
-  background: rgb(var(--surface) / var(--data-alpha));
-  border-radius: var(--radius-sm);
-}
 
 /* ---- Touch targets ------------------------------------------------------ */
 

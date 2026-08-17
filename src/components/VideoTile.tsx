@@ -434,7 +434,17 @@ function Thumb({
   return (
     <Link
       href={href}
-      className="hidden h-[30px] w-[52px] shrink-0 overflow-hidden rounded-[6px] bg-[var(--bg-subtle)] sm:block"
+      // Visible on phones too. It used to be `hidden sm:block`, dropped during
+      // the 360px overflow work when the metrics cluster measured 433px inside
+      // a 301px card -- but the thumbnail was never the cause of that, and
+      // removing it cost the one cue that tells two similarly-titled videos
+      // apart at a glance. It is exactly where the fix is least needed and
+      // most missed: a phone row shows fewer columns, so the poster frame
+      // carries proportionally MORE of the identification.
+      //
+      // Slightly smaller below sm so it takes 44px of a 360px row rather than
+      // 52, and the row still wraps rather than overflowing.
+      className="h-[26px] w-[44px] shrink-0 overflow-hidden rounded-[6px] bg-[var(--bg-subtle)] sm:h-[30px] sm:w-[52px]"
       tabIndex={-1}
       aria-hidden="true"
       title={title}

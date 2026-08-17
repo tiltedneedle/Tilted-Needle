@@ -268,7 +268,14 @@ export default function Sidebar({
                     // red block for every visited page would make the nav the
                     // loudest thing on screen, which it never is in a product
                     // that trusts you to know where you are.
-                    background: isActive ? "rgb(229 72 77 / 0.12)" : "transparent",
+                    // Derived from the token, not a literal. This was
+                    // rgb(229 72 77 / 0.12) -- the pre-claret --red-bright --
+                    // so the active nav wash kept pointing at the retired
+                    // signal red after the palette moved, and matched neither
+                    // accent token. A hardcoded colour cannot follow a rename.
+                    background: isActive
+                      ? "color-mix(in srgb, var(--sidebar-accent) 12%, transparent)"
+                      : "transparent",
                     fontWeight: isActive ? 600 : 500,
                   }}
                   onMouseEnter={(e) => {
