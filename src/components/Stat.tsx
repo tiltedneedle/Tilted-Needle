@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { ComponentType, ReactNode } from "react";
 
 type IconType = ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
@@ -17,6 +18,7 @@ export function Stat({
   label,
   value,
   hint,
+  hintHref,
   accent = false,
   icon: Icon,
   hero = false,
@@ -25,6 +27,8 @@ export function Stat({
   /** Usually a string; a node lets tiles animate (CountUp) without markup drift. */
   value: ReactNode;
   hint?: string;
+  /** Makes the hint a link, for hints that name a subset worth acting on. */
+  hintHref?: string;
   accent?: boolean;
   /** An optional glyph in the corner -- purely decorative, no new data. */
   icon?: IconType;
@@ -67,7 +71,21 @@ export function Stat({
           className="relative mt-1.5 text-xs"
           style={{ color: hero ? "rgb(255 255 255 / 0.55)" : "var(--muted)" }}
         >
-          {hint}
+          {/* A hint that names a fixable subset should be able to reach it.
+              "41 with no link" is the start of a job, and making it a dead
+              label means finding those 41 by hand. Underlined rather than
+              recoloured so it still reads as secondary text -- colour here
+              would compete with the figure the card exists to show. */}
+          {hintHref ? (
+            <Link
+              href={hintHref}
+              className="underline decoration-dotted underline-offset-2 transition-colors hover:text-[var(--fg)]"
+            >
+              {hint}
+            </Link>
+          ) : (
+            hint
+          )}
         </div>
       )}
     </div>

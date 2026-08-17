@@ -616,8 +616,17 @@ export default function VideoTile({
           {v.ownRoles && v.ownRoles.length > 0 && (
             <span className="text-[var(--fg)]">{v.ownRoles.join(", ")}</span>
           )}
+          {/* "not posted" claimed to know something the system does not. All
+              it can see is that no link was recorded -- and the videos wearing
+              this badge had mostly been posted months before, they just came
+              in from a spreadsheet without URLs. */}
           {notPosted && (
-            <span className="rounded bg-[var(--bg-subtle)] px-1.5 py-0.5">not posted</span>
+            <span
+              className="rounded bg-[var(--bg-subtle)] px-1.5 py-0.5"
+              title="No link recorded. Open the video to add one."
+            >
+              no link
+            </span>
           )}
         </div>
       </div>

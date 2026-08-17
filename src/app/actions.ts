@@ -857,6 +857,108 @@ export async function addPlatformPost(input: {
   return {};
 }
 
+/**
+ * Attaches a link to a video that already exists.
+ *
+ * WHY THIS IS SEPARATE FROM addPlatformPost
+ *
+ * addPlatformPost attaches an ACCOUNT and hardcodes `url: null`, which makes
+ * the resulting row nearly inert: with no external_id the sync cannot match
+ * it, so it never refreshes and never gains a single metric. It answers "which
+ * account was this posted from" when the question people actually have is
+ * "here is the link, go and track it".
+ *
+ * That gap is visible in the data. 91 videos carry a date but no post -- every
+ * one hand- or sheet-entered, none auto-discovered -- and the UI called them
+ * "not posted yet" when in fact they were posted and merely unlinked. Worse,
+ * the 41 on active clients are ~108 days old against a 30-day sync window, so
+ * discovery will never reach back far enough to adopt them on its own. Without
+ * a way to paste the link they would have stayed dead rows forever.
+ *
+ * Storing external_id is the whole point: it is the key runSync matches on, so
+ * a video linked here stops being invisible to the sync AND stops being a
+ * latent duplicate -- discovery that later reaches this post now recognises it
+ * instead of creating a twin.
+ *
+ * Re-parses rather than trusting the lookup it was handed, for the same reason
+ * createContentFromUrl does: the two calls are separated by however long the
+ * form sat open, and a sync running in that gap is exactly when the post it is
+ * about to duplicate comes into existence.
+ */
+export async function attachPostByUrl(input: {
+  workspaceId: string;
+  contentItemId: string;
+  url: string;
+  accountId: string;
+}): Promise<
+  | { error: string }
+  | { conflict: { contentItemId: string; title: string | null } }
+  | { ok: true }
+> {
+  const parsed = parseContentUrl(input.url);
+  if (!parsed.ok) return { error: parsed.error };
+  if (!input.accountId) return { error: "Choose which account this was posted from." };
+  const { externalId, canonicalUrl, platform } = parsed.data;
+
+  const supabase = await createClient();
+
+  // Is this link already known? Two different answers matter here.
+  const { data: existingRows } = await supabase
+    .from("platform_posts")
+    .select("id, content_item_id, item:content_items(title)")
+    .eq("workspace_id", input.workspaceId)
+    .eq("external_id", externalId);
+
+  const hit = ((existingRows ?? []) as unknown as {
+    id: string;
+    content_item_id: string;
+    item: { title: string } | { title: string }[] | null;
+  }[])[0];
+
+  if (hit) {
+    // Already on THIS video: nothing to do, and saying so beats a unique-
+    // constraint error that reads like a bug.
+    if (hit.content_item_id === input.contentItemId) return { ok: true };
+    // Already on a DIFFERENT video: the sync found this post and made its own
+    // item for it, so the workspace now holds the same video twice. Attaching
+    // regardless would leave two rows both claiming it. Hand the caller the
+    // twin so it can offer a merge -- which is the operation that actually
+    // fixes this, and which already exists.
+    return {
+      conflict: { contentItemId: hit.content_item_id, title: one(hit.item)?.title ?? null },
+    };
+  }
+
+  // posted_at must not be invented. The video's own produced_at is the best
+  // evidence available for a hand-entered row, and for TikTok the id carries
+  // the true instant for free.
+  const { data: item } = await supabase
+    .from("content_items")
+    .select("produced_at")
+    .eq("id", input.contentItemId)
+    .maybeSingle();
+
+  const { error } = await supabase.from("platform_posts").insert({
+    workspace_id: input.workspaceId,
+    content_item_id: input.contentItemId,
+    account_id: input.accountId,
+    external_id: externalId,
+    url: canonicalUrl,
+    posted_at: (item as { produced_at: string | null } | null)?.produced_at ?? null,
+    posted_at_ts: platform === "tiktok" ? tiktokPostedAtTs(externalId) : null,
+    source: "manual",
+  });
+  if (error) {
+    if (error.code === "23505")
+      return { error: "This video is already linked to that account." };
+    return { error: error.message };
+  }
+
+  revalidatePath("/content");
+  revalidateTeam();
+  return { ok: true };
+}
+
 export async function updatePlatformPost(
   id: string,
   patch: Record<string, unknown>,

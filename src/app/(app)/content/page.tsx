@@ -527,12 +527,33 @@ export default async function ContentPage({
           icon={Clapperboard}
           label={roleLabel ? `Videos · ${roleLabel}` : "Videos"}
           value={String(t.videos)}
+          // "not posted yet" read as a fact about the world; all the system
+          // knows is that no link was recorded. The videos counted here had
+          // largely been posted months earlier and arrived from a spreadsheet
+          // without URLs, so the old wording sent people looking for a
+          // publishing problem that did not exist.
           hint={
             roleLabel
               ? `with ${roleLabel.toLowerCase()} credited`
               : t.unpublished
-                ? `${t.unpublished} not posted yet`
-                : "all posted"
+                ? `${t.unpublished} with no link`
+                : "all linked"
+          }
+          // Keeps whatever is already filtered and adds the status, so the
+          // count and the list it opens always agree -- jumping to a bare
+          // ?status=unpublished would show a different number than the one
+          // just clicked whenever a client or date filter was set.
+          hintHref={
+            !roleLabel && t.unpublished
+              ? `/content?${new URLSearchParams({
+                  ...Object.fromEntries(
+                    Object.entries(sp).filter(
+                      ([, v]) => typeof v === "string" && v !== "",
+                    ) as [string, string][],
+                  ),
+                  status: "unpublished",
+                })}`
+              : undefined
           }
         />
         <Stat icon={Layers} label="Posts" value={String(t.posts)} hint="across all platforms" />

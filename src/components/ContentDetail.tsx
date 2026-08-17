@@ -17,6 +17,7 @@ import {
 import { formatDurationShort, formatVideoLength, parseVideoLength } from "@/lib/format";
 import { ChevronDown } from "lucide-react";
 import Select from "@/components/ui/Select";
+import AttachByUrl from "@/components/AttachByUrl";
 import VideoEmbed from "@/components/VideoEmbed";
 import Avatar from "@/components/Avatar";
 import ScreenshotImport from "@/components/ScreenshotImport";
@@ -395,9 +396,26 @@ export default function ContentDetail({
       </div>
 
       <div className="mb-3 space-y-2">
+        {/* "Not posted anywhere yet" was an assertion the system could not
+            support: what it actually knows is that no link has been recorded.
+            91 videos sat here saying it, every one of them hand- or
+            sheet-entered, and the ones on active clients had all been posted
+            months earlier. Stating the fact instead -- and offering the repair
+            in the same breath -- turns a dead end into the one place where
+            this is naturally fixed. */}
         {posts.length === 0 && (
-          <div className="empty">
-            Not posted anywhere yet.
+          <div className="card space-y-3 p-4">
+            <div>
+              <p className="text-sm font-medium">No link recorded for this video</p>
+              <p className="mt-0.5 text-xs text-[var(--muted)]">
+                If it has been posted, paste the link and the sync will start tracking it.
+              </p>
+            </div>
+            <AttachByUrl
+              workspaceId={workspaceId}
+              contentItemId={item.id}
+              accounts={unusedAccounts}
+            />
           </div>
         )}
 
@@ -621,20 +639,41 @@ export default function ContentDetail({
             />
           </button>
           {showAttach && (
-            <div className="animate-rise mt-2 flex items-center gap-2">
-              <Select
-                className="max-w-[240px]"
-                value={addAccountId}
-                onChange={setAddAccountId}
-                placeholder="Add to a platform…"
-                options={unusedAccounts.map((a) => ({
-                  value: a.id,
-                  label: `${a.platform_slug} — ${a.handle}`,
-                }))}
+            <div className="animate-rise mt-2 space-y-3">
+              {/* With a link first, because it is the version that works: the
+                  external id it resolves is what runSync matches on, so the
+                  post refreshes on its own afterwards. */}
+              <AttachByUrl
+                workspaceId={workspaceId}
+                contentItemId={item.id}
+                accounts={unusedAccounts}
+                onDone={() => setShowAttach(false)}
               />
-              <button className="btn" onClick={attach} disabled={!addAccountId}>
-                Attach
-              </button>
+              <details className="text-xs text-[var(--muted)]">
+                <summary className="cursor-pointer">I don&rsquo;t have the link</summary>
+                {/* Kept, because a cross-post that has not gone out yet has no
+                    link to give. It is deliberately the lesser option: without
+                    an external id the sync cannot match this post, so its
+                    metrics have to be entered by hand until a link is added. */}
+                <div className="mt-2 flex items-center gap-2">
+                  <Select
+                    className="max-w-[240px]"
+                    value={addAccountId}
+                    onChange={setAddAccountId}
+                    placeholder="Add to a platform…"
+                    options={unusedAccounts.map((a) => ({
+                      value: a.id,
+                      label: `${a.platform_slug} — ${a.handle}`,
+                    }))}
+                  />
+                  <button className="btn" onClick={attach} disabled={!addAccountId}>
+                    Attach
+                  </button>
+                </div>
+                <p className="mt-1.5">
+                  Without a link the sync cannot find this post, so its numbers stay manual.
+                </p>
+              </details>
             </div>
           )}
         </div>
