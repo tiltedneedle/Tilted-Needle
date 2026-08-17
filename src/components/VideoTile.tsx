@@ -663,8 +663,20 @@ export default function VideoTile({
         {/* Where this sits in its life. Only the shapes that are genuinely
             worth a glance get ink: "long tail" is where most posts end up and
             printing a badge for it on 73 of 202 rows would be noise, not
-            information. Absence here means ordinary, never broken. */}
-        {(v.lifecycleShape === "rising" || v.lifecycleShape === "launching") && (
+            information. Absence here means ordinary, never broken.
+
+            "Launching" was dropped from this list. It fired on anything under
+            14 days old with a reading taken from publication, which is a
+            statement about the video's AGE rather than about how it is doing
+            -- and the date is already on the row. So it labelled a large slice
+            of recent content with something the reader could see anyway, which
+            is the same noise argument that keeps "long tail" out.
+
+            "Rising" stays, because it is earned rather than automatic: it
+            means the curve is actually accelerating. The shape itself is still
+            computed and still drives sorting and the lifecycle panel -- only
+            the badge is gone. */}
+        {v.lifecycleShape === "rising" && (
           <span
             className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-xs font-medium text-emerald-500"
             title={SHAPE_HINT[v.lifecycleShape]}
