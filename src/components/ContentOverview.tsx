@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { formatDurationShort } from "@/lib/format";
+import { formatDurationShort, gainPerDay } from "@/lib/format";
 import { engagementRate } from "@/lib/rollup";
 import { datedName, downloadCsv, toCsv } from "@/lib/exportCsv";
 import { PlatformChips } from "@/components/PlatformReach";
@@ -179,7 +179,27 @@ export default function ContentOverview({
     if (sort === "views") list.sort((a, b) => peakViews(b) - peakViews(a));
     else if (sort === "boost") list.sort((a, b) => (b.bestIndex ?? -1) - (a.bestIndex ?? -1));
     else if (sort === "growth")
-      list.sort((a, b) => (b.recentGain?.views ?? -1) - (a.recentGain?.views ?? -1));
+      // By RATE, not raw gain. Sorting by the raw number ranked whichever
+      // video happened to be measured over the longest gap, because the gap
+      // is set by scrape cadence and runs from hours to a fortnight here.
+      // Measured on live data: a post gaining 8,937 in 3.4 days (2,641/day)
+      // sorted BELOW one gaining 35,736 in 14.1 days (2,543/day). "Growing"
+      // now means growing.
+      //
+      // Rows whose gap is too short to divide sort BELOW every row that has a
+      // rate, then among themselves by raw gain. Falling back to the raw
+      // number inline put "+600 over 0.2 days" above "+470/day" -- comparing a
+      // total against a rate, which is the exact mistake this sort exists to
+      // stop. We cannot say those rows are growing faster, so they do not get
+      // to claim it.
+      list.sort((a, b) => {
+        const ra = gainPerDay(a.recentGain);
+        const rb = gainPerDay(b.recentGain);
+        if (ra != null && rb != null) return rb - ra;
+        if (ra != null) return -1;
+        if (rb != null) return 1;
+        return (b.recentGain?.views ?? -1) - (a.recentGain?.views ?? -1);
+      });
     else if (sort === "time") list.sort((a, b) => b.trackedSeconds - a.trackedSeconds);
     else list.sort((a, b) => (b.producedAt ?? "").localeCompare(a.producedAt ?? ""));
     return list;

@@ -9,7 +9,7 @@ import PlatformIcon from "@/components/PlatformIcon";
 import Popover from "@/components/ui/Popover";
 import { assignRole, bulkAssignRole, unassignRole } from "@/app/actions";
 import { useToast } from "@/components/ui/Toast";
-import { formatCount, formatDurationShort } from "@/lib/format";
+import { formatCount, formatDurationShort, formatRate, gainPerDay } from "@/lib/format";
 import { videoLabel } from "@/lib/contentLabels";
 import { PLATFORM_COLORS } from "@/lib/types";
 import { totalsByPlatform, type PlatformTotals } from "@/lib/rollup";
@@ -483,7 +483,13 @@ export type TileVideo = {
   postCode?: string | null;
   postCount?: number;
   bestIndex?: number | null;
-  recentGain?: { views: number; days: number } | null;
+  /**
+   * views: gained between the last two readings.
+   * days: how far apart those two readings were -- NOT a fixed window.
+   * staleDays: how long ago the LATEST reading was taken, so a figure
+   *   describing a fortnight ago can say so instead of passing as "now".
+   */
+  recentGain?: { views: number; days: number; staleDays?: number | null } | null;
   credits: TileCredit[];
   /** Roles this person holds, when the tile is shown on someone's own page. */
   ownRoles?: string[];
@@ -657,16 +663,40 @@ export default function VideoTile({
           </span>
         )}
 
-        {/* Still gaining views -- the signal a lifetime total cannot show. */}
-        {v.recentGain != null && v.recentGain.views > 0 && (
-          <span
-            className="tabular text-xs text-emerald-500"
-            title={`Views gained over the ${v.recentGain.days.toFixed(0)} day(s) between the last two snapshots`}
-          >
-            +{v.recentGain.views.toLocaleString()}
-            <span className="ml-0.5 opacity-70">/{v.recentGain.days.toFixed(0)}d</span>
-          </span>
-        )}
+        {/* Still gaining views -- the signal a lifetime total cannot show.
+            Shown as a RATE, because the raw gain was not comparable between
+            rows: the window is whatever gap the sync happened to leave, and
+            those run from hours to a fortnight. "+466 /3d" beside "+6 /1d"
+            invited exactly the comparison the numbers could not support.
+
+            The old label also rounded the window to whole days, so 26% of
+            rows read "/0d" -- a gain over no time at all. */}
+        {v.recentGain != null && v.recentGain.views > 0 && (() => {
+          const perDay = gainPerDay(v.recentGain);
+          const stale = v.recentGain.staleDays != null && v.recentGain.staleDays > 7;
+          const title =
+            `+${v.recentGain.views.toLocaleString()} views between the last two readings, ` +
+            `${v.recentGain.days.toFixed(1)} days apart` +
+            (perDay == null
+              ? ". Too short a gap to give a daily rate."
+              : ` — about ${Math.round(perDay).toLocaleString()} a day.`) +
+            (stale ? ` Last read ${Math.round(v.recentGain.staleDays!)} days ago, so this is not current.` : "");
+          return (
+            <span
+              className={`tabular text-xs ${stale ? "text-[var(--muted)]" : "text-emerald-500"}`}
+              title={title}
+            >
+              {perDay == null ? (
+                /* No rate available: show the raw gain and say so, rather
+                   than inventing a per-day figure from a 20-minute gap. */
+                <>+{v.recentGain.views.toLocaleString()}</>
+              ) : (
+                <>+{formatRate(perDay)}</>
+              )}
+              {stale && <span className="ml-0.5 opacity-70">·stale</span>}
+            </span>
+          );
+        })()}
 
         {/* The boost badge lived here. Removed with the rest of the baseline
             model: it measured a video against a median that rises as the

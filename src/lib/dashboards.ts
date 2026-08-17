@@ -75,14 +75,23 @@ export type VideoSummary = {
    * Views gained between the two most recent snapshots, summed within the
    * filtered platforms, with the interval those snapshots actually span.
    *
-   * Deliberately not a fixed "last 7 days" window: snapshots are recorded by
-   * hand at irregular intervals, so a fixed window silently reports nothing
-   * whenever the cadence does not happen to match it. Reporting the real
-   * interval alongside the number is both always available and honest about
-   * what it covers. Null when there is only one snapshot -- which is
-   * different from "gained nothing", and is shown as such rather than zero.
+   * Deliberately not a fixed "last 7 days" window: snapshots are recorded at
+   * irregular intervals, so a fixed window silently reports nothing whenever
+   * the cadence does not happen to match it. Reporting the real interval
+   * alongside the number is both always available and honest about what it
+   * covers. Null when there is only one snapshot -- which is different from
+   * "gained nothing", and is shown as such rather than zero.
+   *
+   * - views: gained between the last two readings.
+   * - days: how far apart those readings were. NOT a fixed window -- it is
+   *   whatever gap the sync left, and across this workspace those run
+   *   0.00 to 14.06 days. Which is why the UI shows a RATE: the raw gains are
+   *   not comparable between rows, and sorting by them does not sort by
+   *   growth.
+   * - staleDays: how long ago the latest reading was taken, so a figure
+   *   describing a fortnight ago cannot pass as "now".
    */
-  recentGain: { views: number; days: number } | null;
+  recentGain: { views: number; days: number; staleDays: number } | null;
   /**
    * The same gain, kept split by platform. `recentGain.views` pools it into
    * one number, which is fine for "is this still moving" but useless to the
@@ -319,7 +328,9 @@ export async function loadContentOverview(
    * Negative platform corrections are clamped in the windowed mode only --
    * the unwindowed last-two delta keeps showing a real drop as a drop.
    */
-  function gainForPost(postId: string): { views: number; days: number } | null {
+  function gainForPost(
+    postId: string,
+  ): { views: number; days: number; latestAt: number } | null {
     const series = seriesByPost.get(postId);
     if (!series || series.length < 2) return null;
 
@@ -329,6 +340,12 @@ export async function loadContentOverview(
       return {
         views: latest.views - prev.views,
         days: Math.max(0, (latest.at - prev.at) / 86400000),
+        // When the LATEST reading was taken. Without this the column silently
+        // mixes "growing now" with "was growing a fortnight ago": scrape
+        // cadence falls off with a post's age, and 71 of 305 posts here were
+        // last read over a week back. A retired post then looks flat because
+        // nobody looked, not because it stopped.
+        latestAt: latest.at,
       };
     }
 
@@ -344,7 +361,7 @@ export async function loadContentOverview(
       last = at;
     }
     if (last == null || first == null) return null;
-    return { views, days: Math.max(0, (last - first) / 86400000) };
+    return { views, days: Math.max(0, (last - first) / 86400000), latestAt: last };
   }
 
   const byItem = new Map<string, VideoSummary["platforms"]>();
@@ -355,7 +372,7 @@ export async function loadContentOverview(
   // can be matched back to the actual post.
   const codeByItem = new Map<string, string>();
   const postsByItem = new Map<string, number>();
-  const gainByItem = new Map<string, { views: number; days: number }>();
+  const gainByItem = new Map<string, { views: number; days: number; latestAt: number }>();
   const platformGainByItem = new Map<string, Map<string, number>>();
   const lifecycleByItem = new Map<string, VideoSummary["lifecycle"]>();
   for (const p of posts) {
@@ -394,6 +411,10 @@ export async function loadContentOverview(
       gainByItem.set(p.content_item_id, {
         views: (acc?.views ?? 0) + gain.views,
         days: Math.max(acc?.days ?? 0, gain.days),
+        // The OLDEST latest-reading across this video's posts. A video is only
+        // as current as its least recently checked platform, and claiming
+        // otherwise is how a stale number passes for a live one.
+        latestAt: Math.min(acc?.latestAt ?? Infinity, gain.latestAt),
       });
       if (!platformGainByItem.has(p.content_item_id)) {
         platformGainByItem.set(p.content_item_id, new Map());
@@ -474,7 +495,15 @@ export async function loadContentOverview(
     bestIndex: bestIndexByItem.get(i.id) ?? null,
     postCount: postsByItem.get(i.id) ?? 0,
     credits: creditsByItem.get(i.id) ?? [],
-    recentGain: gainByItem.get(i.id) ?? null,
+    recentGain: (() => {
+      const g = gainByItem.get(i.id);
+      if (!g) return null;
+      return {
+        views: g.views,
+        days: g.days,
+        staleDays: Math.max(0, (Date.now() - g.latestAt) / 86400000),
+      };
+    })(),
     platformGains: [...(platformGainByItem.get(i.id)?.entries() ?? [])].map(
       ([platform, views]) => ({ platform, views }),
     ),

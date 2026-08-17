@@ -101,16 +101,19 @@ const LIGHT = {
   sidebarAccent: "#e14a66",
   surface: [255, 255, 255],
   field: [
-    { rgb: [155, 28, 46], a: 0.1 },
-    { rgb: [59, 30, 70], a: 0.07 },
-    { rgb: [14, 59, 69], a: 0.07 },
+    { rgb: [155, 28, 46], a: 0.16 },
+    { rgb: [59, 30, 70], a: 0.12 },
+    { rgb: [14, 59, 69], a: 0.11 },
   ],
 };
 
 // Must mirror globals.css. Tinted is the default; Clear is opt-in; Solid is
 // the accessibility floor and also what prefers-reduced-transparency forces.
+// Chrome's Clear alpha differs BY THEME, and that is deliberate: on a light
+// ground the field darkens the surface while the text is also dark, so the
+// same transparency costs contrast at both ends. See globals.css.
 const MODES = {
-  clear: { chrome: 0.72, panel: 0.84, data: 0.96, field: 1 },
+  clear: { chrome: { DARK: 0.72, LIGHT: 0.82 }, panel: 0.84, data: 0.96, field: 1 },
   tinted: { chrome: 0.84, panel: 0.93, data: 0.99, field: 1 },
   solid: { chrome: 1, panel: 1, data: 1, field: 0 },
 };
@@ -138,9 +141,10 @@ function fieldStates(P, fieldScale) {
 }
 
 /** The lightest and darkest background a given tier can present. */
-function tierExtremes(P, mode, tier) {
+function tierExtremes(P, mode, tier, theme) {
   const m = MODES[mode];
-  const alpha = m[tier];
+  const raw = m[tier];
+  const alpha = typeof raw === "object" ? raw[theme] : raw;
   const backs = fieldStates(P, m.field).map((f) => over(f, P.surface, alpha));
   let lightest = backs[0];
   let darkest = backs[0];
@@ -168,7 +172,7 @@ function check(label, fg, bg, min) {
 
 /** Checks a token at BOTH extremes of a tier. Reports the worse one. */
 function checkGlass(theme, P, mode, tier, label, fg, min) {
-  const { lightest, darkest } = tierExtremes(P, mode, tier);
+  const { lightest, darkest } = tierExtremes(P, mode, tier, theme);
   const rl = ratioRGB(hex(fg), lightest);
   const rd = ratioRGB(hex(fg), darkest);
   const worst = Math.min(rl, rd);

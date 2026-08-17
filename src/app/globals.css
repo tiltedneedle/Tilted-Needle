@@ -264,9 +264,19 @@
   --field-a: 155 28 46; /* garnet  */
   --field-b: 59 30 70; /* plum    */
   --field-c: 14 59 69; /* teal    */
-  --field-a-alpha: 0.1;
-  --field-b-alpha: 0.07;
-  --field-c-alpha: 0.07;
+  /* Light mode carries MORE field than the first pass gave it, not less.
+     The instinct is to go gentle on a pale ground, and it is wrong: a wash at
+     7% over alabaster is invisible, so light mode had glass with nothing
+     behind it -- the exact failure the field was built to fix, reintroduced
+     by timidity. Dark got 20/17/15 and looked designed; light got 10/7/7 and
+     looked like a bug.
+
+     These are the values the composite gate allows. It is the binding
+     constraint in light mode rather than taste: the ground is already bright,
+     so every point of field pushes muted text closer to its floor. */
+  --field-a-alpha: 0.16;
+  --field-b-alpha: 0.12;
+  --field-c-alpha: 0.11;
   --field-blur: 90px;
 
   /* ---- Material tiers ---------------------------------------------------
@@ -287,7 +297,20 @@
 
      These are the CLEAR values. The Tinted and Solid modes below rewrite
      them; Tinted is the default. See --mode. */
-  --chrome-alpha: 0.72;
+  /* 0.82 in LIGHT mode, against dark mode's 0.72, and the asymmetry is
+     structural rather than a fudge.
+
+     On a dark ground the field DARKENS the surface while the text on it is
+     light, so admitting more field holds or improves contrast. On a light
+     ground the field darkens the surface while the text is DARK -- so the
+     same transparency eats the contrast from both ends. Light glass has to be
+     more opaque than dark glass to look equally glassy.
+
+     The number came from the gate, not from taste: at 0.72 the light Clear
+     chrome tier failed muted, success and danger text against the darkest
+     point of the field. 0.78 is the bare minimum that passes; this leaves
+     headroom rather than shipping a 4.54:1 against a 4.5 bar. */
+  --chrome-alpha: 0.82;
   --chrome-blur: 40px;
   --panel-alpha: 0.84;
   --panel-blur: 28px;
@@ -309,7 +332,24 @@
      glass -- real glass is defined by light catching its edge, not by a drawn
      line. */
   --rim: rgb(255 255 255 / 0.55);
-  --rim-line: rgb(23 22 26 / 0.07);
+  --rim-line: rgb(23 22 26 / 0.09);
+
+  /* Glass shadows, per tier and per theme.
+     Light mode gets a MUCH softer stack than dark, and this was the other half
+     of why light looked flat: it inherited shadows tuned against near-black.
+     0/0/0 at 28% is a real shadow on a dark ground and a smudge on alabaster.
+     On a pale ground depth comes from a tight, low-opacity contact edge plus a
+     wide, very faint lift -- and the shadow is tinted toward the ink rather
+     than pure black, because a neutral-black shadow on a warm ground reads
+     grey and dirty. */
+  --shadow-glass-panel:
+    inset 0 1px 0 var(--rim),
+    0 1px 2px rgb(30 24 28 / 0.05),
+    0 10px 28px -12px rgb(30 24 28 / 0.12);
+  --shadow-glass-chrome:
+    inset 0 1px 0 var(--rim),
+    0 1px 2px rgb(30 24 28 / 0.06),
+    0 16px 40px -14px rgb(30 24 28 / 0.16);
 
   --font-sans: Inter, "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
   /* Display numerals only. See the note in layout.tsx for why this is kept
@@ -394,13 +434,32 @@ h3 {
  * number in the app: the moment it appears in a table it stops being a
  * signal and becomes a theme.
  */
+/* KPI figures.
+ *
+ * The serif is gone. It was the most opinionated choice in the set and it was
+ * flagged as such in the design doc -- "the first thing to remove if you
+ * dislike it, one class, one file" -- and it read as odd next to the sans it
+ * sat beside, which is exactly the risk of mixing a display serif into a dense
+ * instrument.
+ *
+ * What made it feel composed was never the serifs; it was the SIZE and the
+ * light weight against small uppercase labels. Both survive. A 400-weight sans
+ * at 30px with tight tracking still reads as a considered figure rather than a
+ * bold shout -- and it stops the numbers looking like they were pasted in from
+ * a different document.
+ *
+ * Tabular figures stay, and matter more here than the family ever did: without
+ * them a counting-up KPI wobbles as its glyph widths change. */
 .numeral {
-  font-family: var(--font-display);
+  font-family: var(--font-sans);
   font-weight: 400;
-  letter-spacing: -0.01em;
-  /* Instrument Serif's default figures are proportional, which makes a
-     column of numbers wobble as it counts up. */
+  /* Tighter than the serif needed. A sans at display size has more air between
+     figures, and -0.02em is what closes it back up without touching. */
+  letter-spacing: -0.022em;
   font-variant-numeric: tabular-nums lining;
+  /* Slightly tighter leading than body copy: a big number is one object, and
+     the default line box leaves it floating in its card. */
+  line-height: 1.02;
 }
 
 /* Eyebrow labels: tiny uppercase metadata, per the type scale in the spec. */
@@ -743,10 +802,7 @@ h3 {
   backdrop-filter: saturate(180%) blur(var(--panel-blur));
   border: 1px solid var(--rim-line);
   border-radius: var(--radius-md);
-  box-shadow:
-    inset 0 1px 0 var(--rim),
-    0 1px 2px rgb(0 0 0 / 0.18),
-    0 12px 32px -10px rgb(0 0 0 / 0.28);
+  box-shadow: var(--shadow-glass-panel);
   transition: box-shadow var(--dur-base) var(--ease), transform var(--dur-base) var(--ease);
 }
 
@@ -1029,11 +1085,26 @@ h3 {
      corner of the page where the garnet blob sits. Exactly the failure mode
      the extremes model exists to find. Still clearly lighter than the page
      ground, so the elevation ladder is intact. */
+  /* Dark can afford the more transparent Clear tier -- see the note on
+     --chrome-alpha above for why the two themes legitimately differ. */
+  --chrome-alpha: 0.72;
+
   --surface: 22 21 24;
   /* Champagne rather than white: on a dark ground a white rim reads as a
      hard edge, and the warm metallic is the whole point of the token. */
   --rim: rgb(217 201 163 / 0.28);
   --rim-line: rgb(255 255 255 / 0.07);
+
+  /* Dark can carry real shadow: against near-black these read as depth
+     rather than as dirt. */
+  --shadow-glass-panel:
+    inset 0 1px 0 var(--rim),
+    0 1px 2px rgb(0 0 0 / 0.18),
+    0 12px 32px -10px rgb(0 0 0 / 0.28);
+  --shadow-glass-chrome:
+    inset 0 1px 0 var(--rim),
+    0 1px 2px rgb(0 0 0 / 0.22),
+    0 16px 40px -12px rgb(0 0 0 / 0.34);
 }
 
 :root[data-theme="dark"] .card-hero {
@@ -1224,10 +1295,7 @@ h3 {
   backdrop-filter: saturate(180%) blur(var(--chrome-blur));
   border: 1px solid var(--rim-line);
   border-radius: var(--radius-lg);
-  box-shadow:
-    inset 0 1px 0 var(--rim),
-    0 1px 2px rgb(0 0 0 / 0.22),
-    0 16px 40px -12px rgb(0 0 0 / 0.34);
+  box-shadow: var(--shadow-glass-chrome);
 }
 .glass-panel {
   background: rgb(var(--surface) / var(--panel-alpha));
@@ -1235,10 +1303,7 @@ h3 {
   backdrop-filter: saturate(180%) blur(var(--panel-blur));
   border: 1px solid var(--rim-line);
   border-radius: var(--radius-md);
-  box-shadow:
-    inset 0 1px 0 var(--rim),
-    0 1px 2px rgb(0 0 0 / 0.18),
-    0 12px 32px -10px rgb(0 0 0 / 0.28);
+  box-shadow: var(--shadow-glass-panel);
 }
 /* No blur and no backdrop-filter, by design -- see the tier note above. */
 .glass-data {

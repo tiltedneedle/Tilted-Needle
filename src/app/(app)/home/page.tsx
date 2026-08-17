@@ -30,7 +30,10 @@ import {
   loadWeekHoursByDay,
 } from "@/lib/homeData";
 import { cachedRankings } from "@/lib/cachedRankings";
-import { asMultiplier } from "@/lib/scoring";
+// asMultiplier is deliberately no longer imported. /home was the last surface
+// rendering exp(score) as a "1.02x" verdict on a person; the function stays in
+// scoring.ts because it is a tested primitive of the model, but nothing in the
+// product displays it any more.
 import { formatCount, formatDurationShort } from "@/lib/format";
 import {
   canManage,
@@ -209,20 +212,30 @@ export default async function HomePage() {
       if (mine) unitsDone += vids.filter((v) => mine.has(v)).length;
     }
 
-    // Top performers: mean of each person's rankable role scores.
-    const perUser = new Map<string, { name: string; scores: number[] }>();
-    for (const p of rankings.people) {
-      if (p.overall == null || !p.platforms.some((pl) => pl.rankable)) continue;
-      if (!perUser.has(p.userId)) perUser.set(p.userId, { name: p.name, scores: [] });
-      perUser.get(p.userId)!.scores.push(p.overall);
+    // Who is credited on the most videos. This replaced a "top performers"
+    // list ranked by exp(score) -- the boost multiplier -- which was removed
+    // everywhere else in the product and survived only here.
+    //
+    // The objection to it is the one recorded on PeopleInView: it is a single
+    // abstract number that never says whether the work reached anyone, and it
+    // reads as a verdict on a person the moment it falls below 1.00. Ranking
+    // colleagues by a figure like that on the first screen they see each
+    // morning is the worst possible place for it.
+    //
+    // A credit count claims much less, and all of what it claims is true. It
+    // is volume, not quality, and the heading says so.
+    const creditsByUser = new Map<string, { name: string; videos: Set<string> }>();
+    for (const a of rankings.assignments) {
+      if (!creditsByUser.has(a.user_id)) {
+        creditsByUser.set(a.user_id, { name: a.userName, videos: new Set() });
+      }
+      // A person credited twice on one video counts once -- otherwise whoever
+      // holds the most ROLES outranks whoever did the most work.
+      creditsByUser.get(a.user_id)!.videos.add(a.content_item_id);
     }
-    const performers = [...perUser.entries()]
-      .map(([userId, u]) => ({
-        userId,
-        name: u.name,
-        mean: u.scores.reduce((s, x) => s + x, 0) / u.scores.length,
-      }))
-      .sort((a, b) => b.mean - a.mean)
+    const performers = [...creditsByUser.entries()]
+      .map(([userId, u]) => ({ userId, name: u.name, videos: u.videos.size }))
+      .sort((a, b) => b.videos - a.videos)
       .slice(0, 3);
 
     const weekTotalSeconds = weekHours.reduce((s, d) => s + d.seconds, 0);
@@ -325,8 +338,14 @@ export default async function HomePage() {
                       from a viral day and would get acted on as one. */}
                   {m.caughtUp > 0 && (
                     <p className="mt-1.5 text-[11px] text-[var(--muted)]">
-                      +{m.caughtUp.toLocaleString()} more from a resumed page —
-                      not shown above, the gap makes it no single day&apos;s gain
+                      {/* Explicit {" "} rather than a literal space: the space
+                          between an expression and the text after it was being
+                          dropped, rendering "+346,031more from a resumed
+                          page". The source had the space; it did not survive.
+                          This form cannot be lost to whitespace handling. */}
+                      +{m.caughtUp.toLocaleString()}{" "}
+                      more from a resumed page — not shown above, the gap makes
+                      it no single day&apos;s gain
                     </p>
                   )}
                 </div>
@@ -422,11 +441,11 @@ export default async function HomePage() {
           <div className="card animate-rise p-4">
             <div className="mb-3 flex items-center gap-2">
               <Trophy size={15} className="text-[var(--muted)]" />
-              <span className="text-sm font-semibold">Top performers</span>
+              <span className="text-sm font-semibold">Most credited</span>
             </div>
             {performers.length === 0 ? (
               <p className="text-xs text-[var(--muted)]">
-                Not enough scored history yet — standings appear as credited videos mature.
+                Nobody is credited on a video yet.
               </p>
             ) : (
               <div className="space-y-2.5">
@@ -440,8 +459,11 @@ export default async function HomePage() {
                     <span className="min-w-0 flex-1 truncate text-sm transition-colors group-hover:text-[var(--accent)]">
                       {p.name}
                     </span>
-                    <span className="tabular text-sm font-semibold text-[var(--success)]">
-                      {asMultiplier(p.mean).toFixed(2)}×
+                    <span className="tabular text-sm font-semibold">
+                      {p.videos}
+                      <span className="ml-1 text-xs font-normal text-[var(--muted)]">
+                        video{p.videos === 1 ? "" : "s"}
+                      </span>
                     </span>
                   </Link>
                 ))}
@@ -604,17 +626,24 @@ export default async function HomePage() {
   const weekSeconds = myWeek.reduce((s, d) => s + d.seconds, 0);
   const capacity = Number(membershipRes.data?.weekly_capacity_hours ?? 0);
 
-  const myRoles = rankings.people
-    .filter((p) => p.userId === session.userId)
-    .map((p) => ({
-      roleName: p.roleName,
-      overall: p.overall,
-      rankable: p.platforms.some((pl) => pl.rankable),
-    }));
-  const scored = myRoles.filter((r) => r.rankable && r.overall != null);
-  const overall = scored.length
-    ? scored.reduce((s, r) => s + (r.overall ?? 0), 0) / scored.length
-    : null;
+  // My own credits, by role, and the total. Both replaced a boost multiplier
+  // -- see the note on `performers` above for why that number is gone from
+  // the product. Being shown a personal score of 0.94x first thing in the
+  // morning is the version of this that mattered most to remove.
+  const myByRole = new Map<string, Set<string>>();
+  const myVideoIds = new Set<string>();
+  for (const a of rankings.assignments) {
+    if (a.user_id !== session.userId) continue;
+    if (!myByRole.has(a.roleName)) myByRole.set(a.roleName, new Set());
+    myByRole.get(a.roleName)!.add(a.content_item_id);
+    myVideoIds.add(a.content_item_id);
+  }
+  const myRoles = [...myByRole.entries()]
+    .map(([roleName, ids]) => ({ roleName, videos: ids.size }))
+    .sort((a, b) => b.videos - a.videos);
+  // Distinct videos, not the sum of the per-role counts: one video where you
+  // both shot and edited is one video, and summing would double it.
+  const myVideos = myVideoIds.size;
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-6">
@@ -674,10 +703,9 @@ export default async function HomePage() {
         />
         <Stat
           icon={TrendingUp}
-          label="My standing"
-          value={overall != null ? `${asMultiplier(overall).toFixed(2)}×` : "—"}
-          hint={overall != null ? "average across your roles" : "not enough history yet"}
-          accent={overall != null && asMultiplier(overall) >= 1}
+          label="My videos"
+          value={myVideos ? <CountUp value={myVideos} /> : "—"}
+          hint={myVideos ? "credited to you" : "nothing credited yet"}
         />
       </StatGrid>
 
@@ -739,28 +767,24 @@ export default async function HomePage() {
         </section>
       )}
 
-      {scored.length > 0 && (
+      {myRoles.length > 0 && (
         <section>
           <SectionHeading
-            title="My standing by role"
-            note="Against each platform's own baseline, same as the leaderboards"
+            title="My work by role"
+            note="Videos you are credited on, in each role"
           />
           <div className="card divide-y divide-[var(--border)] overflow-hidden">
-            {myRoles
-              .filter((r) => r.rankable && r.overall != null)
-              .map((r) => (
-                <div key={r.roleName} className="flex items-center gap-3 px-3 py-2.5">
-                  <span className="min-w-0 flex-1 truncate text-sm">{r.roleName}</span>
-                  <span
-                    className="tabular text-sm font-semibold"
-                    style={{
-                      color: asMultiplier(r.overall!) >= 1 ? "var(--success)" : "var(--warning)",
-                    }}
-                  >
-                    {asMultiplier(r.overall!).toFixed(2)}×
+            {myRoles.map((r) => (
+              <div key={r.roleName} className="flex items-center gap-3 px-3 py-2.5">
+                <span className="min-w-0 flex-1 truncate text-sm">{r.roleName}</span>
+                <span className="tabular text-sm font-semibold">
+                  {r.videos}
+                  <span className="ml-1 text-xs font-normal text-[var(--muted)]">
+                    video{r.videos === 1 ? "" : "s"}
                   </span>
-                </div>
-              ))}
+                </span>
+              </div>
+            ))}
           </div>
         </section>
       )}
