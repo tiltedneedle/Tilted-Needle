@@ -1130,6 +1130,36 @@ h3 {
   }
 }
 
+/* Phones: the panel tier stops blurring, and this is a measurement, not a
+   guess. /content at 320px puts SIX live backdrop-filters in the viewport --
+   four stat tiles and two section containers -- against a mobile budget of
+   3-5. Scrolling that is where a glass UI turns to slideshow on a mid-range
+   Android.
+
+   The panel tier is the right one to give up because it buys almost nothing
+   here: a card on a 320px screen is nearly full-bleed, so it occludes the
+   field it would be sampling. Full price, no visible effect. Chrome keeps its
+   blur -- there are only ever one or two chrome surfaces on screen, and they
+   are the ones that genuinely float over moving content.
+
+   Raising the alpha alongside is not a compromise: a more opaque surface can
+   only improve contrast, so the composite gate still passes.
+
+   The mode selectors are listed explicitly, and they have to be. A bare
+   :root here is specificity (0,1,0) while :root[data-glass="tinted"] is
+   (0,2,0), so the mode block outranks the media query no matter how narrow
+   the viewport -- the rule applied and changed nothing, which is the failure
+   that looks like success. Matching the specificity and sitting later in the
+   file is what makes it win. Solid needs no entry: its blur is already 0. */
+@media (max-width: 640px) {
+  :root,
+  :root[data-glass="clear"],
+  :root[data-glass="tinted"] {
+    --panel-blur: 0px;
+    --panel-alpha: 1;
+  }
+}
+
 /* ---------------------------------------------------------------------------
    THE FIELD
 
