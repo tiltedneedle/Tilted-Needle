@@ -78,7 +78,7 @@ export default function AppShell({
           <div
             className="absolute inset-0"
             style={{
-              background: "rgb(0 0 0 / 0.42)",
+              background: "var(--scrim)",
               backdropFilter: "blur(3px)",
               WebkitBackdropFilter: "blur(3px)",
             }}

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { RefreshCw } from "lucide-react";
 import { syncNow } from "@/app/actions";
 import SyncEnabledToggle from "@/components/SyncEnabledToggle";
+import WindowBatch from "@/components/WindowBatch";
 import { AccountArchiveToggle, AccountClientPicker, AddAccount } from "@/components/AccountControls";
 import Select from "@/components/ui/Select";
 import { useToast } from "@/components/ui/Toast";
@@ -257,6 +258,11 @@ export default function DataPanel({
                                   accountId={a.id}
                                   windowDays={a.syncWindowDays}
                                 />
+                                {/* Sits beside the window control because it
+                                    answers the question that control raises:
+                                    "30 days" is a number until you can see
+                                    which videos it actually covers. */}
+                                <WindowBatch accountId={a.id} handle={a.handle} />
                               </span>
                               {a.lastError && (
                                 <div

@@ -398,6 +398,13 @@
   --rim: rgb(255 255 255 / 0.55);
   --rim-line: rgb(23 22 26 / 0.09);
 
+  /* The wash behind a modal or drawer. Tinted toward the ink rather than pure
+     black for the same reason the glass shadows are: a neutral black veil over
+     an alabaster ground reads grey and dirty, and every other depth cue in the
+     light theme is already warm. Was a hardcoded rgb(0 0 0 / 0.42) in
+     AppShell, which is also why it never changed with the theme. */
+  --scrim: rgb(30 24 28 / 0.42);
+
   /* Glass shadows, per tier and per theme.
      Light mode gets a MUCH softer stack than dark, and this was the other half
      of why light looked flat: it inherited shadows tuned against near-black.
@@ -1161,6 +1168,9 @@ h3 {
   --chrome-alpha: 0.72;
 
   --surface: 22 21 24;
+  /* Deeper on a dark ground: 42% over near-black barely separates the modal
+     from the page behind it. */
+  --scrim: rgb(0 0 0 / 0.62);
   /* Champagne rather than white: on a dark ground a white rim reads as a
      hard edge, and the warm metallic is the whole point of the token. */
   --rim: rgb(217 201 163 / 0.28);

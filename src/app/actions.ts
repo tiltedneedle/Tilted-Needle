@@ -2842,6 +2842,264 @@ export async function scrapePostNow(
   };
 }
 
+export type WindowPost = {
+  id: string;
+  title: string;
+  postedAt: string | null;
+  url: string | null;
+  lastScrapedAt: string | null;
+  views: number | null;
+  inWindow: boolean;
+};
+
+/**
+ * The videos an account's next sync would actually touch.
+ *
+ * Data sync could tell you an account had 144 posts and a 30-day window, but
+ * not WHICH posts that window contains -- so the only way to find out what a
+ * refresh was about to do was to run it and read the result afterwards. This
+ * makes the batch inspectable first.
+ *
+ * Returns posts OUTSIDE the window too, flagged, rather than filtering them
+ * out. A window that silently excludes the video you were looking for is
+ * indistinguishable from a video that is missing entirely, and the difference
+ * matters: one is fixed by widening the window, the other by adding a link.
+ */
+export async function listWindowPosts(
+  accountId: string,
+): Promise<{ error: string } | { posts: WindowPost[]; windowDays: number | null; handle: string }> {
+  const supabase = await createClient();
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth?.user) return { error: "Not signed in." };
+
+  // The account is read through the USER's client, so RLS is the
+  // authorisation check -- a non-member simply cannot see the row.
+  const { data: account } = await supabase
+    .from("accounts")
+    .select("id, workspace_id, handle, sync_window_days")
+    .eq("id", accountId)
+    .maybeSingle();
+  if (!account) return { error: "That account was not found." };
+
+  const { data: rows } = await supabase
+    .from("platform_posts")
+    .select("id, posted_at, url, last_scraped_at, content_item_id")
+    .eq("account_id", accountId)
+    .is("scrape_retired_at", null)
+    .order("posted_at", { ascending: false, nullsFirst: false })
+    .limit(500);
+
+  const posts = (rows ?? []) as {
+    id: string;
+    posted_at: string | null;
+    url: string | null;
+    last_scraped_at: string | null;
+    content_item_id: string;
+  }[];
+
+  // Titles and latest views come from two follow-up reads rather than a join,
+  // because the join would be against content_items AND a lateral "latest
+  // snapshot", and PostgREST cannot express the second one.
+  const itemIds = [...new Set(posts.map((p) => p.content_item_id))];
+  const { data: items } = await supabase
+    .from("content_items")
+    .select("id, title")
+    .in("id", itemIds.length ? itemIds : ["00000000-0000-0000-0000-000000000000"]);
+  const titleById = new Map(((items ?? []) as { id: string; title: string }[]).map((i) => [i.id, i.title]));
+
+  const { data: snaps } = await supabase
+    .from("post_snapshots")
+    .select("platform_post_id, views, captured_at")
+    .in("platform_post_id", posts.length ? posts.map((p) => p.id) : ["00000000-0000-0000-0000-000000000000"])
+    .order("captured_at", { ascending: false });
+  const viewsByPost = new Map<string, number | null>();
+  for (const s of (snaps ?? []) as { platform_post_id: string; views: number | null }[]) {
+    if (!viewsByPost.has(s.platform_post_id)) viewsByPost.set(s.platform_post_id, s.views);
+  }
+
+  const windowDays = (account as { sync_window_days: number | null }).sync_window_days;
+  // null means "all time", which puts every post in the window.
+  const cutoff = windowDays == null ? null : Date.now() - windowDays * 86400000;
+
+  return {
+    windowDays,
+    handle: (account as { handle: string }).handle,
+    posts: posts.map((p) => ({
+      id: p.id,
+      title: titleById.get(p.content_item_id) ?? "(untitled)",
+      postedAt: p.posted_at,
+      url: p.url,
+      lastScrapedAt: p.last_scraped_at,
+      views: viewsByPost.get(p.id) ?? null,
+      // A post with no date cannot be aged, so it counts as in-window rather
+      // than being quietly dropped -- the same call findDuePosts makes.
+      inWindow: cutoff == null || !p.posted_at || new Date(p.posted_at).getTime() >= cutoff,
+    })),
+  };
+}
+
+/**
+ * Re-reads a chosen set of posts, in one authorised pass.
+ *
+ * scrapePostNow does one post and re-checks auth, membership, provider and
+ * budget every time. Calling it thirty times from a browser would repeat all
+ * of that thirty times and give thirty separate chances to half-succeed, so
+ * this hoists the checks out of the loop and keeps them identical.
+ *
+ * Deliberately NOT a wrapper that fans out: the budget claim has to be made
+ * once for the whole batch or a metered platform could grant the first ten and
+ * refuse the rest mid-run, leaving the caller to work out what happened.
+ */
+export async function scrapePostsNow(
+  platformPostIds: string[],
+): Promise<Result & { summary?: string; updated?: number; failed?: number }> {
+  if (platformPostIds.length === 0) return { error: "Nothing selected." };
+  // A browser can send any list; this is the ceiling a person could plausibly
+  // have selected, and it stops one request from becoming an unbounded job.
+  if (platformPostIds.length > 200) {
+    return { error: "Too many at once — select 200 or fewer." };
+  }
+
+  const supabase = await createClient();
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth?.user) return { error: "Not signed in." };
+
+  // Read through the user's own client: RLS decides which of these ids they
+  // are allowed to see at all, so an id from another workspace simply does
+  // not come back rather than being detected later.
+  const { data: rows } = await supabase
+    .from("platform_posts")
+    .select("id, workspace_id, external_id, account:accounts(platform_slug)")
+    .in("id", platformPostIds);
+
+  const posts = ((rows ?? []) as unknown as {
+    id: string;
+    workspace_id: string;
+    external_id: string | null;
+    account: { platform_slug: string } | { platform_slug: string }[] | null;
+  }[]).filter((p) => p.external_id);
+
+  if (posts.length === 0) return { error: "None of those posts can be re-read." };
+
+  const workspaceId = posts[0].workspace_id;
+  if (posts.some((p) => p.workspace_id !== workspaceId)) {
+    return { error: "Those posts span more than one workspace." };
+  }
+
+  const { data: membership } = await supabase
+    .from("memberships")
+    .select("role, is_active")
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", auth.user.id)
+    .maybeSingle();
+  if (!membership?.is_active || !MANAGER_ROLES.includes(membership.role as WorkspaceRole)) {
+    return { error: "Only managers and above can trigger a scrape." };
+  }
+
+  const { providerFor } = await import("@/lib/providers");
+  const { serviceClient } = await import("@/lib/syncRunner");
+  const { claim, refund, isMetered } = await import("@/lib/scrapeBudget");
+  const db = serviceClient();
+
+  // Grouped by platform, because the provider, the budget and the ledger are
+  // all per-platform -- a selection spanning TikTok and Instagram is two
+  // different spends and has to be claimed as two.
+  const byPlatform = new Map<string, string[]>();
+  for (const p of posts) {
+    const slug = (Array.isArray(p.account) ? p.account[0] : p.account)?.platform_slug;
+    if (!slug) continue;
+    if (!byPlatform.has(slug)) byPlatform.set(slug, []);
+    byPlatform.get(slug)!.push(p.external_id!);
+  }
+
+  const idByExternal = new Map(posts.map((p) => [p.external_id!, p.id]));
+  let updated = 0;
+  let failed = 0;
+  const errors: string[] = [];
+
+  for (const [platform, externalIds] of byPlatform) {
+    const provider = providerFor(platform);
+    if (!provider?.capability.canFetchMetrics || !provider.isConfigured()) {
+      failed += externalIds.length;
+      errors.push(`${platform}: ${provider?.capability.reason ?? "no provider"}`);
+      continue;
+    }
+
+    const metered = await isMetered(db, platform);
+    let granted = externalIds.length;
+    if (metered) {
+      granted = await claim(db, workspaceId, platform, "manual", externalIds.length);
+      if (granted === 0) {
+        failed += externalIds.length;
+        errors.push(`${platform}: no manual scrapes left this period`);
+        continue;
+      }
+    }
+
+    const take = externalIds.slice(0, granted);
+    const metrics = await provider.fetchMetrics(take);
+    if (!metrics.ok) {
+      if (metered) await refund(db, workspaceId, platform, "manual", granted);
+      failed += take.length;
+      errors.push(`${platform}: ${metrics.error}`);
+      continue;
+    }
+
+    // A provider may return fewer rows than asked for -- a deleted video comes
+    // back absent, not as zeros. Refund the difference so a metered platform
+    // is not billed for readings it never produced.
+    if (metered && metrics.data.length < granted) {
+      await refund(db, workspaceId, platform, "manual", granted - metrics.data.length);
+    }
+
+    const now = new Date().toISOString();
+    const snapshots = [];
+    const scrapedIds = [];
+    for (const m of metrics.data) {
+      const postId = idByExternal.get(m.externalId);
+      if (!postId) continue;
+      snapshots.push({
+        workspace_id: workspaceId,
+        platform_post_id: postId,
+        views: m.views,
+        likes: m.likes,
+        comments: m.comments,
+        source: "api",
+      });
+      scrapedIds.push(postId);
+    }
+
+    if (snapshots.length > 0) {
+      const { error: insErr } = await db.from("post_snapshots").insert(snapshots);
+      if (insErr) {
+        failed += take.length;
+        errors.push(`${platform}: ${insErr.message}`);
+        continue;
+      }
+      await db.from("platform_posts").update({ last_scraped_at: now }).in("id", scrapedIds);
+      updated += snapshots.length;
+    }
+    failed += take.length - snapshots.length;
+  }
+
+  revalidatePath("/content");
+  revalidatePath("/data");
+  revalidateTeam();
+  revalidateTag("content", "max");
+
+  if (updated === 0) {
+    return { error: errors.join("; ") || "Nothing could be re-read." };
+  }
+  return {
+    updated,
+    failed,
+    summary:
+      `Refreshed ${updated} video${updated === 1 ? "" : "s"}` +
+      (failed > 0 ? `, ${failed} could not be read` : "") +
+      (errors.length ? ` — ${errors.join("; ")}` : "."),
+  };
+}
+
 /**
  * Current scrape allowance for a platform, for the counter beside the button.
  *
