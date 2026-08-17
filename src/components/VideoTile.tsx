@@ -77,7 +77,10 @@ function Metric({
  */
 export function PlatformMetrics({
   platforms,
-  emptyText = "not posted",
+  // No rows here means no platform post exists, which is a statement about
+  // our records and not about whether the video went out. See VideoTile's
+  // badge below.
+  emptyText = "no link",
 }: {
   platforms: TilePlatform[];
   emptyText?: string;

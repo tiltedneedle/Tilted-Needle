@@ -59,7 +59,9 @@ function exportVideos(rows: VideoSummary[]) {
       // stays invisible until the data changes shape underneath it.
       out.push([v.title, v.clientName ?? "", v.producedAt ?? "", "", "", "", "",
         v.bestIndex?.toFixed(2) ?? "", "", "",
-        (v.trackedSeconds / 3600).toFixed(2), "not posted"]);
+        // "no link", not "not posted" -- the export is the version that gets
+        // mailed to people, so a claim it cannot support travels furthest.
+        (v.trackedSeconds / 3600).toFixed(2), "no link"]);
       continue;
     }
     for (const p of v.platforms) {

@@ -142,8 +142,15 @@ export default function ClientDashboard({
                 )}
               </div>
               <div className="flex shrink-0 items-center gap-1.5">
+                {/* This is the CLIENT's view, which makes the old "not posted"
+                    the most damaging instance of it: a video the client had
+                    published months earlier was shown back to them as never
+                    posted, purely because the spreadsheet it came from carried
+                    no URL. "Not tracked yet" says what is true from their side
+                    -- we have no numbers for it -- without contradicting them
+                    about their own content. */}
                 {item.platforms.length === 0 ? (
-                  <span className="text-xs text-[var(--muted)]">not posted</span>
+                  <span className="text-xs text-[var(--muted)]">not tracked yet</span>
                 ) : (
                   item.platforms.map((p) => (
                     <span

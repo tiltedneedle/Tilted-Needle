@@ -93,7 +93,8 @@ export default function PlatformReach({
 /** Compact inline chips, for table rows where a full bar would be too heavy. */
 export function PlatformChips({
   platforms,
-  emptyText = "not posted",
+  /** Absence of a post row, not evidence the video was never published. */
+  emptyText = "no link",
 }: {
   platforms: { platform: string; views: number }[];
   emptyText?: string;
