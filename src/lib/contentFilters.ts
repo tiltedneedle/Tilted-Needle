@@ -50,6 +50,27 @@ function parseIdList(raw: string | undefined): string[] {
 
 const dubaiDate = (d: Date): string => operatingDate(d);
 
+/**
+ * Every URL param that NARROWS the page, in one list.
+ *
+ * Exported so callers can ask "is this view filtered at all?" without
+ * reimplementing the question and drifting from the parser. `video` is
+ * deliberately absent: it opens one video's detail rather than narrowing the
+ * list, and `period` is the legacy shim, which parseFilters translates into
+ * `from` before anyone downstream sees it.
+ */
+export const FILTER_KEYS = [
+  "client",
+  "person",
+  "role",
+  "platform",
+  "status",
+  "q",
+  "from",
+  "to",
+  "period",
+] as const;
+
 export function parseFilters(
   sp: Record<string, string | undefined>,
   now: Date = new Date(),

@@ -16,6 +16,7 @@ import { useRouter } from "next/navigation";
 import { useToast } from "@/components/ui/Toast";
 import { Undo2 } from "lucide-react";
 import { Empty, SectionHeading } from "@/components/Stat";
+import { FILTER_KEYS } from "@/lib/contentFilters";
 import type { ClientSummary, VideoSummary } from "@/lib/dashboards";
 
 const SORTS = [
@@ -171,8 +172,35 @@ export default function ContentOverview({
     else if (clientSort === "growth") list.sort((a, b) => b.recentGain - a.recentGain);
     else if (clientSort === "time") list.sort((a, b) => b.trackedSeconds - a.trackedSeconds);
     else list.sort((a, b) => b.videoCount - a.videoCount);
-    return list;
-  }, [clients, clientSort]);
+
+    /**
+     * With a filter applied, clients holding nothing are dropped.
+     *
+     * Unfiltered, an empty client is real information -- "we have signed
+     * Kyoto and published nothing for them yet" is worth seeing, and hiding
+     * it would make the roster silently incomplete. So the base case keeps
+     * every row.
+     *
+     * Once a filter narrows the page, the same row means something much
+     * weaker: "this client has nothing matching THIS filter", which is true
+     * of almost everyone and pushes the one or two clients that do match off
+     * the bottom. Selecting a single client is the extreme case -- eight rows
+     * of zeroes around the one row you asked for.
+     *
+     * Note this reads the URL rather than a prop: the filters are already the
+     * page's source of truth (they are what makes a view shareable), so
+     * deriving from them keeps this in step with any filter added later
+     * without threading a new prop through.
+     */
+    const filtered = FILTER_KEYS.some((k) => {
+      const v = searchParams.get(k);
+      return v != null && v !== "";
+    });
+    if (!filtered) return list;
+    return list.filter(
+      (c) => c.videoCount > 0 || c.postCount > 0 || c.recentGain > 0 || c.trackedSeconds > 0,
+    );
+  }, [clients, clientSort, searchParams]);
 
   const rows = useMemo(() => {
     const list = [...videos];
