@@ -339,6 +339,18 @@
      gradients -- this becomes wrong and the blur has to come back. That is
      the one thing that would invalidate the measurement. */
   --panel-blur: 0px;
+  /* WHY THE DECLARATION STAYS EVEN AT blur(0).
+     Research proposed replacing `.card`'s backdrop-filter with
+     `isolation: isolate`, on the grounds that blur(0) still allocates a render
+     surface. Tested against the live app, with a measured 3/255 noise floor:
+
+       isolation: isolate   ->  150/255 regression
+       contain: paint       ->  232/255 regression (it also clips overflow)
+
+     Both fail badly, and the damage lands in the SIDEBAR rather than in the
+     cards being changed -- so the mechanism is not the containing block I
+     first assumed (cards hold zero fixed-position descendants). Mechanism
+     unknown; the measurement is not. Do not remove this declaration. */
   --data-alpha: 0.96;
 
   /* The tint glass is mixed FROM. Kept as a raw triplet so alpha can be
@@ -352,10 +364,24 @@
   --glass-border: var(--rim-line);
   --glass-filter: saturate(180%) blur(var(--chrome-blur));
 
-  /* The specular rim, and the hairline that replaces borders on glass. A 1px
-     solid border on a translucent surface is the most common tell of cheap
-     glass -- real glass is defined by light catching its edge, not by a drawn
-     line. */
+  /* The specular rim, and the hairline beside it.
+     ============================================================
+     CORRECTED BY MEASUREMENT. The design doc claimed the rim is "the single
+     detail that most makes a surface read as glass". That is true in DARK
+     mode and false in light, and the gap is not marginal: over a light panel
+     the rim moves lightness by dL* 0.13, while --rim-line moves it dL* 7.24 --
+     roughly 24x more. In Solid mode and under prefers-reduced-transparency
+     the light rim delta is exactly 0.00.
+
+     So in light mode the HAIRLINE is the edge cue and the rim is nearly
+     decorative; in dark mode the champagne rim genuinely carries the edge.
+     Both tokens stay -- each is load-bearing in one theme -- but do not reach
+     for --rim to fix a light-mode edge problem. It has almost no authority
+     there.
+
+     What remains true in both: a heavy 1px solid border on a translucent
+     surface is the most common tell of cheap glass. --rim-line is deliberately
+     a hairline, not a border. */
   --rim: rgb(255 255 255 / 0.55);
   --rim-line: rgb(23 22 26 / 0.09);
 
