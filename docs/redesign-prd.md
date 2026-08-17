@@ -280,6 +280,39 @@ is wrong** — which is why it is step 2 and not step 8.
 
 ---
 
+## 8b. What changed once it was built
+
+Recorded because §8 promised the measurement would win over the specification,
+and twice it did.
+
+**The palette moved after measurement.** §3.1 proposed `--garnet-500: #c02338`.
+Scored against `--danger-500` it measured **ΔE 6.1** — against the old accent's
+5.7. It would have shipped the exact defect it was chosen to fix. The ramp is
+now **claret `#a01f42` / `#e14a66`**: 4.5:1 on all four contrast pairs (5.06:1
+on both dark pairs, matching the proven old bright red) at ΔE 24.8 in light.
+
+**The dark glass surface moved.** The composite gate's first run failed 9 of
+132 pairs: dark accent text at **4.46:1** against the brightest field point,
+under the bar at every tier in every mode *including Solid*. Four hundredths,
+invisible by eye, illegible only in the corner where the garnet blob sits.
+`--surface` went `26 25 28` → `22 21 24`.
+
+**Panel blur is 0 on phones**, which §4 did not anticipate. /content at 320px
+put **six** live backdrop-filters in the viewport against a mobile budget of
+3–5. A card at that width is nearly full-bleed, so it occludes the field it
+would sample — full cost, no visible effect. Now 1 on mobile; desktop peaks at
+5 and holds.
+
+**Two bugs worth knowing about.** The first mobile fix silently did nothing: a
+bare `:root` in the media query is specificity (0,1,0) against
+`:root[data-glass="tinted"]`'s (0,2,0), so the mode block outranked the
+viewport. And light mode *appeared* broken — body read as dark after a theme
+switch — which turned out to be a CSS transition frozen because the browser
+pane was not compositing frames. The CSS was correct; the measurement was
+lying.
+
+---
+
 ## 9. What I need from you
 
 1. **Approve or adjust the palette.** Garnet + champagne over jewel-toned field,
