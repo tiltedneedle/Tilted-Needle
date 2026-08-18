@@ -2094,100 +2094,6 @@ h3 {
 }
 
 /* ---------------------------------------------------------------------------
-   RASTER -- Swiss minimal.
-   One family, one accent, a strict left rail. The signature is the spine: a
-   hairline down every interior sheet with the labels to its left. Without it
-   this much restraint reads as unfinished; with it, it reads as deliberate.
-   --------------------------------------------------------------------------- */
-.tpl-minimal {
-  --report-ink: #111114;
-  --report-muted: #6e6e78;
-  --report-rule: #dcdce0;
-  --report-accent: #e14a66;
-  --pp-sans: "Helvetica Neue", Helvetica, Arial, "Liberation Sans", "Nimbus Sans", sans-serif;
-  font-family: var(--pp-sans);
-}
-
-.tpl-minimal .report-page {
-  padding-left: 96px;
-}
-
-/* A BORDER, not a filled 1px box: the spine is this template's signature and
-   a background would drop it on the default print path. */
-.tpl-minimal .report-page::before {
-  content: "";
-  position: absolute;
-  left: 74px;
-  top: 30px;
-  bottom: 52px;
-  width: 0;
-  border-left: 1px solid var(--report-rule);
-}
-
-/* The cover is a plate, not a page of the grid. */
-.tpl-minimal .report-page:first-child::before {
-  content: none;
-}
-
-.tpl-minimal .report-eyebrow {
-  font-size: 8.5px;
-  letter-spacing: 0.18em;
-  color: var(--report-ink);
-  border-bottom: 0;
-  padding-bottom: 0;
-  margin-bottom: 20px;
-}
-
-.tpl-minimal .report-headline {
-  font-size: 19px;
-  font-weight: 400;
-  letter-spacing: -0.01em;
-  line-height: 1.3;
-  max-width: 38ch;
-}
-
-.tpl-minimal .report-figure-value {
-  font-weight: 400;
-  font-size: 30px;
-}
-.tpl-minimal .report-figure-label {
-  letter-spacing: 0.1em;
-  color: var(--report-muted);
-}
-
-/* A rule that fills, rather than a bar that sits in a trough. */
-.tpl-minimal .report-bar-track {
-  border-bottom: 1px solid var(--report-rule);
-}
-.tpl-minimal .report-bar-fill {
-  border-bottom: 3px solid var(--report-ink);
-  bottom: -1px;
-}
-.tpl-minimal .report-bar-label {
-  color: var(--report-ink);
-  padding-left: 0;
-}
-
-.tpl-minimal .report-rank {
-  border-bottom: 0;
-  padding: 9px 0;
-}
-.tpl-minimal .report-rank-number {
-  color: var(--report-muted);
-  font-size: 13px;
-}
-.tpl-minimal .report-quote {
-  font-size: 12.5px;
-}
-.tpl-minimal .report-cover-client {
-  font-weight: 400;
-  letter-spacing: -0.03em;
-}
-.tpl-minimal .report-cover-title {
-  color: var(--report-accent);
-}
-
-/* ---------------------------------------------------------------------------
    VITRINE -- luxury house.
    A near-black cover plate and interior sheets that are mostly empty, each
    carrying a bronze spine up the left margin. Small type on generous fields.
@@ -2313,5 +2219,235 @@ h3 {
   .tpl-bold .report-cover-inner,
   .tpl-luxury .report-cover-inner {
     border: 1px solid var(--report-rule);
+  }
+}
+
+/* ===========================================================================
+   THE SPARSE SHEET — designed first, because it is the common one.
+
+   Most clients have video data and no demographics at all, so a sheet
+   carrying one block is the DEFAULT case and the three-block sheet is the
+   exception. Laying out the full page and hoping it degrades is how a report
+   ends up a third blank with a client wondering what was left out.
+
+   A thin sheet is therefore not a full sheet with holes in it. It is set
+   larger, given more air, and its single block is treated as the subject of
+   the page rather than as a remainder.
+   =========================================================================== */
+
+/* One block. It gets the sheet. */
+.report-page[data-density="sparse"] .report-headline {
+  font-size: 30px;
+  max-width: 24ch;
+  margin-bottom: 32px;
+}
+.report-page[data-density="sparse"] .report-figure-value {
+  font-size: 46px;
+}
+.report-page[data-density="sparse"] .report-figures {
+  gap: 34px 56px;
+}
+.report-page[data-density="sparse"] .report-rank {
+  padding: 20px 0;
+}
+.report-page[data-density="sparse"] .report-quote {
+  font-size: 16px;
+  max-width: 46ch;
+}
+.report-page[data-density="sparse"] .report-rank .report-figure-value {
+  font-size: 28px;
+}
+
+/* Two blocks: a lift, not a leap. */
+.report-page[data-density="medium"] .report-headline {
+  font-size: 26px;
+}
+.report-page[data-density="medium"] .report-rank {
+  padding: 15px 0;
+}
+.report-page[data-density="medium"] .report-quote {
+  font-size: 14.5px;
+}
+
+/* ---------------------------------------------------------------------------
+   FOLIO absorbs Raster's spine and its fixed figure axis.
+   The spine was the better of the two ideas and Folio had no equivalent; the
+   axis is what stopped Raster's numbers wandering line to line.
+   --------------------------------------------------------------------------- */
+.tpl-editorial .report-page {
+  padding-left: 88px;
+}
+.tpl-editorial .report-page::after {
+  content: "";
+  position: absolute;
+  left: 66px;
+  top: 30px;
+  bottom: 52px;
+  width: 0;
+  border-left: 1px solid var(--report-rule);
+}
+.tpl-editorial .report-page:first-child::after {
+  content: none;
+}
+/* The fixed axis: every figure column starts at the same width, so a row of
+   three and a row of five still line their first figure up down the sheet. */
+.tpl-editorial .report-figures > div {
+  min-width: 132px;
+}
+
+/* ---------------------------------------------------------------------------
+   DIGEST — two sheets, tabular, no ceremony.
+   Different in SHAPE rather than in styling: for a client who wants the
+   numbers and not nine pages. Figures run as rows with dot leaders instead of
+   as display tiles, which is what lets a whole platform fit in a few
+   centimetres instead of a page.
+   --------------------------------------------------------------------------- */
+.tpl-digest {
+  --report-ink: #16161a;
+  --report-muted: #5f5f68;
+  --report-rule: #d7d4ce;
+  --report-accent: #a01f42;
+  --dg-sans: "Helvetica Neue", Helvetica, Arial, "Liberation Sans", sans-serif;
+  font-family: var(--dg-sans);
+  font-size: 12px;
+}
+
+/* No forced page break between sections: the whole point is that several
+   platforms share a sheet. */
+.tpl-digest .report-page {
+  min-height: auto;
+  padding: 22px 26px 30px;
+  margin-bottom: 12px;
+}
+
+.tpl-digest .report-eyebrow {
+  font-size: 8.5px;
+  letter-spacing: 0.16em;
+  color: var(--report-ink);
+  font-weight: 700;
+  border-bottom: 2px solid var(--report-ink);
+  padding-bottom: 5px;
+  margin-bottom: 10px;
+}
+
+.tpl-digest .report-headline {
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.4;
+  max-width: 62ch;
+  margin-bottom: 12px;
+  color: var(--report-muted);
+}
+
+/* Figures as a row of small facts rather than display tiles. */
+.tpl-digest .report-figures {
+  gap: 10px 26px;
+  margin-bottom: 12px;
+}
+.tpl-digest .report-figure-value {
+  font-size: 19px;
+  font-weight: 600;
+}
+.tpl-digest .report-figure-label {
+  font-size: 7.5px;
+  letter-spacing: 0.1em;
+  margin-top: 2px;
+}
+
+.tpl-digest .report-rank {
+  padding: 6px 0;
+  grid-template-columns: 20px 1fr;
+  gap: 8px;
+}
+.tpl-digest .report-rank-number {
+  font-size: 12px;
+  color: var(--report-muted);
+}
+.tpl-digest .report-quote {
+  font-size: 12px;
+  margin-bottom: 3px;
+}
+.tpl-digest .report-rank .report-figure-value {
+  font-size: 14px;
+}
+.tpl-digest .report-rank .report-figure-label {
+  display: none;
+}
+/* Views and likes read as one line, since the labels are gone. */
+.tpl-digest .report-rank .report-figures {
+  gap: 0 14px;
+  margin: 0;
+}
+.tpl-digest .report-rank .report-figures > div::after {
+  content: attr(data-unit);
+}
+
+.tpl-digest .report-bar-track {
+  border-bottom-width: 6px;
+  height: 12px;
+}
+.tpl-digest .report-bar-fill {
+  border-bottom-width: 6px;
+  bottom: -6px;
+}
+.tpl-digest .report-bar-row {
+  font-size: 11px;
+  margin-bottom: 4px;
+}
+
+.tpl-digest .report-cover-inner {
+  min-height: auto;
+  padding: 26px 0 20px;
+  align-items: flex-start;
+  text-align: left;
+}
+.tpl-digest .report-cover-title {
+  font-size: 8.5px;
+  letter-spacing: 0.2em;
+  color: var(--report-accent);
+}
+.tpl-digest .report-cover-client {
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin: 8px 0 4px;
+}
+.tpl-digest .report-cover-platforms,
+.tpl-digest .report-cover-period {
+  font-size: 9px;
+  letter-spacing: 0.16em;
+}
+.tpl-digest .report-footer {
+  position: static;
+  margin-top: 16px;
+}
+
+/* A thin sheet in Digest stays thin. Enlarging type here would defeat the one
+   thing this template is for. */
+.tpl-digest .report-page[data-density="sparse"] .report-headline,
+.tpl-digest .report-page[data-density="medium"] .report-headline {
+  font-size: 14px;
+}
+.tpl-digest .report-page[data-density="sparse"] .report-figure-value {
+  font-size: 19px;
+}
+.tpl-digest .report-page[data-density="sparse"] .report-figures {
+  gap: 10px 26px;
+}
+.tpl-digest .report-page[data-density="sparse"] .report-rank,
+.tpl-digest .report-page[data-density="medium"] .report-rank {
+  padding: 6px 0;
+}
+.tpl-digest .report-page[data-density="sparse"] .report-quote {
+  font-size: 12px;
+}
+
+@media print {
+  /* Digest packs sheets rather than starting a page each. */
+  .tpl-digest .report-page {
+    break-after: auto;
+    page-break-after: auto;
+    break-inside: avoid;
+    page-break-inside: avoid;
   }
 }

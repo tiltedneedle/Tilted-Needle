@@ -11,9 +11,21 @@
  * Chosen per CLIENT rather than per workspace, because the clients are not
  * alike -- a private-jet broker and a bakery want a different document and the
  * agency sends both in the same month.
+ *
+ * THERE WERE FIVE AND THERE ARE FOUR. "Minimal" and "Editorial" were not two
+ * designs: both hung on a full-height hairline spine, both refused fills for
+ * rules, both spent one accent about three times a sheet, both sat on the same
+ * grid. The only difference a client would notice was Georgia against
+ * Helvetica, which is a choice inside a design rather than a separate one.
+ * Offered side by side they would have read as a mistake.
+ *
+ * The freed slot went to Digest, which differs in SHAPE rather than in
+ * styling. Three variations on a nine-page document plus one genuinely short
+ * one is a real choice; four variations on a nine-page document is a swatch
+ * book.
  */
 
-export type ReportTemplate = "editorial" | "bold" | "minimal" | "luxury";
+export type ReportTemplate = "editorial" | "bold" | "luxury" | "digest";
 
 export const REPORT_TEMPLATES: {
   id: ReportTemplate;
@@ -32,14 +44,14 @@ export const REPORT_TEMPLATES: {
     blurb: "Agency deck — oversized numerals, strong section dividers, high contrast. Reads as energetic and confident.",
   },
   {
-    id: "minimal",
-    name: "Minimal",
-    blurb: "Swiss grid, one accent, nothing decorative. The numbers are the design.",
-  },
-  {
     id: "luxury",
     name: "Luxury",
     blurb: "Ink and champagne, wide tracking, ceremonial cover. For the jeweller and the jet broker.",
+  },
+  {
+    id: "digest",
+    name: "Digest",
+    blurb: "Two sheets, tabular, no ceremony. For a client who wants the numbers and not nine pages.",
   },
 ];
 

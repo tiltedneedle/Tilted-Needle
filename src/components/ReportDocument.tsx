@@ -141,6 +141,27 @@ function BarList({ rows }: { rows: { label: string; value: number; suffix?: stri
   );
 }
 
+/**
+ * How much this sheet is actually carrying.
+ *
+ * Written onto the page as a data attribute so CSS can lay a thin sheet out
+ * differently rather than leaving the full-data design with holes in it. This
+ * is the case that matters: most clients have video data and no demographics
+ * at all, so a sparse sheet is the DEFAULT and the dense one is the exception.
+ * Designing the full page first and hoping it degrades is how a report ends up
+ * with a third of its area blank and a client wondering what is missing.
+ *
+ *   "sparse"  -- one block. Nothing but the top videos, or nothing but a row
+ *                of figures. The block gets the whole sheet and is set larger.
+ *   "medium"  -- two blocks.
+ *   "full"    -- figures, distributions and videos.
+ */
+function density(s: ReportPlatformSection): "sparse" | "medium" | "full" {
+  const blocks =
+    (s.metrics ? 1 : 0) + (s.breakdowns.length > 0 ? 1 : 0) + (s.top.length > 0 ? 1 : 0);
+  return blocks >= 3 ? "full" : blocks === 2 ? "medium" : "sparse";
+}
+
 /** Does this platform have anything at all worth a sheet? */
 export function sectionHasContent(s: ReportPlatformSection): boolean {
   const m = s.metrics;
@@ -183,7 +204,7 @@ function PlatformPage({
   const kinds = [...new Set(s.breakdowns.map((b) => b.kind))];
 
   return (
-    <section className="report-page">
+    <section className="report-page" data-density={density(s)}>
       <div className="report-eyebrow">
         {spaced(s.platformLabel)} &nbsp;·&nbsp; {spaced(report.periodLabel)}
       </div>
