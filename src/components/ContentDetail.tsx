@@ -132,8 +132,25 @@ export default function ContentDetail({
 
   const refresh = () => startTransition(() => router.refresh());
 
+  /**
+   * Accounts this video could still be attached to.
+   *
+   * Two filters, and the second one was missing. Excluding accounts that
+   * already carry a post for this video is obvious. Excluding accounts that
+   * belong to a DIFFERENT client is the one that matters: attaching a video
+   * to someone else's account moves its reach -- and the tracked hours that
+   * ride along with it -- onto the wrong client's books, quietly and in a way
+   * nothing downstream flags. AttachByUrl has warned about this in its own
+   * docstring since it was written; the picker simply never enforced it.
+   *
+   * A video with no client is the exception, because there is no client whose
+   * books could be wronged. Those are exactly the rows most in need of being
+   * linked, and refusing every account would leave them unrepairable.
+   */
   const unusedAccounts = accounts.filter(
-    (a) => !posts.some((p) => p.account_id === a.id),
+    (a) =>
+      !posts.some((p) => p.account_id === a.id) &&
+      (item.client_id === null || a.client_id === item.client_id),
   );
 
   async function attach() {

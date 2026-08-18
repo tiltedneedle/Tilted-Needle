@@ -10,6 +10,7 @@ import { logAudit } from "@/lib/audit";
 import { dispatchWebhook } from "@/lib/webhooks";
 import { youtubeIdFrom } from "@/lib/videoEmbed";
 import { parseContentUrl, tiktokPostedAtTs } from "@/lib/contentUrl";
+import { attachRefusal } from "@/lib/attachGuards";
 import { fetchVideoDetails } from "@/lib/providers/youtube";
 import { verifyVideo as tiktokVerifyVideo } from "@/lib/providers/tiktok";
 import { MANAGER_ROLES, one, type WorkspaceRole } from "@/lib/types";
@@ -935,9 +936,45 @@ export async function attachPostByUrl(input: {
   // the true instant for free.
   const { data: item } = await supabase
     .from("content_items")
-    .select("produced_at")
+    .select("produced_at, client_id")
     .eq("id", input.contentItemId)
     .maybeSingle();
+  if (!item) return { error: "That video no longer exists. Refresh and try again." };
+
+  /**
+   * The account has to be one this video could actually have been posted from.
+   *
+   * Two ways it could not be, both of which the pickers now prevent and
+   * neither of which was checked here -- and a rule enforced only by the
+   * control that offers the choice is not enforced at all, because this is a
+   * server action and its arguments arrive over the wire.
+   *
+   * WRONG CLIENT is the expensive one. A post carries its video's reach, and
+   * the tracked hours that ride along with it, onto whichever client owns the
+   * account. Attaching client A's video to client B's account moves money-
+   * shaped numbers between two sets of books, silently, with nothing
+   * downstream in a position to notice. A video with no client is exempt:
+   * there is no client to wrong, and those rows are the ones most in need of
+   * being linked.
+   *
+   * WRONG PLATFORM is the incoherent one. external_id is parsed from the URL,
+   * but which platform a post belongs to is read from its ACCOUNT -- so a
+   * TikTok link filed under a YouTube account produces a row the YouTube
+   * provider will keep trying to refresh with an id that means nothing to it.
+   */
+  const { data: account } = await supabase
+    .from("accounts")
+    .select("client_id, platform_slug, handle")
+    .eq("id", input.accountId)
+    .eq("workspace_id", input.workspaceId)
+    .maybeSingle();
+  if (!account) return { error: "That account no longer exists. Refresh and try again." };
+
+  const acct = account as { client_id: string | null; platform_slug: string; handle: string };
+  const it = item as { produced_at: string | null; client_id: string | null };
+
+  const refusal = attachRefusal({ account: acct, item: it, urlPlatform: platform });
+  if (refusal) return { error: refusal };
 
   const { error } = await supabase.from("platform_posts").insert({
     workspace_id: input.workspaceId,
@@ -945,7 +982,7 @@ export async function attachPostByUrl(input: {
     account_id: input.accountId,
     external_id: externalId,
     url: canonicalUrl,
-    posted_at: (item as { produced_at: string | null } | null)?.produced_at ?? null,
+    posted_at: it.produced_at,
     posted_at_ts: platform === "tiktok" ? tiktokPostedAtTs(externalId) : null,
     source: "manual",
   });

@@ -18,6 +18,7 @@ import { Undo2 } from "lucide-react";
 import { Empty, SectionHeading } from "@/components/Stat";
 import { FILTER_KEYS } from "@/lib/contentFilters";
 import type { ClientSummary, VideoSummary } from "@/lib/dashboards";
+import type { Account } from "@/lib/types";
 
 const SORTS = [
   { key: "recent", label: "Newest" },
@@ -98,6 +99,7 @@ export default function ContentOverview({
   workspaceId,
   roles,
   members,
+  accounts = [],
   canManage = true,
 }: {
   videos: VideoSummary[];
@@ -105,6 +107,12 @@ export default function ContentOverview({
   workspaceId: string;
   roles: TileRole[];
   members: TileMember[];
+  /**
+   * Every account in the workspace, so a row with no link can be given one
+   * from the list. Optional so the other call sites are untouched; a tile
+   * without them simply keeps the old "open the video to add a link" badge.
+   */
+  accounts?: Account[];
   canManage?: boolean;
 }) {
   /**
@@ -424,6 +432,10 @@ export default function ContentOverview({
                 roles={roles}
                 members={members}
                 canManage={canManage}
+                // Only this video's client can own the post. Attaching a link
+                // to another client's account would credit their baseline with
+                // numbers nobody there produced.
+                accounts={accounts.filter((a) => a.client_id === v.clientId)}
                 selectable={selecting}
                 selected={selected.has(v.id)}
                 // A row's credit circles are ALWAYS one video, selection or

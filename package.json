@@ -45,6 +45,7 @@
     "test:lifecycle": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/lifecycle-test.mjs",
     "test:merge": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/merge-candidates-test.mjs",
     "test:bulksel": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/bulk-selection-test.mjs",
+    "test:attachguard": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/attach-guard-test.mjs",
     "test:labels": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/content-labels-test.mjs",
     "test:client-scope": "node scripts/client-scope-test.mjs",
     "test:tz": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/tz-test.mjs",

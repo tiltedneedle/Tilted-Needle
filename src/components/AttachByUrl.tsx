@@ -161,10 +161,17 @@ export default function AttachByUrl({
       )}
       {error && <p className="text-xs text-[var(--danger)]">{error}</p>}
       {/* No account for this platform yet: say what is missing rather than
-          leaving a picker that cannot be satisfied. */}
+          leaving a picker that cannot be satisfied.
+
+          "for this client", not "for this workspace". The accounts handed to
+          this component are scoped to the video's client -- attaching to
+          another client's account would move this video's reach onto their
+          books -- so a workspace that has a TikTok account can still land
+          here, and being told the workspace has none would send someone
+          looking for a setting that is already set. */}
       {platform && platformAccounts.length === 0 && (
         <p className="text-xs text-[var(--muted)]">
-          No {platform} account is set up for this workspace yet — add one on Data sync first.
+          No {platform} account is set up for this client yet — add one on Data sync first.
         </p>
       )}
     </div>

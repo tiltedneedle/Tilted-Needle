@@ -101,7 +101,7 @@ export default async function ContentPage({
       f.to,
   );
 
-  const [overview, lightVideosRes, platformsRes, clientsRes, membersRes, workspaceRoles, reviewQueue] =
+  const [overview, lightVideosRes, platformsRes, clientsRes, membersRes, workspaceRoles, reviewQueue, listAccountsRes] =
     await Promise.all([
       videoId && !narrowed
         ? null
@@ -147,6 +147,21 @@ export default async function ContentPage({
         .eq("is_active", true),
       loadRoles(supabase, ws),
       loadReviewQueue(supabase, ws),
+      /**
+       * Accounts, so a row with no link can be given one without leaving the
+       * list.
+       *
+       * The detail page has had this all along, which meant repairing 41
+       * unlinked videos cost 41 round trips through a page you only opened to
+       * paste one string. The table is a few dozen rows and this is one more
+       * query on a page that already runs seven.
+       */
+      supabase
+        .from("accounts")
+        .select("id, workspace_id, client_id, platform_slug, handle, connection_mode")
+        .eq("workspace_id", ws)
+        .eq("is_archived", false)
+        .order("platform_slug"),
     ]);
 
   type Member = {
@@ -656,6 +671,7 @@ export default async function ContentPage({
         workspaceId={ws}
         roles={workspaceRoles}
         members={members}
+        accounts={(listAccountsRes?.data ?? []) as unknown as Account[]}
         canManage={manages}
       />
     </Shell>

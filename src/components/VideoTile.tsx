@@ -14,6 +14,8 @@ import { videoLabel } from "@/lib/contentLabels";
 import { PLATFORM_COLORS } from "@/lib/types";
 import { totalsByPlatform, type PlatformTotals } from "@/lib/rollup";
 import { SHAPE_LABEL, SHAPE_HINT, type LifecycleShape } from "@/lib/lifecycle";
+import AttachByUrl from "@/components/AttachByUrl";
+import type { Account } from "@/lib/types";
 
 export type TileRole = { id: string; slug: string; name: string };
 export type TileMember = { userId: string; name: string };
@@ -493,6 +495,7 @@ export default function VideoTile({
   roles,
   members,
   canManage = true,
+  accounts = [],
   selectable = false,
   selected = false,
   onToggleSelect,
@@ -503,6 +506,14 @@ export default function VideoTile({
   roles: TileRole[];
   members: TileMember[];
   canManage?: boolean;
+  /**
+   * This video's client's accounts, so an unlinked row can be linked here.
+   *
+   * Empty is a normal state and means the badge stays a plain label: a client
+   * with no account configured has nothing a link could be attached to, and
+   * offering the form anyway would end in a picker that cannot be satisfied.
+   */
+  accounts?: Account[];
   /** Selection mode is on. All three are optional so existing call sites
       are untouched -- the tile renders exactly as before without them. */
   selectable?: boolean;
@@ -594,15 +605,31 @@ export default function VideoTile({
           {/* "not posted" claimed to know something the system does not. All
               it can see is that no link was recorded -- and the videos wearing
               this badge had mostly been posted months before, they just came
-              in from a spreadsheet without URLs. */}
-          {notPosted && (
-            <span
-              className="rounded bg-[var(--bg-subtle)] px-1.5 py-0.5"
-              title="No link recorded. Open the video to add one."
-            >
-              no link
-            </span>
-          )}
+              in from a spreadsheet without URLs.
+
+              The badge is the repair, not a sign pointing at one. It used to
+              read "open the video to add one", which put 41 unlinked rows
+              behind 41 round trips through a page you opened only to paste a
+              string. Now the label opens the same attach form in place. */}
+          {notPosted &&
+            (canManage && accounts.length > 0 ? (
+              <AttachHere
+                workspaceId={workspaceId}
+                contentItemId={v.id}
+                accounts={accounts}
+              />
+            ) : (
+              <span
+                className="rounded bg-[var(--bg-subtle)] px-1.5 py-0.5"
+                title={
+                  accounts.length === 0
+                    ? "No link recorded, and this client has no account set up yet — add one on Data sync."
+                    : "No link recorded."
+                }
+              >
+                no link
+              </span>
+            ))}
         </div>
       </div>
 
@@ -693,5 +720,73 @@ export default function VideoTile({
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * The "no link" badge, made to do something.
+ *
+ * A popover rather than an inline expansion: this list is one row per video so
+ * that 380 of them stay scannable, and growing a row to hold a form would push
+ * everything below it down at the moment someone is working through a column
+ * of them. Portalled by Popover, which also matters here -- the list is a
+ * `card ... overflow-hidden`, so an inline panel on the last row would be
+ * clipped rather than merely painted under.
+ *
+ * Closes itself on success, because the badge it hangs off is about to stop
+ * existing: attaching a link is exactly what makes the row linked.
+ */
+function AttachHere({
+  workspaceId,
+  contentItemId,
+  accounts,
+}: {
+  workspaceId: string;
+  contentItemId: string;
+  accounts: Account[];
+}) {
+  const [open, setOpen] = useState(false);
+  const anchorRef = useRef<HTMLSpanElement>(null);
+
+  return (
+    <span ref={anchorRef} className="inline-flex">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={`rounded px-1.5 py-0.5 transition-colors ${
+          open
+            ? "bg-[var(--accent)]/15 text-[var(--accent)]"
+            : "bg-[var(--bg-subtle)] hover:bg-[var(--border)] hover:text-[var(--fg)]"
+        }`}
+        aria-expanded={open}
+        title="No link recorded — click to paste one"
+      >
+        no link
+      </button>
+      {open && (
+        <Popover
+          anchorRef={anchorRef}
+          onClose={() => setOpen(false)}
+          align="left"
+          role="dialog"
+          ariaLabel="Attach a link to this video"
+          width={430}
+          maxHeight={320}
+        >
+          <div className="px-3 py-2.5">
+            <p className="mb-2 text-xs text-[var(--muted)]">
+              Paste the post&apos;s link. Once attached it refreshes on the normal
+              cycle like any other post.
+            </p>
+            <AttachByUrl
+              workspaceId={workspaceId}
+              contentItemId={contentItemId}
+              accounts={accounts}
+              onDone={() => setOpen(false)}
+            />
+          </div>
+        </Popover>
+      )}
+    </span>
   );
 }
