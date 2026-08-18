@@ -216,7 +216,7 @@ function PlatformPage({
       <h2 className="report-headline">
         {m
           ? s.narrative
-          : `${s.candidateCount} ${s.candidateCount === 1 ? "video" : "videos"} published on ${s.platformLabel} this period.`}
+          : `${s.publishedCount} ${s.publishedCount === 1 ? "video" : "videos"} published on ${s.platformLabel} this period.`}
       </h2>
 
       {/* Figures render themselves away when absent, so this row shows exactly

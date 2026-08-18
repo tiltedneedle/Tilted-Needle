@@ -187,7 +187,19 @@ export default function PeriodSheet({
           .map((r) => ({ label: r.label, value: readEntry(r.value).value }));
         // Saved even when empty: clearing a list is how a bucket that dropped
         // out of the source leaves the report.
-        await saveBreakdown({ workspaceId, periodId: id, kind: s.kind, unit: s.unit, rows: list });
+        //
+        // CHECKED, because saveBreakdown deletes the existing rows before
+        // inserting the new ones. Ignoring a failure here meant a save could
+        // wipe a whole demographic block and report success, and the loss was
+        // invisible until somebody opened the report and found the chart gone.
+        const r = await saveBreakdown({
+          workspaceId, periodId: id, kind: s.kind, unit: s.unit, rows: list,
+        });
+        if (r.error) {
+          setBusy(false);
+          toast("danger", r.error);
+          return null;
+        }
       }
     }
     setBusy(false);

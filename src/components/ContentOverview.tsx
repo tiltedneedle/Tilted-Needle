@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { formatDurationShort, gainPerDay } from "@/lib/format";
 import { engagementRate } from "@/lib/rollup";
@@ -164,6 +164,7 @@ export default function ContentOverview({
   // rows.
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+
   // Survives the selection being cleared, which is exactly the moment the
   // bulk bar disappears and an undo starts being wanted.
   const [undoMove, setUndoMove] = useState<{
@@ -173,6 +174,28 @@ export default function ContentOverview({
   // Same reason as undoMove: a bulk credit clears the selection, the bar goes
   // away with it, and an undo that lived in the bar would leave with it.
   const [undoCredit, setUndoCredit] = useState<CreditUndo | null>(null);
+
+  /**
+   * A selection belongs to the list it was made in.
+   *
+   * Change the client filter and the rows underneath are replaced, but the
+   * ticked ids were not -- so the bulk bar went on saying "12 selected" and
+   * would credit, move or MERGE twelve videos the user could no longer see.
+   * Merge deletes rows, so the worst case is destructive and entirely
+   * invisible: nothing on screen belongs to the action being taken.
+   *
+   * Keyed on the FILTER params only. Sort is in the same query string but
+   * reordering a list does not change which videos are in it, and clearing a
+   * selection because somebody pressed "Reach" would be its own small
+   * betrayal. Rows cannot be the key either: they are a new array every
+   * render, and selection would be impossible.
+   */
+  const filterKey = FILTER_KEYS.map((k) => `${k}=${searchParams.get(k) ?? ""}`).join("&");
+  useEffect(() => {
+    setSelected(new Set());
+    setUndoMove(null);
+    setUndoCredit(null);
+  }, [filterKey]);
 
   // Clients are ranked on peak single-platform reach rather than a sum, for
   // the same reason nothing else here totals across platforms.

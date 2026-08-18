@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath, revalidateTag } from "next/cache";
+import { PERIOD_FIELDS } from "@/lib/periodFields";
 import { CLIENT_BIN_DAYS, type BinnedClient } from "@/lib/clientBin";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
@@ -1758,16 +1759,47 @@ export async function generateInvoice(input: {
   const billedEntryIds = billableEntries
     .filter((e) => rates.has(e.id))
     .map((e) => e.id);
-  if (billedEntryIds.length)
-    await supabase
+  /**
+   * These two writes are what mark work as BILLED, and they were unchecked.
+   *
+   * A failure here leaves an invoice that charges for hours the time entries
+   * still consider unbilled -- so the next invoice for that client bills them
+   * again. Double-billing a client is the most expensive mistake this codebase
+   * can make, and it was the one write nobody was watching.
+   *
+   * PostgREST gives no transaction, so on failure the invoice and its lines
+   * are removed rather than left half-applied: the same unwind the lineErr
+   * path above already performs. Better to make the operator press the button
+   * twice than to send a bill nobody can reconcile.
+   */
+  const unwind = async (why: string) => {
+    await supabase.from("invoice_lines").delete().eq("invoice_id", invoice.id);
+    await supabase.from("invoices").delete().eq("id", invoice.id);
+    return { error: `The invoice was not created: ${why} Nothing has been billed — try again.` };
+  };
+
+  if (billedEntryIds.length) {
+    const { error: entryErr } = await supabase
       .from("time_entries")
       .update({ invoice_id: invoice.id })
       .in("id", billedEntryIds);
-  if (billableExpenses.length)
-    await supabase
+    if (entryErr) return unwind(`the hours could not be marked as billed (${entryErr.message}).`);
+  }
+  if (billableExpenses.length) {
+    const { error: expenseErr } = await supabase
       .from("expenses")
       .update({ invoice_id: invoice.id })
       .in("id", billableExpenses.map((x) => x.id));
+    if (expenseErr) {
+      // The hours may already carry this invoice id; release them before the
+      // invoice disappears, or they are billed against a row that is gone.
+      await supabase
+        .from("time_entries")
+        .update({ invoice_id: null })
+        .in("id", billedEntryIds.length ? billedEntryIds : ["none"]);
+      return unwind(`the expenses could not be marked as billed (${expenseErr.message}).`);
+    }
+  }
 
   const total = lines.reduce((s, l) => s + l.quantity * l.unit_amount, 0);
   if (user) {
@@ -3835,15 +3867,36 @@ export async function savePeriodDraft(input: {
   // Confirming re-opens as draft only on an explicit re-confirm; saving over a
   // confirmed period must not quietly downgrade it without saying so, so the
   // status is left alone here and only set by confirmPeriod.
+  /**
+   * Whitelisted, not spread.
+   *
+   * `values` arrives from the browser, and spreading it into the row let a
+   * caller set ANY column on account_metrics -- status, confirmed_by,
+   * confirmed_at -- so a hand-made request could mark its own figures
+   * confirmed and walk them straight into a client report without anyone
+   * standing behind them. The identity columns were also written BEFORE the
+   * spread, which meant workspace_id and account_id were overridable too.
+   *
+   * PERIOD_FIELDS is the manifest of what a person may type. Anything else in
+   * the payload is dropped without comment: this is not a validation error to
+   * report back, it is a key that has no business being there.
+   */
+  const allowed = new Set(PERIOD_FIELDS.map((f) => f.key));
+  const values: Record<string, number | null> = {};
+  for (const [k, v] of Object.entries(input.values)) {
+    if (allowed.has(k)) values[k] = v;
+  }
+
   const { data, error } = await supabase
     .from("account_metrics")
     .upsert(
       {
+        ...values,
+        // AFTER the spread, so nothing in the payload can displace them.
         workspace_id: input.workspaceId,
         account_id: input.accountId,
         period_start: input.periodStart,
         period_end: input.periodEnd,
-        ...input.values,
         field_sources: input.fieldSources ?? {},
         updated_at: new Date().toISOString(),
       },
@@ -3963,6 +4016,13 @@ export async function saveBreakdown(input: {
     return { saved: 0 };
   }
 
+  /**
+   * The insert follows a DELETE that has already happened, so a failure here
+   * has destroyed the previous rows and written nothing in their place. There
+   * is no transaction available through PostgREST, so the next best thing is
+   * to say so loudly enough that the caller cannot ignore it -- and the caller
+   * now checks.
+   */
   const { error } = await supabase.from("account_breakdowns").insert(
     clean.map((r, i) => ({
       workspace_id: input.workspaceId,
@@ -3975,7 +4035,11 @@ export async function saveBreakdown(input: {
       annotation: r.annotation?.trim() || null,
     })),
   );
-  if (error) return { error: error.message };
+  if (error) {
+    return {
+      error: `The previous ${input.kind.replace(/_/g, " ")} rows were cleared but the new ones could not be saved: ${error.message}. Re-enter them before confirming.`,
+    };
+  }
 
   revalidatePath("/data");
   return { saved: clean.length };

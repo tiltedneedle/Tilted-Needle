@@ -56,7 +56,16 @@ export type ReportPlatformSection = {
   narrative: string;
   top: TopVideo[];
   unmeasurable: UnmeasurableVideo[];
-  /** Videos the system holds for this account inside the period. */
+  /**
+   * Videos PUBLISHED in this period, per our records.
+   *
+   * It used to be `mine.length` -- every post the account has ever had -- and
+   * the document printed it as "N videos published on Instagram this period".
+   * For an account with three years of history that sentence was wrong by
+   * two orders of magnitude, on a page going to the client.
+   */
+  publishedCount: number;
+  /** Everything the system holds for this account, of any age. */
   candidateCount: number;
   /**
    * Ranked distributions -- ages, locations, traffic sources, content mix.
@@ -345,6 +354,9 @@ export async function buildClientReport(
       top,
       unmeasurable,
       candidateCount: mine.length,
+      publishedCount: mine.filter(
+        (v) => v.postedAtTs != null && v.postedAtTs >= period.start && v.postedAtTs <= period.end,
+      ).length,
       breakdowns: m ? (breakdownsByPeriod.get(m.id as string) ?? []) : [],
     };
   });

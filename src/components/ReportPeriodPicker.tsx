@@ -52,6 +52,26 @@ export default function ReportPeriodPicker({
   const [end, setEnd] = useState(to ?? monthEnd(year, month));
   const [error, setError] = useState<string | null>(null);
 
+  /**
+   * The boxes follow the period, instead of freezing at whatever it was on
+   * first render.
+   *
+   * useState only takes its argument once, so picking a month left the custom
+   * inputs showing the ORIGINAL month -- and pressing Apply then navigated to
+   * a range the user had not chosen and could see was wrong on screen. Reset
+   * during render on a key rather than in an effect: an effect would paint the
+   * stale values for a frame first, which is how the wrong dates get read and
+   * believed.
+   */
+  const periodKey = `${from ?? ""}|${to ?? ""}|${year}-${month}`;
+  const [lastKey, setLastKey] = useState(periodKey);
+  if (periodKey !== lastKey) {
+    setLastKey(periodKey);
+    setStart(from ?? `${year}-${pad(month)}-01`);
+    setEnd(to ?? monthEnd(year, month));
+    setError(null);
+  }
+
   const go = (params: Record<string, string>) =>
     router.push(`/reports/client?${new URLSearchParams({ client: clientId, ...params })}`);
 

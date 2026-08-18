@@ -53,4 +53,7 @@ next-env.d.ts
 # outside the repo, so a one-off query script has to live next to node_modules.
 # They are not deliverables, and twelve of them reached a public repo via a
 # `git add -A` while a background audit was still running.
-scripts/_tmp-*.mjs
+# Any extension, not just .mjs. The pattern was scripts/_tmp-*.mjs, so the
+# JSON these scripts dump alongside themselves was never covered -- and 1.7 MB
+# of scraped workspace data reached a PUBLIC repo in commit 6ceac49.
+scripts/_tmp-*
