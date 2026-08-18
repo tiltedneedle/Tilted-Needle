@@ -306,12 +306,29 @@ export default async function HomePage() {
             title="Reach momentum"
             note="Views gained per day, last 30 days — each platform on its own scale"
           />
+          {/* The grid below is auto-fit rather than a fixed column count.
+              With four platforms and lg:grid-cols-3 the last row held one card
+              and two empty cells -- a third of the section blank, and worse
+              each time a platform was added. auto-fit packs as many columns as
+              fit at 260px and stretches the final row to fill, so the shape
+              follows the data instead of a number chosen when there were three
+              platforms.
+
+              This note sits ABOVE the conditional deliberately: a braced JSX
+              comment placed directly after the ternary's `) : (` is a second
+              expression in a branch that allows exactly one, and does not
+              parse. */}
           {momentum.length === 0 ? (
             <Empty>No snapshot history yet — momentum appears after a few daily syncs.</Empty>
           ) : (
-            <div className="stagger grid gap-3 [&>*]:min-w-0 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="stagger grid grid-cols-[repeat(auto-fit,minmax(260px,1fr))] gap-3 [&>*]:min-w-0">
               {momentum.map((m) => (
-                <div key={m.slug} className="card animate-rise p-4">
+                /* flex column so the chart, not a gap, absorbs the slack.
+                   The caption below is conditional, and grid rows stretch to
+                   equal height -- so a platform with nothing caught up left a
+                   two-line hole under its sparkline while its neighbours were
+                   full. Now the chart grows into that space instead. */
+                <div key={m.slug} className="card animate-rise flex flex-col p-4">
                   <div className="flex items-baseline gap-2">
                     <span
                       className="size-2.5 shrink-0 rounded-full"
@@ -324,7 +341,11 @@ export default async function HomePage() {
                       +<CountUp value={m.total} kind="count" />
                     </span>
                   </div>
-                  <div className="mt-2">
+                  {/* flex-1 and centred: this is the element that takes up the
+                      slack when a card has no caption, so the chart sits in
+                      the middle of whatever height the row settles on rather
+                      than clinging to the top above an empty strip. */}
+                  <div className="mt-2 flex flex-1 flex-col justify-center">
                     <Sparkline
                       data={m.points}
                       color={CHART_COLORS[m.slug] ?? "var(--accent)"}

@@ -37,20 +37,61 @@ export default function RoleTables({
   /** What population these describe, stated on screen rather than assumed. */
   scopeNote?: string;
 }) {
+  const [openSection, setOpenSection] = useState(false);
+
   if (tables.length === 0) return null;
   const highlight = new Set(highlightUserIds);
+  const people = new Set(tables.flatMap((t) => t.rows.map((r) => r.userId))).size;
+  const marked = tables.reduce(
+    (n, t) => n + t.rows.filter((r) => highlight.has(r.userId)).length,
+    0,
+  );
 
+  /**
+   * The SECTION collapses too, not only each role inside it.
+   *
+   * Five roles collapsed is still five rows of chrome carrying no numbers --
+   * a block of headings between the stat cards and the video list, permanently
+   * in the way of the thing most people came to read. Closed by default for
+   * the same reason each role is: this answers a question you ask
+   * occasionally, and it should cost one click to ask rather than a scroll
+   * past it every time.
+   *
+   * The heading keeps its counts while closed, so the section still says what
+   * it holds -- a disclosure that hides how much is behind it just makes
+   * people open it to find out.
+   */
   return (
     <section className="mb-7">
-      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+      <button
+        type="button"
+        className="mb-2 flex w-full flex-wrap items-baseline gap-2 text-left"
+        onClick={() => setOpenSection((v) => !v)}
+        aria-expanded={openSection}
+      >
+        <ChevronDown
+          size={14}
+          className={`shrink-0 self-center text-[var(--muted)] transition-transform duration-150 ${
+            openSection ? "rotate-0" : "-rotate-90"
+          }`}
+        />
         <h2 className="text-sm font-semibold">Who does best, by role</h2>
-        {scopeNote && <span className="text-xs text-[var(--muted)]">{scopeNote}</span>}
-      </div>
-      <div className="space-y-2">
-        {tables.map((t) => (
-          <RoleCard key={t.roleSlug} table={t} highlight={highlight} />
-        ))}
-      </div>
+        <span className="text-xs text-[var(--muted)]">
+          {tables.length} role{tables.length === 1 ? "" : "s"} · {people} person
+          {people === 1 ? "" : "s"}
+          {marked > 0 ? ` · ${marked} in view` : ""}
+        </span>
+        {scopeNote && (
+          <span className="ml-auto text-xs text-[var(--muted)]">{scopeNote}</span>
+        )}
+      </button>
+      {openSection && (
+        <div className="animate-rise space-y-2">
+          {tables.map((t) => (
+            <RoleCard key={t.roleSlug} table={t} highlight={highlight} />
+          ))}
+        </div>
+      )}
     </section>
   );
 }
