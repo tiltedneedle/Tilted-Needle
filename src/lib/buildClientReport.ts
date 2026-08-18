@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { selectAll } from "@/lib/selectAll";
 import { selectIn } from "@/lib/selectIn";
 import { PLATFORM_LABEL } from "@/lib/types";
+import { asTemplate, type ReportTemplate } from "@/lib/reportTemplates";
 import {
   deltaPct,
   pickTopVideos,
@@ -75,6 +76,8 @@ export type ReportPlatformSection = {
 
 export type ClientReport = {
   clientName: string;
+  /** Which design this client receives. Only ever changes the CSS. */
+  template: ReportTemplate;
   period: ReportPeriod;
   periodLabel: string;
   sections: ReportPlatformSection[];
@@ -129,7 +132,7 @@ export async function buildClientReport(
 
   const { data: client } = await supabase
     .from("clients")
-    .select("id, name")
+    .select("id, name, report_template")
     .eq("id", clientId)
     .is("deleted_at", null)
     .maybeSingle();
@@ -328,6 +331,7 @@ export async function buildClientReport(
 
   return {
     clientName: client.name as string,
+    template: asTemplate((client as { report_template?: unknown }).report_template),
     period,
     periodLabel: label,
     sections,

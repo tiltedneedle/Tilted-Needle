@@ -5,6 +5,7 @@ import { buildClientReport, monthPeriod } from "@/lib/buildClientReport";
 import PageHeader from "@/components/PageHeader";
 import ReportDocument from "@/components/ReportDocument";
 import PrintReportButton from "@/components/PrintReportButton";
+import TemplatePicker from "@/components/TemplatePicker";
 import { Empty } from "@/components/Stat";
 import { AlertTriangle } from "lucide-react";
 
@@ -94,6 +95,22 @@ export default async function ClientReportPage({
             <PrintReportButton />
           </div>
         </div>
+
+        {/* Switching is free: a template selects a stylesheet and nothing
+            else, so no figure can appear or vanish with the choice. The page
+            re-renders on click, so this doubles as the preview rather than
+            having a separate mode that can drift from what sends. */}
+        {report && clientId && (
+          <div className="card mb-3 flex flex-wrap items-center gap-2 p-3">
+            <span className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+              Design
+            </span>
+            <TemplatePicker clientId={clientId} current={report.template} />
+            <span className="text-[11px] text-[var(--muted)]">
+              Saved per client — only changes how it looks, never what it says.
+            </span>
+          </div>
+        )}
 
         <div className="card mb-5 flex flex-wrap items-center gap-2 p-3">
           <span className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">

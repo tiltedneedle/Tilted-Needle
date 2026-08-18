@@ -4012,3 +4012,32 @@ export async function loadPeriod(input: {
     breakdowns: (breakdowns ?? []) as { kind: string; label: string; value: number | null; rank: number }[],
   };
 }
+
+/**
+ * Choose which design a client's report is sent in.
+ *
+ * Per client because the clients are not alike, and the agency sends a
+ * jeweller and a bakery a document in the same week. The value only ever
+ * selects a stylesheet -- no template can change which figures appear, so
+ * switching one is always safe and always reversible.
+ */
+export async function setClientReportTemplate(input: {
+  clientId: string;
+  template: string;
+}): Promise<Result> {
+  const supabase = await createClient();
+  // The database has the same CHECK; refusing here buys a sentence a person
+  // can act on rather than a constraint-violation string.
+  if (!["editorial", "bold", "minimal", "luxury"].includes(input.template)) {
+    return { error: "That is not a report design." };
+  }
+  const { error } = await supabase
+    .from("clients")
+    .update({ report_template: input.template })
+    .eq("id", input.clientId)
+    .is("deleted_at", null);
+  if (error) return { error: error.message };
+  revalidatePath("/reports/client");
+  revalidatePath("/clients");
+  return {};
+}

@@ -1,4 +1,5 @@
 import type { ClientReport, ReportPlatformSection } from "@/lib/buildClientReport";
+import { templateClass } from "@/lib/reportTemplates";
 
 /**
  * The client report as a document, in the grammar the agency already uses.
@@ -241,7 +242,9 @@ export default function ReportDocument({ report }: { report: ClientReport }) {
   let page = 1;
 
   return (
-    <div className="report">
+    // The ONLY thing a template changes. Same tree, same data, same figures
+    // -- a design may restyle anything and may decide nothing.
+    <div className={`report ${templateClass(report.template)}`}>
       <section className="report-page">
         <div className="report-cover-inner">
           <div className="report-cover-title">{spaced("Social media performance report")}</div>
