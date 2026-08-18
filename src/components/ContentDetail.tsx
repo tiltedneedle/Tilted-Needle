@@ -360,11 +360,18 @@ export default function ContentDetail({
         )}
       </div>
       <div className="mb-5 flex flex-wrap items-center gap-3 text-sm text-[var(--muted)]">
-        {item.produced_at && <span>{item.produced_at}</span>}
+        {/* Published, per the platform -- not when the row was created here. */}
+        {item.produced_at && (
+          <span title="Published">Published {item.produced_at}</span>
+        )}
+        {/* A length, never a clock time. See VideoTile: set as m:ss directly
+            after a date it reads as a timestamp, and most lengths here fall in
+            the range where that misreading is available. */}
         {item.length_seconds != null && (
-          <span className="tabular">
-            {Math.floor(item.length_seconds / 60)}:
-            {String(item.length_seconds % 60).padStart(2, "0")}
+          <span className="tabular" title="Length">
+            {item.length_seconds >= 60
+              ? `${Math.floor(item.length_seconds / 60)}m ${String(item.length_seconds % 60).padStart(2, "0")}s`
+              : `${item.length_seconds}s`}
           </span>
         )}
         <span>

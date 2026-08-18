@@ -656,11 +656,20 @@ export default function VideoTile({
         </Link>
         <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-[var(--muted)]">
           {v.clientName && <span className="truncate">{v.clientName}</span>}
-          {v.producedAt && <span>{v.producedAt}</span>}
+          {/* The date is when the video was PUBLISHED, from the platform's own
+              record -- not when the row reached this system. */}
+          {v.producedAt && <span title="Published">{v.producedAt}</span>}
+          {/* A DURATION, and it must not be mistakable for a time of day.
+              Rendered as m:ss it sat immediately after the date and read as a
+              timestamp -- "2026-08-16 11:59" looks like a publish time and is
+              actually a twelve-minute video. 141 of 402 lengths fall in the
+              1:00-23:59 range where that misreading is available, which is why
+              it looked like the wrong date rather than like a bad format. */}
           {v.lengthSeconds != null && (
-            <span className="tabular">
-              {Math.floor(v.lengthSeconds / 60)}:
-              {String(v.lengthSeconds % 60).padStart(2, "0")}
+            <span className="tabular" title="Length">
+              {v.lengthSeconds >= 60
+                ? `${Math.floor(v.lengthSeconds / 60)}m ${String(v.lengthSeconds % 60).padStart(2, "0")}s`
+                : `${v.lengthSeconds}s`}
             </span>
           )}
           {!!v.trackedSeconds && v.trackedSeconds > 0 && (
