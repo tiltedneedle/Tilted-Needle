@@ -204,7 +204,6 @@ export default function Sidebar({
             onClose={closeSwitcher}
             matchWidth
             ariaLabel="Switch workspace"
-            style={{ background: "var(--panel)" }}
           >
               {workspaces.map((w) => (
                 <button
