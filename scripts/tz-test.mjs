@@ -85,8 +85,14 @@ eq("Kathmandu is UTC+5:45",
 /* -- Configuration --------------------------------------------------------- */
 check("a resolved zone is exported", typeof T.OPERATING_TZ === "string" && T.OPERATING_TZ.length > 0,
   T.OPERATING_TZ);
-check("the default is unchanged, so history is not reinterpreted",
-  T.OPERATING_TZ === (process.env.OPERATING_TZ || process.env.NEXT_PUBLIC_OPERATING_TZ || "Asia/Dubai"),
+// The guard stays; only the value it guards has moved. It exists so the
+// default cannot drift silently -- history is bucketed against it, and a
+// change reinterprets months of it. Asia/Dubai held here until 2026-08-19,
+// when it was corrected to the zone both workspaces actually declare; the
+// stored publish dates were rebuilt in the same change. Anyone editing this
+// line should be doing the same two things.
+check("the default is the declared operating zone, so history is not reinterpreted",
+  T.OPERATING_TZ === (process.env.OPERATING_TZ || process.env.NEXT_PUBLIC_OPERATING_TZ || "Asia/Karachi"),
   T.OPERATING_TZ);
 
 /* -- Display, per viewer --------------------------------------------------- */

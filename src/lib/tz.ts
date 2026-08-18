@@ -25,14 +25,40 @@
  *
  * HOW TO CHANGE IT
  *
- * Set OPERATING_TZ (e.g. "Asia/Karachi") in the environment. It defaults to
- * Asia/Dubai, which is what every existing figure was computed against -- a
- * silent default change would quietly reinterpret months of history, moving
- * posts between days and hours between weeks with nothing to show for it.
- * Changing it is a decision, so it is an explicit one.
+ * Set OPERATING_TZ in the environment. The default below is the fallback when
+ * it is unset, and moving it reinterprets history -- so it is a decision, made
+ * once, deliberately, rather than a value anyone edits in passing.
  */
 
-const FALLBACK = "Asia/Dubai";
+/**
+ * ASIA/KARACHI, and this changed from Asia/Dubai on 2026-08-19.
+ *
+ * The two layers disagreed about the same fact. Both workspaces declare
+ * `timezone = 'Asia/Karachi'`, and the SQL side reads that column through
+ * operating_today(ws) -- while the application, with OPERATING_TZ unset, fell
+ * back to Asia/Dubai and bucketed every day, week and report period an hour
+ * earlier. Nothing surfaced the conflict because each layer was internally
+ * consistent; /data carried a banner about it that named the fix and waited.
+ *
+ * It was never academic: 56 of 443 posts fall on a different DAY under the two
+ * zones and 9 fall in a different MONTH, including "The value of privacy." on
+ * Ameerh Naran's TikTok, which sat in a July client report and belongs to
+ * August.
+ *
+ * Karachi because it is the DECLARED value -- somebody set that column on both
+ * workspaces on purpose, and the docstring above already noted the system is
+ * used from Pakistan. Dubai was a default nobody chose.
+ *
+ * Changed here rather than by setting an env var: an env var fixes one
+ * machine, and the deployed app would have gone on disagreeing with its own
+ * database until somebody remembered Vercel. Setting OPERATING_TZ still works
+ * and still wins.
+ *
+ * The stored dates were rebuilt to match -- see
+ * scripts/backfill-publish-dates.mjs, which recomputes every publish day from
+ * its instant.
+ */
+const FALLBACK = "Asia/Karachi";
 
 /** True when the runtime actually knows this zone, so a typo cannot go live. */
 function isValidZone(tz: string): boolean {

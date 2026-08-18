@@ -3,6 +3,7 @@
 //
 //   node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/lifecycle-test.mjs
 import { readLifecycle } from "../src/lib/lifecycle.ts";
+import { startOfOperatingDay } from "../src/lib/tz.ts";
 
 let pass = 0, fail = 0;
 const check = (name, ok, detail = "") => {
@@ -12,9 +13,24 @@ const check = (name, ok, detail = "") => {
 const near = (a, b, eps = 1e-6) => a != null && Math.abs(a - b) < eps;
 
 const DAY = 86_400_000;
-// Fixed clock so nothing here depends on when the suite runs.
-const NOW = new Date("2026-08-08T12:00:00+04:00").getTime();
-const day = (n) => new Date(`2026-08-${String(n).padStart(2, "0")}T00:00:00+04:00`).getTime();
+
+/**
+ * Fixture instants are built in the OPERATING ZONE, not at a literal offset.
+ *
+ * These helpers hardcoded "+04:00", which is the same frozen-offset bug the
+ * code under test had -- and it bit the moment the zone moved to Asia/Karachi:
+ * the fixtures went on describing Dubai midnights while readLifecycle resolved
+ * postedAt in Karachi, so a half-life came out 1.375 days instead of 1.333 and
+ * the test failed for a reason that had nothing to do with lifecycles.
+ *
+ * A test that pins the offset can only ever confirm the zone it was written
+ * in. Deriving it means these keep testing the interpolation itself, in
+ * whatever zone the workspace declares.
+ */
+const day = (n) => startOfOperatingDay(`2026-08-${String(n).padStart(2, "0")}`).getTime();
+// Fixed clock so nothing here depends on when the suite runs: noon local on
+// the 8th, expressed as an instant.
+const NOW = day(8) + 12 * 3_600_000;
 
 /* ---- Trap 1: known-flat time counts toward the window ------------------- */
 // The defining property of this data: snapshots are change points, so the
