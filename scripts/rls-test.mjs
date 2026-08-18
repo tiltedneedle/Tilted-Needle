@@ -304,9 +304,37 @@ const made = { users: [], workspaces: [] };
   check("client cannot enumerate the team",
     (cProfiles?.length ?? 0) <= 1, `saw ${cProfiles?.length} profiles`);
 
-  const { data: cMembers } = await cc.from("memberships").select("*");
+  /**
+   * NAMED COLUMNS, not select("*") -- and that distinction is the whole point.
+   *
+   * memberships.kiosk_pin_hash is an unsalted SHA-256 of a short numeric PIN,
+   * so column-level SELECT is revoked from `authenticated` (RLS is row-level
+   * and cannot scope a column). PostgREST rejects the WHOLE query with 42501
+   * if ANY requested column is revoked -- so select("*") on this table can
+   * never succeed for a signed-in user, whatever the row policy says.
+   *
+   * This assertion used to use select("*") and reported "saw undefined": the
+   * query had errored, the error was discarded, and the message named the
+   * wrong thing entirely. It read as a broken row policy for weeks. The
+   * policy was correct the whole time.
+   */
+  const { data: cMembers, error: cMemErr } = await cc
+    .from("memberships")
+    .select("id, workspace_id, user_id, role, is_active");
   check("client sees only its own membership",
-    (cMembers?.length ?? 0) === 1, `saw ${cMembers?.length}`);
+    !cMemErr && (cMembers?.length ?? 0) === 1,
+    cMemErr ? cMemErr.message : `saw ${cMembers?.length}`);
+
+  // The revoke itself, asserted rather than assumed -- it is the only thing
+  // standing between a signed-in user and every kiosk PIN in the workspace.
+  const { error: pinErr } = await cc.from("memberships").select("kiosk_pin_hash");
+  check("kiosk_pin_hash is unreadable by a client", pinErr?.code === "42501",
+    pinErr ? pinErr.code : "READ SUCCEEDED");
+
+  // And the same for a full staff member, who has a much wider row policy.
+  const { error: aPinErr } = await a.client.from("memberships").select("kiosk_pin_hash");
+  check("kiosk_pin_hash is unreadable by staff too", aPinErr?.code === "42501",
+    aPinErr ? aPinErr.code : "READ SUCCEEDED");
 
   const { data: cTasks } = await cc.from("tasks").select("*");
   check("client cannot see internal tasks", (cTasks?.length ?? 0) === 0);
