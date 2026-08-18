@@ -640,7 +640,7 @@ export async function loadContentOverview(
 export async function loadClientOptions(supabase: Db, ws: string) {
   const { data } = await supabase
     .from("clients")
-    .select("id, name").is("deleted_at", null).is("deleted_at", null)
+    .select("id, name").is("deleted_at", null)
     .eq("workspace_id", ws)
     .eq("is_archived", false)
     .order("name");
@@ -682,7 +682,7 @@ export async function loadReviewQueue(supabase: Db, ws: string) {
         .order("created_at", { ascending: false })
         .order("id"),
     ),
-    supabase.from("clients").select("id, name, is_archived").is("deleted_at", null).is("deleted_at", null).eq("workspace_id", ws),
+    supabase.from("clients").select("id, name, is_archived").is("deleted_at", null).eq("workspace_id", ws),
     selectAll<{ content_item_id: string; account: { platform_slug: string } | { platform_slug: string }[] | null }>(
       () =>
         supabase

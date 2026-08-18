@@ -36,7 +36,7 @@ export default async function InvoicesPage() {
       .order("sort_order"),
     supabase
       .from("clients")
-      .select("id, name").is("deleted_at", null).is("deleted_at", null)
+      .select("id, name").is("deleted_at", null)
       .eq("workspace_id", ws)
       .eq("is_archived", false)
       .order("name"),

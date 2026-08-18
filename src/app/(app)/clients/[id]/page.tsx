@@ -30,7 +30,7 @@ export default async function ClientChannelsPage({
   if (manages) {
     const { data: row } = await supabase
       .from("clients")
-      .select("email, note").is("deleted_at", null).is("deleted_at", null)
+      .select("email, note").is("deleted_at", null)
       .eq("id", id)
       .maybeSingle();
     contact = { email: row?.email ?? null, note: row?.note ?? null };

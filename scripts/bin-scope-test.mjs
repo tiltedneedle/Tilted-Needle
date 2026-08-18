@@ -56,9 +56,17 @@ for (const file of files) {
     // enough, since these are all chained builder calls on one statement.
     const end = src.indexOf(";", idx);
     const stmt = src.slice(idx, end < 0 ? src.length : end);
-    if (!stmt.includes("deleted_at")) {
+    const count = (stmt.match(/\.is\("deleted_at", null\)/g) || []).length;
+    if (count === 0) {
       const line = src.slice(0, idx).split("\n").length;
-      offenders.push(`${norm}:${line}`);
+      offenders.push(`${norm}:${line}  (missing)`);
+    } else if (count > 1) {
+      // Harmless to run -- the same predicate twice -- but it only happens
+      // when a scripted edit is applied more than once, and nineteen of these
+      // appeared exactly that way. Flagged so the next bulk rewrite says so
+      // rather than leaving a quiet mess behind.
+      const line = src.slice(0, idx).split("\n").length;
+      offenders.push(`${norm}:${line}  (filter repeated ${count}x)`);
     }
     idx += 16;
   }

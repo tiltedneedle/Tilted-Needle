@@ -21,7 +21,7 @@ export async function loadPipelineStatus(db: Db, ws: string): Promise<PipelineSt
     db.from("ai_analyses").select("input_tokens, output_tokens, created_at").eq("workspace_id", ws),
     db.from("content_items").select("id, client_id").eq("workspace_id", ws),
     db.from("video_transcripts").select("content_item_id").eq("workspace_id", ws),
-    db.from("clients").select("id, name").is("deleted_at", null).is("deleted_at", null).eq("workspace_id", ws).eq("is_archived", false),
+    db.from("clients").select("id, name").is("deleted_at", null).eq("workspace_id", ws).eq("is_archived", false),
     db.from("platform_posts").select("id, content_item_id").eq("workspace_id", ws),
     db.from("post_analytics").select("platform_post_id").eq("workspace_id", ws),
   ]);

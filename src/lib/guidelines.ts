@@ -46,7 +46,7 @@ export async function loadGuidelineClients(ws: string): Promise<GuidelineClient[
   const [clientsRes, accountsRes, sectionsRes, assetsRes] = await Promise.all([
     supabase
       .from("clients")
-      .select("id, name, image_url, guideline_doc_url, is_archived").is("deleted_at", null).is("deleted_at", null)
+      .select("id, name, image_url, guideline_doc_url, is_archived").is("deleted_at", null)
       .eq("workspace_id", ws)
       .order("name"),
     supabase
@@ -123,7 +123,7 @@ export async function loadGuidelineDetail(
 
   const { data: client } = await supabase
     .from("clients")
-    .select("id, name, image_url, guideline_doc_url, is_archived").is("deleted_at", null).is("deleted_at", null)
+    .select("id, name, image_url, guideline_doc_url, is_archived").is("deleted_at", null)
     .eq("id", clientId)
     .eq("workspace_id", ws)
     .maybeSingle();

@@ -24,7 +24,7 @@ export default async function ClientsPage() {
   const [clientsRes, accountsRes] = await Promise.all([
     supabase
       .from("clients")
-      .select("id, name, is_archived").is("deleted_at", null).is("deleted_at", null)
+      .select("id, name, is_archived").is("deleted_at", null)
       .eq("workspace_id", ws)
       .order("name"),
     supabase
