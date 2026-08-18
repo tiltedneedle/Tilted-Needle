@@ -272,6 +272,11 @@ function PlatformPage({
                 {/* Verbatim, including typos, curly quotes and emoji: the
                     caption is the client's own writing. */}
                 <div className="report-quote">{t.title ? `“${t.title}”` : "Untitled"}</div>
+                {t.basis === "since-publication" && (
+                  <div style={{ fontSize: 9.5, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--report-muted)", marginBottom: 5 }}>
+                    since publication
+                  </div>
+                )}
                 <div className="report-figures" style={{ gap: "0 32px", marginBottom: 0 }}>
                   <Figure value={t.views} label="Views" size={22} />
                   <Figure value={t.likes} label="Likes" size={22} />
@@ -397,6 +402,15 @@ export default function ReportDocument({ report }: { report: ClientReport }) {
                 lifetime totals — a video published earlier can still be the month&apos;s strongest
                 performer, and a large historic count does not mean a video is working now.
               </p>
+              {/* Only stated when such a row is actually present. A caveat
+                  about a figure the report does not contain is noise. */}
+              {sections.some((s) => s.top.some((t) => t.basis === "since-publication")) && (
+                <p style={{ marginBottom: 12 }}>
+                  Figures marked <em>since publication</em> are the video&apos;s total to date rather
+                  than what it earned inside this period. They appear where measurement began after
+                  the period closed, and they run past its end.
+                </p>
+              )}
               <p style={{ marginBottom: 12 }}>{report.likesCaveat}</p>
             </>
           )}

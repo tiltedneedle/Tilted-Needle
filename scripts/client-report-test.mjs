@@ -126,8 +126,11 @@ const post = (o) => ({
 /* -- What must never be silently dropped ------------------------------------ */
 
 {
-  // Published 30 July, first measured 9 August. Invisible to a gain ranking,
-  // and possibly the month's best video. It comes back as unmeasurable.
+  // Published 30 July, first measured 9 August. It was PUBLISHED in the
+  // period, so its first reading is everything it earned since going out --
+  // which begins inside the period. Dropping it produced empty reports for
+  // every month before our snapshot history began, while real videos with
+  // real numbers sat in the database.
   const { top, unmeasurable } = C.pickTopVideos(
     [
       post({ postId: "late", postedAtTs: "2026-07-30T20:00:00.000Z", snapshots: [snap("2026-08-09", 50_000)] }),
@@ -135,10 +138,39 @@ const post = (o) => ({
     ],
     JULY,
   );
-  eq("a post first measured after the period is not ranked", top.length, 1);
-  eq("but it is returned, not discarded", unmeasurable.length, 1);
-  eq("with the reason named", unmeasurable[0].reason, "no-reading-by-period-end");
-  eq("and enough to identify it", unmeasurable[0].postId, "late");
+  eq("a post published in the period is used even if measured later", top.length, 2);
+  eq("and is labelled for what the figure actually is", top.find((t) => t.postId === "late").basis, "since-publication");
+  eq("nothing is left unmeasurable", unmeasurable.length, 0);
+  // THE TIER RULE. An estimate covers a longer window than a measured gain, so
+  // it must not outrank one on the strength of a bigger number.
+  eq("a measured row outranks an estimate despite a smaller figure", top[0].postId, "ok");
+}
+
+{
+  // Published BEFORE the period and first measured after it: nothing here is
+  // attributable to the period and there is no honest number to print.
+  const { top, unmeasurable } = C.pickTopVideos(
+    [post({ postId: "older", postedAtTs: "2026-05-01T10:00:00.000Z", snapshots: [snap("2026-08-09", 90_000)] })],
+    JULY,
+  );
+  eq("a post published before the period is still not ranked", top.length, 0);
+  eq("and says why", unmeasurable[0].reason, "no-reading-by-period-end");
+}
+
+{
+  // The case that produced a blank June: our snapshot history starts
+  // 2026-07-29, so every June video was first measured after June closed.
+  const JUNE = { start: "2026-06-01", end: "2026-06-30" };
+  const { top } = C.pickTopVideos(
+    [
+      post({ postId: "jun-a", postedAtTs: "2026-06-05T10:00:00.000Z", snapshots: [snap("2026-07-29", 82_085)] }),
+      post({ postId: "jun-b", postedAtTs: "2026-06-18T10:00:00.000Z", snapshots: [snap("2026-07-29", 52_733)] }),
+    ],
+    JUNE,
+  );
+  eq("a month entirely before our history still produces a report", top.length, 2);
+  eq("ordered by what they have earned", top[0].postId, "jun-a");
+  eq("every row labelled as an estimate", top.every((t) => t.basis === "since-publication"), true);
 }
 
 {

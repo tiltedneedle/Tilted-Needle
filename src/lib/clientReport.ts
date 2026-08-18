@@ -83,11 +83,18 @@ export type TopVideo = {
   /**
    * How solid the ranking is for this row.
    *
-   * "measured"  -- readings on both sides of the period; gain is real.
-   * "lifetime"  -- no reading at or before the start, so the gain could not be
-   *                isolated and lifetime stood in. Shown, and flagged.
+   * "measured"          -- readings on both sides of the period; the gain is
+   *                        real and attributable to the period.
+   * "lifetime"          -- no reading before the period, but the video went
+   *                        out within days of it opening, so its lifetime
+   *                        count is a tight enough bound to rank on.
+   * "since-publication" -- published INSIDE the period, first measured after
+   *                        it closed. The figure is everything the video has
+   *                        earned since it went out, which starts inside the
+   *                        period and runs past it. Not a period gain, and the
+   *                        report says so rather than implying one.
    */
-  basis: "measured" | "lifetime";
+  basis: "measured" | "lifetime" | "since-publication";
 };
 
 /** A post that exists but cannot be placed in the ranking, and why. */
@@ -179,12 +186,48 @@ export function pickTopVideos(
       continue;
     }
 
+    const publishedInPeriodEarly =
+      p.postedAtTs != null &&
+      onOrAfter(p.postedAtTs, period.start) &&
+      onOrBefore(p.postedAtTs, period.end);
+
     // The last reading at or before the period ends is what the client's own
     // screen showed them on the closing day.
     const atEnd = [...readings].reverse().find((s) => onOrBefore(s.capturedAt, period.end));
     if (!atEnd) {
-      // Published late in the period and first measured afterwards. Real, and
-      // possibly the month's best -- it just cannot be ranked here.
+      /**
+       * No reading inside the period -- but if the video was PUBLISHED inside
+       * it, we still know something real: its first reading is everything it
+       * has earned since it went out, and it went out in this period.
+       *
+       * This is the difference between a useful report and an empty one. Our
+       * snapshot history begins 2026-07-29, so for June every video failed
+       * this test and the report came back blank -- while five videos with
+       * 82k, 53k and 49k views sat in the database, published that month,
+       * discarded. Dropping a real video because our measurement started late
+       * tells the client nothing; showing it with the right label tells them
+       * what happened.
+       *
+       * It is NOT a period gain and is never called one: the figure runs past
+       * the period's end, and the basis travels with the row so the document
+       * can say what it is.
+       */
+      if (publishedInPeriodEarly) {
+        const first = readings[0];
+        ranked.push({
+          postId: p.postId,
+          contentItemId: p.contentItemId,
+          platform: p.platform,
+          title: p.title,
+          views: first.views ?? 0,
+          likes: p.likes ?? 0,
+          gained: first.views ?? 0,
+          basis: "since-publication",
+        });
+        continue;
+      }
+      // Published before the period and first measured after it: nothing here
+      // is attributable, and there is no honest number to print.
       unmeasurable.push({
         postId: p.postId,
         platform: p.platform,
@@ -253,9 +296,20 @@ export function pickTopVideos(
     });
   }
 
-  // Gain decides the order; postId breaks ties so the same input never
-  // produces two different reports.
-  ranked.sort((a, b) => b.gained - a.gained || a.postId.localeCompare(b.postId));
+  /**
+   * Measured rows outrank estimated ones, then gain decides, then postId so
+   * the same input never produces two different reports.
+   *
+   * The tier matters: a "since-publication" figure covers a longer window than
+   * a measured gain, so mixing them in one ordering would let the weaker
+   * evidence win on a bigger number. Where real measurements exist they fill
+   * the list; the estimates only appear when there is room left, which in
+   * practice means a period that predates our history entirely.
+   */
+  const tier = (t: TopVideo) => (t.basis === "since-publication" ? 1 : 0);
+  ranked.sort(
+    (a, b) => tier(a) - tier(b) || b.gained - a.gained || a.postId.localeCompare(b.postId),
+  );
   return { top: ranked.slice(0, limit), unmeasurable };
 }
 
