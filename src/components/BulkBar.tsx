@@ -15,6 +15,7 @@ import {
 } from "@/app/actions";
 import { useToast } from "@/components/ui/Toast";
 import { PLATFORM_LABEL } from "@/lib/types";
+import { creditedByRoleFor, mergePlatformFor } from "@/lib/bulkSelection";
 import { SHORT_ROLE, type TileCredit, type TileMember, type TileRole } from "@/components/VideoTile";
 
 /**
@@ -93,57 +94,17 @@ export default function BulkBar({
     startTransition(() => router.refresh());
   };
 
-  /**
-   * MERGE IS SAME-PLATFORM ONLY.
-   *
-   * It used to be the cross-platform tool: pick a TikTok and its Instagram
-   * twin, fold them into one row. That is not a duplicate. Two platforms
-   * carrying the same video are two posts with two audiences and two reach
-   * curves; merging them hides one and invents a cross-post record that
-   * describes nothing that happened.
-   *
-   * So the button only appears when everything selected sits on one and the
-   * same platform. Computed rather than left to the server's refusal, because
-   * "press it and read the error" is a worse way to learn a rule than not
-   * being offered the button.
-   */
-  const mergePlatform = useMemo(() => {
-    if (selected.length < 2) return null;
-    const all = selected.flatMap((id) => platformsById[id] ?? []);
-    // Nothing selected carries a post. These are the hand-added rows -- the
-    // "41 with no link" -- and two of them with the same title really are one
-    // video entered twice, with no posts to conflict. Offered, labelled as
-    // what it is rather than borrowing a platform name it does not have.
-    if (all.length === 0) return "none";
-    const distinct = [...new Set(all)];
-    return distinct.length === 1 ? distinct[0] : null;
-  }, [selected, platformsById]);
-
-  /**
-   * Who already holds each role, across the selection, and on how many.
-   *
-   * Rolled up here rather than in the parent so the bar owns the whole idea of
-   * "the selection": the parent hands over raw per-video credits and does not
-   * have to know that the strip cares about counts. Sorted by coverage so the
-   * avatar the strip shows is the person credited on the most of them, which
-   * is the one that best describes the batch.
-   */
-  const creditedByRole = useMemo(() => {
-    const out = new Map<string, { userId: string; name: string; count: number }[]>();
-    for (const id of selected) {
-      for (const c of creditsById[id] ?? []) {
-        const list = out.get(c.roleSlug) ?? [];
-        const found = list.find((h) => h.userId === c.userId);
-        if (found) found.count++;
-        else list.push({ userId: c.userId, name: c.userName, count: 1 });
-        out.set(c.roleSlug, list);
-      }
-    }
-    for (const list of out.values()) {
-      list.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
-    }
-    return out;
-  }, [selected, creditsById]);
+  // Both rules live in lib/bulkSelection so they can be tested without a
+  // browser -- merge is the destructive action here, and what may be merged
+  // should not be verifiable only by clicking.
+  const mergePlatform = useMemo(
+    () => mergePlatformFor(selected, platformsById),
+    [selected, platformsById],
+  );
+  const creditedByRole = useMemo(
+    () => creditedByRoleFor(selected, creditsById),
+    [selected, creditsById],
+  );
 
   async function setClient() {
     // Guarded, not just disabled: the button below cannot be pressed without
