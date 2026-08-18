@@ -3802,3 +3802,125 @@ export async function saveMyTimezone(tz: string): Promise<Result> {
   if (error) return { error: error.message };
   return {};
 }
+
+/* ---- Account analytics periods -------------------------------------------
+   The manual half of the client report. Instagram publishes no account-level
+   export and never will, so most of what a report prints about an audience
+   reaches the system because somebody typed it. These actions are that path. */
+
+/**
+ * Save what has been typed so far, without claiming it is right.
+ *
+ * Draft is the default and it matters: a period is assembled from several
+ * files PLUS a screenful of hand-typed numbers, and holding that in React
+ * state until one final commit would lose an hour's work to a stray refresh.
+ * A draft is invisible to the report generator and to client users -- the RLS
+ * policy enforces the second part, so a portal user cannot read a number
+ * nobody has stood behind yet.
+ *
+ * Upserts on (account, period), because re-entering a period supersedes it
+ * rather than adding a second answer to "what were July's followers".
+ */
+export async function savePeriodDraft(input: {
+  workspaceId: string;
+  accountId: string;
+  periodStart: string;
+  periodEnd: string;
+  values: Record<string, number | null>;
+  fieldSources?: Record<string, unknown>;
+}): Promise<Result & { id?: string }> {
+  const supabase = await createClient();
+
+  // Confirming re-opens as draft only on an explicit re-confirm; saving over a
+  // confirmed period must not quietly downgrade it without saying so, so the
+  // status is left alone here and only set by confirmPeriod.
+  const { data, error } = await supabase
+    .from("account_metrics")
+    .upsert(
+      {
+        workspace_id: input.workspaceId,
+        account_id: input.accountId,
+        period_start: input.periodStart,
+        period_end: input.periodEnd,
+        ...input.values,
+        field_sources: input.fieldSources ?? {},
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "account_id,period_start,period_end" },
+    )
+    .select("id")
+    .maybeSingle();
+
+  if (error) return { error: error.message };
+  revalidatePath("/data");
+  return { id: (data as { id: string } | null)?.id };
+}
+
+/**
+ * Stand behind a period, so the report may use it.
+ *
+ * Records WHO and WHEN, which the schema requires for a confirmed row -- a
+ * number in front of a paying client should be traceable to the person who
+ * said it was right. The audit entry carries the values as confirmed, so a
+ * later supersede leaves the earlier figures recoverable without a history
+ * table.
+ */
+export async function confirmPeriod(input: {
+  workspaceId: string;
+  periodId: string;
+}): Promise<Result> {
+  const supabase = await createClient();
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth?.user) return { error: "Not signed in." };
+
+  const { data: before } = await supabase
+    .from("account_metrics")
+    .select("*")
+    .eq("id", input.periodId)
+    .maybeSingle();
+  if (!before) return { error: "That period no longer exists. Refresh and try again." };
+
+  const { error } = await supabase
+    .from("account_metrics")
+    .update({
+      status: "confirmed",
+      confirmed_by: auth.user.id,
+      confirmed_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", input.periodId);
+  if (error) return { error: error.message };
+
+  await logAudit(supabase, {
+    workspaceId: input.workspaceId,
+    actorId: auth.user.id,
+    action: "analytics.period.confirmed",
+    entityType: "account_metrics",
+    entityId: input.periodId,
+    // The values AS CONFIRMED, so a later supersede leaves the earlier
+    // figures recoverable without a history table.
+    detail: before as Record<string, unknown>,
+  });
+  revalidatePath("/data");
+  return {};
+}
+
+/** Put a period back into draft, so it stops feeding reports. */
+export async function unconfirmPeriod(input: {
+  workspaceId: string;
+  periodId: string;
+}): Promise<Result> {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("account_metrics")
+    .update({
+      status: "draft",
+      confirmed_by: null,
+      confirmed_at: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", input.periodId);
+  if (error) return { error: error.message };
+  revalidatePath("/data");
+  return {};
+}
