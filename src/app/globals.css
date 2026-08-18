@@ -1552,3 +1552,275 @@ h3 {
     display: none !important;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   The client report document.
+
+   Modelled on the reports the agency already sends, whose visual grammar is
+   consistent and worth reproducing rather than reinventing:
+
+     - section headers set in wide-tracked small caps, rule beneath
+     - a headline sentence in a serif-weight display size, stating the finding
+     - large numerals over small-cap labels, in a row
+     - findings numbered 01 / 02 / 03 with a bold lead line
+     - a footer on every sheet: client, page number, report name
+
+   These styles are shared by screen and print deliberately -- what you review
+   is what saves, and a print-only layout is one nobody ever looks at until it
+   is wrong.
+   --------------------------------------------------------------------------- */
+
+.report {
+  --report-ink: #1a1a1e;
+  --report-muted: #6b6b74;
+  --report-rule: #ddd8d0;
+  --report-accent: var(--red-deep);
+  --report-paper: #ffffff;
+  color: var(--report-ink);
+  background: var(--report-paper);
+}
+
+/* One sheet. On screen it is a card; on paper it is literally a page. */
+.report-page {
+  position: relative;
+  background: var(--report-paper);
+  border: 1px solid var(--report-rule);
+  border-radius: var(--radius-md);
+  padding: 30px 34px 52px;
+  margin-bottom: 18px;
+  /* A4 less the @page margin, so what you scroll matches what prints. */
+  min-height: 246mm;
+}
+
+/* Wide-tracked small caps with a rule under them: the report's own section
+   marker, and the thing that most makes a page read as this document rather
+   than a dashboard. */
+.report-eyebrow {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: var(--report-accent);
+  padding-bottom: 9px;
+  border-bottom: 1px solid var(--report-rule);
+  margin-bottom: 18px;
+}
+
+/* The sentence that states what the page found. Deliberately large: in the
+   real reports this line carries the argument and the figures support it. */
+.report-headline {
+  font-size: 21px;
+  line-height: 1.25;
+  letter-spacing: -0.015em;
+  margin-bottom: 20px;
+  max-width: 34ch;
+}
+
+.report-figures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 26px 40px;
+  margin-bottom: 22px;
+}
+
+.report-figure-value {
+  font-family: var(--font-sans);
+  font-size: 34px;
+  line-height: 1.02;
+  letter-spacing: -0.022em;
+  font-variant-numeric: tabular-nums;
+}
+
+.report-figure-label {
+  margin-top: 5px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--report-muted);
+}
+
+/* A delta reads as commentary on the figure above it, never as its own number,
+   so it is small and sits directly beneath. */
+.report-figure-delta {
+  margin-top: 3px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 01 / 02 / 03. The numeral is the ornament; the lead line carries the point. */
+.report-finding {
+  display: grid;
+  grid-template-columns: 34px 1fr;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.report-finding-number {
+  font-family: var(--font-sans);
+  font-size: 20px;
+  line-height: 1.1;
+  color: var(--report-accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.report-finding-lead {
+  font-weight: 600;
+  font-size: 13.5px;
+  margin-bottom: 3px;
+}
+
+.report-finding-body {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--report-muted);
+}
+
+/* A ranked list of labelled values -- content mix, traffic sources, ages. The
+   bar is proportional and the number is exact; the bar is for scanning and the
+   number is what gets quoted. */
+.report-bar-row {
+  display: grid;
+  grid-template-columns: 1fr 46px;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 7px;
+  font-size: 12px;
+}
+
+.report-bar-track {
+  position: relative;
+  height: 18px;
+  background: #f1eee9;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.report-bar-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--report-accent);
+  opacity: 0.85;
+}
+
+.report-bar-label {
+  position: relative;
+  padding: 0 8px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.report-bar-value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--report-muted);
+}
+
+/* Top content: rank, quoted caption, then the two figures. */
+.report-rank {
+  display: grid;
+  grid-template-columns: 26px 1fr;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--report-rule);
+}
+
+.report-rank:last-child {
+  border-bottom: 0;
+}
+
+.report-rank-number {
+  font-family: var(--font-sans);
+  font-size: 17px;
+  color: var(--report-accent);
+  line-height: 1.3;
+}
+
+.report-quote {
+  font-size: 13px;
+  line-height: 1.45;
+  margin-bottom: 8px;
+}
+
+.report-footer {
+  position: absolute;
+  left: 34px;
+  right: 34px;
+  bottom: 20px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding-top: 9px;
+  border-top: 1px solid var(--report-rule);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--report-muted);
+}
+
+/* The cover: everything centred, the whole sheet given over to identity. */
+.report-cover-inner {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  min-height: 200mm;
+}
+
+.report-cover-title {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--report-accent);
+}
+
+.report-cover-client {
+  font-family: var(--font-sans);
+  font-size: 46px;
+  line-height: 1.05;
+  letter-spacing: -0.025em;
+  margin: 22px 0 14px;
+}
+
+.report-cover-platforms {
+  font-size: 10.5px;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: var(--report-muted);
+}
+
+.report-cover-period {
+  margin-top: 30px;
+  font-size: 15px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+}
+
+@media print {
+  /* Each sheet is a page, and the border is a screen affordance. */
+  .report-page {
+    border: 0;
+    border-radius: 0;
+    margin: 0;
+    padding: 0 0 46px;
+    min-height: auto;
+    break-after: page;
+    page-break-after: always;
+  }
+
+  .report-page:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+
+  .report-footer {
+    left: 0;
+    right: 0;
+  }
+
+  .report-cover-inner {
+    min-height: 210mm;
+  }
+}
