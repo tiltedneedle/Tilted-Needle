@@ -23,6 +23,7 @@
     "test:tokens": "node scripts/token-scope-test.mjs",
     "test:thin": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/thin-snapshots-test.mjs",
     "test:clientbin": "node scripts/client-bin-test.mjs",
+    "test:mergeundo": "node scripts/merge-undo-test.mjs",
     "test:throttle": "node scripts/discovery-throttle-test.mjs",
     "test:embed": "node scripts/video-embed-test.mjs",
     "test:contenturl": "node scripts/content-url-test.mjs",

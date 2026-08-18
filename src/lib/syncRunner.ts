@@ -539,6 +539,39 @@ export async function runSync(
     staleBefore?: string;
   } = {},
 ): Promise<AccountSyncResult[]> {
+  /**
+   * Close runs that can never close themselves.
+   *
+   * The try/finally further down handles a syncAccount that throws. It cannot
+   * help when the FUNCTION is killed at maxDuration: the process is gone, and
+   * no finally runs. Those rows stay 'running' for good, and /data reads them
+   * as in-flight -- so a pipeline that has been idle for two days reports
+   * itself permanently busy. Fourteen had accumulated, the oldest 46 hours.
+   *
+   * REAP_AFTER_MS is four times maxDuration (300s). Long enough that a run
+   * genuinely in progress is never touched -- including one started seconds
+   * ago by a concurrent invocation -- and short enough that a killed run is
+   * marked before anyone looks at the panel.
+   *
+   * Marked 'error' rather than deleted. A run that died is a fact about the
+   * pipeline worth keeping, and deleting the evidence is how the same
+   * timeout goes unnoticed for a fortnight.
+   */
+  const REAP_AFTER_MS = 20 * 60 * 1000;
+  try {
+    await db
+      .from("sync_runs")
+      .update({
+        status: "error",
+        finished_at: new Date().toISOString(),
+        error: "Run did not report a result — the function was most likely killed at its time limit.",
+      })
+      .eq("status", "running")
+      .lt("started_at", new Date(Date.now() - REAP_AFTER_MS).toISOString());
+  } catch {
+    // Housekeeping. A failure here must not stop the sync it precedes.
+  }
+
   let q = db
     .from("accounts")
     .select(
@@ -668,30 +701,62 @@ export async function runSync(
       !wouldDiscover || meteredDiscoveries < MAX_METERED_DISCOVERY_PER_RUN;
     if (wouldDiscover && allowMeteredDiscovery) meteredDiscoveries++;
 
-    const result = await syncAccount(db, account, {
-      discoverLimit: opts.discoverLimit,
-      trigger,
-      allowMeteredDiscovery,
-      // A manually-triggered run spends from the reserved manual pool, not
-      // the automatic one -- so pressing "Sync now" or importing a new
-      // account can never be starved by what the scheduled cron already
-      // spent this period, and vice versa.
-      pool: trigger === "manual" ? "manual" : "auto",
-    });
-    results.push(result);
-
-    if (run?.id) {
-      await db
-        .from("sync_runs")
-        .update({
-          finished_at: new Date().toISOString(),
-          status: result.status,
-          posts_seen: result.postsSeen,
-          posts_created: result.postsCreated,
-          snapshots_written: result.snapshotsWritten,
-          error: result.error ?? null,
-        })
-        .eq("id", run.id);
+    /**
+     * try/finally, because the row is opened above and must close whatever
+     * happens next.
+     *
+     * syncAccount returns {status:"error"} for failures it HANDLES, but an
+     * unhandled throw -- a socket reset, a provider returning HTML where JSON
+     * was expected -- used to skip the update entirely and leave the row
+     * 'running' for good. Fourteen such rows had accumulated, the oldest 46
+     * hours old, and because /data reads them as in-flight the pipeline
+     * looked permanently busy.
+     *
+     * This cannot fix the other cause: a function killed at maxDuration takes
+     * the whole process with it, and no finally runs. That is what the reaper
+     * at the top of runSync is for.
+     */
+    let result: AccountSyncResult | null = null;
+    try {
+      result = await syncAccount(db, account, {
+        discoverLimit: opts.discoverLimit,
+        trigger,
+        allowMeteredDiscovery,
+        // A manually-triggered run spends from the reserved manual pool, not
+        // the automatic one -- so pressing "Sync now" or importing a new
+        // account can never be starved by what the scheduled cron already
+        // spent this period, and vice versa.
+        pool: trigger === "manual" ? "manual" : "auto",
+      });
+      results.push(result);
+    } catch (e) {
+      // Recorded as a result too, so the caller's failed-count reflects it
+      // rather than the account silently vanishing from the report.
+      result = {
+        accountId: account.id,
+        handle: account.handle,
+        platform: account.platform_slug,
+        status: "error",
+        postsSeen: 0,
+        postsCreated: 0,
+        snapshotsWritten: 0,
+        error: `Unhandled: ${(e as Error).message}`,
+      };
+      results.push(result);
+    } finally {
+      if (run?.id) {
+        await db
+          .from("sync_runs")
+          .update({
+            finished_at: new Date().toISOString(),
+            status: result?.status ?? "error",
+            posts_seen: result?.postsSeen ?? 0,
+            posts_created: result?.postsCreated ?? 0,
+            snapshots_written: result?.snapshotsWritten ?? 0,
+            error: result?.error ?? "Run ended without a result.",
+          })
+          .eq("id", run.id);
+      }
     }
   }
 
