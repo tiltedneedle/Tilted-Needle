@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { requireSession } from "@/lib/workspace";
 import { buildClientReport, monthPeriod } from "@/lib/buildClientReport";
+import ReportPeriodPicker from "@/components/ReportPeriodPicker";
 import PageHeader from "@/components/PageHeader";
 import ReportDocument from "@/components/ReportDocument";
 import PrintReportButton from "@/components/PrintReportButton";
@@ -44,25 +45,41 @@ export default async function ClientReportPage({
 
   const now = new Date();
   const clientId = sp.client ?? clients[0]?.id;
-  const year = Number(sp.year) || now.getUTCFullYear();
-  const month = Number(sp.month) || now.getUTCMonth() + 1;
-  const report = clientId ? await buildClientReport(ws, clientId, year, month) : null;
 
-  // Twelve months back and three forward: a report is usually written for the
-  // month just gone, sometimes re-issued for an older one, and the forward
-  // months exist so asking for one returns an honest empty rather than being
-  // impossible to ask for.
-  const months = Array.from({ length: 16 }, (_, i) => {
-    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 3 - i, 1));
-    return { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1 };
-  });
+  /**
+   * A month, or an arbitrary range, or a sensible default.
+   *
+   * from/to win when both are present and well formed. A half-supplied or
+   * malformed range degrades to the month rather than throwing -- a shared
+   * link with a mangled query should open the page, not break it, which is
+   * the same rule every other filter in this app follows.
+   */
+  const ISO = /^\d{4}-\d{2}-\d{2}$/;
+  const rangeOk =
+    typeof sp.from === "string" &&
+    typeof sp.to === "string" &&
+    ISO.test(sp.from) &&
+    ISO.test(sp.to) &&
+    sp.to >= sp.from;
 
-  const href = (over: { client?: string; year?: number; month?: number }) =>
-    `/reports/client?${new URLSearchParams({
-      client: over.client ?? clientId ?? "",
-      year: String(over.year ?? year),
-      month: String(over.month ?? month),
-    })}`;
+  // Defaults to the month just gone, which is what a report is written for.
+  const fallback = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+  const year = Number(sp.year) || fallback.getUTCFullYear();
+  const month = Number(sp.month) || fallback.getUTCMonth() + 1;
+
+  const period = rangeOk
+    ? { start: sp.from as string, end: sp.to as string }
+    : monthPeriod(year, month).period;
+
+  const report = clientId ? await buildClientReport(ws, clientId, period) : null;
+
+  /** Changing client keeps whichever period is being viewed. */
+  const clientHref = (id: string) =>
+    `/reports/client?${new URLSearchParams(
+      rangeOk
+        ? { client: id, from: period.start, to: period.end }
+        : { client: id, year: String(year), month: String(month) },
+    )}`;
 
   return (
     <div className="mx-auto max-w-4xl px-6 py-6">
@@ -80,7 +97,7 @@ export default async function ClientReportPage({
             {clients.map((c) => (
               <Link
                 key={c.id}
-                href={href({ client: c.id })}
+                href={clientHref(c.id)}
                 className={`rounded px-2 py-1 text-xs transition-colors ${
                   c.id === clientId
                     ? "bg-[var(--accent)]/15 font-medium text-[var(--accent)]"
@@ -112,25 +129,14 @@ export default async function ClientReportPage({
           </div>
         )}
 
-        <div className="card mb-5 flex flex-wrap items-center gap-2 p-3">
-          <span className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
-            Month
-          </span>
-          <div className="flex flex-wrap gap-1">
-            {months.map(({ y, m }) => (
-              <Link
-                key={`${y}-${m}`}
-                href={href({ year: y, month: m })}
-                className={`rounded px-2 py-1 text-xs transition-colors ${
-                  y === year && m === month
-                    ? "bg-[var(--accent)]/15 font-medium text-[var(--accent)]"
-                    : "text-[var(--muted)] hover:bg-[var(--bg-subtle)]"
-                }`}
-              >
-                {monthPeriod(y, m).label}
-              </Link>
-            ))}
-          </div>
+        <div className="card mb-5 p-3">
+          <ReportPeriodPicker
+            clientId={clientId ?? ""}
+            year={year}
+            month={month}
+            from={rangeOk ? period.start : undefined}
+            to={rangeOk ? period.end : undefined}
+          />
         </div>
 
         {/* A warning to whoever is preparing the report, never part of what a

@@ -1856,3 +1856,427 @@ h3 {
     min-height: 210mm;
   }
 }
+
+/* ===========================================================================
+   REPORT TEMPLATES
+
+   Four designs over one component tree. Every rule below restyles the shared
+   contract (.report-page, -eyebrow, -headline, -figures, -bar-*, -rank-*,
+   -footer, -cover-*) and none of them adds or removes a figure: a template may
+   restyle anything and may decide nothing.
+
+   FONTS ARE SYSTEM STACKS, deliberately. The app loads Inter through a runtime
+   link to fonts.googleapis.com; a print or headless render can fire before
+   that lands, and the document would silently set in Arial at metrics chosen
+   for Inter. A report is the one surface where nobody is watching when it goes
+   wrong, so each template names faces already on the machine.
+
+   DARK GROUNDS PRINT ONLY IF THE BROWSER IS ASKED. print-color-adjust: exact
+   is set on the two templates that use one, and both keep a hairline frame so
+   the sheet still reads if a printer drops the fill -- light text on a dropped
+   dark ground is a blank page, which is not a risk worth running on a document
+   that goes to a client.
+   =========================================================================== */
+
+/* ---------------------------------------------------------------------------
+   FOLIO -- editorial broadsheet.
+   Georgia for anything that is a sentence, Arial for anything that is a number
+   or a label, and no third family. The signature is the flag rule: every sheet
+   opens with a short claret stub, a gap, then a hairline to the right margin.
+   --------------------------------------------------------------------------- */
+.tpl-editorial {
+  --report-ink: #14141a;
+  --report-muted: #4a4a52;
+  --report-rule: #d5d0c8;
+  --report-accent: #a01f42;
+  --f-serif: Georgia, "Iowan Old Style", "Palatino Linotype", "Book Antiqua", "Times New Roman", serif;
+  --f-grot: Arial, "Helvetica Neue", Helvetica, "Liberation Sans", "Segoe UI", sans-serif;
+  font-family: var(--f-serif);
+}
+
+.tpl-editorial .report-eyebrow {
+  font-family: var(--f-grot);
+  font-size: 9px;
+  letter-spacing: 0.24em;
+  color: var(--report-muted);
+  border-bottom: 0;
+  padding-bottom: 0;
+  margin-bottom: 14px;
+}
+
+/* The flag: a claret stub, a gap, then the hairline running to the margin. */
+.tpl-editorial .report-eyebrow::after {
+  content: "";
+  display: block;
+  margin-top: 8px;
+  height: 3px;
+  background: linear-gradient(
+    to right,
+    var(--report-accent) 0 56px,
+    transparent 56px 64px,
+    var(--report-rule) 64px 100%
+  );
+}
+
+.tpl-editorial .report-headline {
+  font-family: var(--f-serif);
+  font-size: 25px;
+  font-weight: 400;
+  line-height: 1.2;
+  max-width: 30ch;
+}
+
+.tpl-editorial .report-figure-value,
+.tpl-editorial .report-figure-label,
+.tpl-editorial .report-bar-value,
+.tpl-editorial .report-rank-number,
+.tpl-editorial .report-footer,
+.tpl-editorial .report-finding-number,
+.tpl-editorial .report-cover-title,
+.tpl-editorial .report-cover-platforms,
+.tpl-editorial .report-cover-period {
+  font-family: var(--f-grot);
+}
+
+.tpl-editorial .report-quote {
+  font-family: var(--f-serif);
+  font-style: italic;
+  font-size: 14px;
+}
+
+.tpl-editorial .report-bar-track {
+  background: #efece6;
+  border-radius: 0;
+}
+.tpl-editorial .report-bar-fill {
+  background: var(--report-ink);
+  opacity: 1;
+}
+/* difference blend keeps the label readable whether it sits on the filled part
+   of the bar or the empty part, without measuring where the fill ends. */
+.tpl-editorial .report-bar-label {
+  color: #fff;
+  mix-blend-mode: difference;
+}
+.tpl-editorial .report-cover-client {
+  font-family: var(--f-serif);
+  font-weight: 400;
+}
+
+/* ---------------------------------------------------------------------------
+   MARQUEE -- agency case-study deck.
+   The signature is scale used sparingly: exactly ONE figure per sheet is set
+   huge, and the section marker is a solid ink band rather than a rule. Loud
+   would be every figure at 64px; confident is one.
+   --------------------------------------------------------------------------- */
+.tpl-bold {
+  --report-ink: #0a0a0b;
+  --report-muted: #55555e;
+  --report-rule: #d8d5cf;
+  --report-accent: #e14a66;
+  --mq-sans: "Helvetica Neue", Helvetica, Arial, "Liberation Sans", sans-serif;
+  font-family: var(--mq-sans);
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+.tpl-bold .report-eyebrow {
+  font-size: 9.5px;
+  letter-spacing: 0.2em;
+  color: #ffffff;
+  background: var(--report-ink);
+  border-bottom: 0;
+  padding: 7px 10px;
+  margin: 0 0 18px;
+}
+
+.tpl-bold .report-headline {
+  font-size: 27px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+  max-width: 26ch;
+}
+
+.tpl-bold .report-figure-value {
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+/* The one that gets the treatment. */
+.tpl-bold .report-figures > div:first-child .report-figure-value {
+  font-size: 64px;
+  letter-spacing: -0.035em;
+  color: var(--report-accent);
+}
+
+.tpl-bold .report-figure-label {
+  letter-spacing: 0.12em;
+  font-weight: 700;
+}
+
+.tpl-bold .report-bar-track {
+  background: #eeebe6;
+  border-radius: 0;
+  height: 22px;
+}
+.tpl-bold .report-bar-fill {
+  background: var(--report-ink);
+  opacity: 1;
+}
+.tpl-bold .report-bar-label {
+  color: #ffffff;
+  mix-blend-mode: difference;
+  font-weight: 600;
+  line-height: 22px;
+}
+.tpl-bold .report-rank-number {
+  font-weight: 700;
+  font-size: 22px;
+}
+.tpl-bold .report-quote {
+  font-weight: 600;
+  font-size: 14px;
+}
+.tpl-bold .report-cover-inner {
+  background: var(--report-ink);
+  color: #ffffff;
+  margin: -30px -34px -52px;
+  padding: 70px 34px;
+}
+.tpl-bold .report-cover-title {
+  color: var(--report-accent);
+}
+.tpl-bold .report-cover-client {
+  font-size: 54px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+.tpl-bold .report-cover-platforms,
+.tpl-bold .report-cover-period {
+  color: #c8c8d0;
+}
+
+/* ---------------------------------------------------------------------------
+   RASTER -- Swiss minimal.
+   One family, one accent, a strict left rail. The signature is the spine: a
+   hairline down every interior sheet with the labels to its left. Without it
+   this much restraint reads as unfinished; with it, it reads as deliberate.
+   --------------------------------------------------------------------------- */
+.tpl-minimal {
+  --report-ink: #111114;
+  --report-muted: #6e6e78;
+  --report-rule: #dcdce0;
+  --report-accent: #e14a66;
+  --pp-sans: "Helvetica Neue", Helvetica, Arial, "Liberation Sans", "Nimbus Sans", sans-serif;
+  font-family: var(--pp-sans);
+}
+
+.tpl-minimal .report-page {
+  padding-left: 96px;
+}
+
+.tpl-minimal .report-page::before {
+  content: "";
+  position: absolute;
+  left: 74px;
+  top: 30px;
+  bottom: 52px;
+  width: 1px;
+  background: var(--report-rule);
+}
+
+/* The cover is a plate, not a page of the grid. */
+.tpl-minimal .report-page:first-child::before {
+  content: none;
+}
+
+.tpl-minimal .report-eyebrow {
+  font-size: 8.5px;
+  letter-spacing: 0.18em;
+  color: var(--report-ink);
+  border-bottom: 0;
+  padding-bottom: 0;
+  margin-bottom: 20px;
+}
+
+.tpl-minimal .report-headline {
+  font-size: 19px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+  max-width: 38ch;
+}
+
+.tpl-minimal .report-figure-value {
+  font-weight: 400;
+  font-size: 30px;
+}
+.tpl-minimal .report-figure-label {
+  letter-spacing: 0.1em;
+  color: var(--report-muted);
+}
+
+/* A rule that fills, rather than a bar that sits in a trough. */
+.tpl-minimal .report-bar-track {
+  background: transparent;
+  border-bottom: 1px solid var(--report-rule);
+  border-radius: 0;
+}
+.tpl-minimal .report-bar-fill {
+  background: var(--report-ink);
+  height: 2px;
+  top: auto;
+  bottom: 0;
+  opacity: 1;
+}
+.tpl-minimal .report-bar-label {
+  color: var(--report-ink);
+  padding-left: 0;
+}
+
+.tpl-minimal .report-rank {
+  border-bottom: 0;
+  padding: 9px 0;
+}
+.tpl-minimal .report-rank-number {
+  color: var(--report-muted);
+  font-size: 13px;
+}
+.tpl-minimal .report-quote {
+  font-size: 12.5px;
+}
+.tpl-minimal .report-cover-client {
+  font-weight: 400;
+  letter-spacing: -0.03em;
+}
+.tpl-minimal .report-cover-title {
+  color: var(--report-accent);
+}
+
+/* ---------------------------------------------------------------------------
+   VITRINE -- luxury house.
+   A near-black cover plate and interior sheets that are mostly empty, each
+   carrying a bronze spine up the left margin. Small type on generous fields.
+   The ink is spent on ONE plate rather than on every page, which is both the
+   design and the reason it survives an office printer.
+   --------------------------------------------------------------------------- */
+.tpl-luxury {
+  --report-ink: #14110e;
+  --report-muted: #6b6459;
+  --report-rule: #ddd5c6;
+  --report-accent: #8a6f3f;
+  --v-display: Didot, "Bodoni MT", "Playfair Display", Garamond, "Times New Roman", serif;
+  --v-sans: "Gill Sans", "Gill Sans MT", Futura, "Century Gothic", "Segoe UI", sans-serif;
+  font-family: var(--v-sans);
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+.tpl-luxury .report-page {
+  padding-left: 62px;
+}
+
+.tpl-luxury .report-page::before {
+  content: "";
+  position: absolute;
+  left: 40px;
+  top: 34px;
+  bottom: 56px;
+  width: 1px;
+  background: var(--report-accent);
+  opacity: 0.45;
+}
+
+.tpl-luxury .report-page:first-child::before {
+  content: none;
+}
+
+.tpl-luxury .report-eyebrow {
+  font-size: 8.5px;
+  letter-spacing: 0.4em;
+  color: var(--report-accent);
+  border-bottom: 1px solid var(--report-rule);
+  padding-bottom: 11px;
+  margin-bottom: 24px;
+}
+
+.tpl-luxury .report-headline {
+  font-family: var(--v-display);
+  font-size: 26px;
+  font-weight: 400;
+  line-height: 1.28;
+  max-width: 30ch;
+}
+
+.tpl-luxury .report-figure-value {
+  font-family: var(--v-display);
+  font-size: 36px;
+  font-weight: 400;
+}
+.tpl-luxury .report-figure-label {
+  letter-spacing: 0.22em;
+  font-size: 8px;
+  color: var(--report-muted);
+}
+
+.tpl-luxury .report-bar-track {
+  background: #f2ede3;
+  border-radius: 0;
+  height: 14px;
+}
+.tpl-luxury .report-bar-fill {
+  background: var(--report-accent);
+  opacity: 0.5;
+}
+.tpl-luxury .report-bar-label {
+  color: var(--report-ink);
+  line-height: 14px;
+  font-size: 11px;
+}
+
+.tpl-luxury .report-rank-number {
+  font-family: var(--v-display);
+  color: var(--report-accent);
+}
+.tpl-luxury .report-quote {
+  font-family: var(--v-display);
+  font-size: 14px;
+}
+.tpl-luxury .report-footer {
+  border-top-color: var(--report-rule);
+  letter-spacing: 0.16em;
+}
+
+.tpl-luxury .report-cover-inner {
+  background: var(--report-ink);
+  color: #f3ece0;
+  margin: -30px -34px -52px;
+  padding: 70px 34px;
+}
+.tpl-luxury .report-cover-title {
+  color: var(--report-accent);
+  letter-spacing: 0.34em;
+}
+.tpl-luxury .report-cover-client {
+  font-family: var(--v-display);
+  font-size: 50px;
+  font-weight: 400;
+}
+.tpl-luxury .report-cover-platforms {
+  color: #b8ac97;
+}
+.tpl-luxury .report-cover-period {
+  color: #e6dcc9;
+  letter-spacing: 0.34em;
+}
+
+@media print {
+  /* Both dark-ground covers keep a hairline frame, so the sheet still reads as
+     a cover if a printer drops the fill. Light text on a dropped dark ground
+     is a blank page, and forcing print-color-adjust is not a guarantee. */
+  .tpl-bold .report-cover-inner,
+  .tpl-luxury .report-cover-inner {
+    border: 1px solid var(--report-rule);
+  }
+}

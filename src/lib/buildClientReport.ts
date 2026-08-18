@@ -121,14 +121,32 @@ export function monthPeriod(year: number, month1: number): { period: ReportPerio
   };
 }
 
+/**
+ * A label for any range, month-shaped or not.
+ *
+ * A whole calendar month gets its month name, because that is what the cover
+ * of every report the agency sends actually says. Anything else prints its
+ * real dates rather than being rounded to the month it mostly overlaps -- the
+ * live Entree report runs 30 June to 30 July and calling that "July" on the
+ * section headers would misstate a third of it.
+ */
+export function labelForPeriod(period: ReportPeriod): string {
+  const [ys, ms, ds] = period.start.split("-").map(Number);
+  const [ye, me, de] = period.end.split("-").map(Number);
+  const lastDay = new Date(Date.UTC(ys, ms, 0)).getUTCDate();
+  const wholeMonth = ys === ye && ms === me && ds === 1 && de === lastDay;
+  if (wholeMonth) return `${MONTHS[ms - 1]} ${ys}`;
+  const short = (y: number, m: number, d: number) => `${d} ${MONTHS[m - 1].slice(0, 3)} ${y}`;
+  return `${short(ys, ms, ds)} – ${short(ye, me, de)}`;
+}
+
 export async function buildClientReport(
   workspaceId: string,
   clientId: string,
-  year: number,
-  month1: number,
+  period: ReportPeriod,
 ): Promise<ClientReport | null> {
   const supabase = await createClient();
-  const { period, label } = monthPeriod(year, month1);
+  const label = labelForPeriod(period);
 
   const { data: client } = await supabase
     .from("clients")
