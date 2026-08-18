@@ -25,6 +25,44 @@ const N = (n: number | null | undefined) =>
 /** Wide letter-spacing as real spaces, the way the source documents set it. */
 const spaced = (s: string) => s.toUpperCase().split("").join(" ");
 
+/**
+ * A solid field that survives the print dialog.
+ *
+ * Chrome ships with "Background graphics" UNTICKED and most people never touch
+ * it, so every background-color in a document is silently dropped on the
+ * default print path. For the two templates with a dark cover that is not a
+ * cosmetic loss -- their cover text is light, so the ground vanishing leaves
+ * white text on white paper: a blank first sheet with the client's name
+ * nowhere on it.
+ *
+ * An <img> is REPLACED CONTENT and is printed regardless of that setting. An
+ * inline SVG data URI costs no request, no file, and no build step, and the
+ * colour is read from the template's own token at render time by the caller.
+ *
+ * Templates with a light cover pass null and get nothing.
+ */
+function Plate({ fill }: { fill: string | null }) {
+  if (!fill) return null;
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg'><rect width='100%' height='100%' fill='${fill}'/></svg>`;
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={`data:image/svg+xml,${encodeURIComponent(svg)}`}
+      alt=""
+      aria-hidden="true"
+      className="report-plate"
+    />
+  );
+}
+
+/** The ground each template wants behind its cover, or null for a light one. */
+const COVER_PLATE: Record<string, string | null> = {
+  editorial: null,
+  minimal: null,
+  bold: "#0a0a0b",
+  luxury: "#14110e",
+};
+
 function Footer({ client, page, period }: { client: string; page: number; period: string }) {
   return (
     <div className="report-footer">
@@ -247,6 +285,7 @@ export default function ReportDocument({ report }: { report: ClientReport }) {
     <div className={`report ${templateClass(report.template)}`}>
       <section className="report-page">
         <div className="report-cover-inner">
+          <Plate fill={COVER_PLATE[report.template] ?? null} />
           <div className="report-cover-title">{spaced("Social media performance report")}</div>
           <div className="report-cover-client">{report.clientName}</div>
           {platforms.length > 0 && (

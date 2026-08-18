@@ -1711,21 +1711,28 @@ h3 {
 .report-bar-track {
   position: relative;
   height: 18px;
-  background: #f1eee9;
-  border-radius: 3px;
-  overflow: hidden;
+  /* A BORDER, not a fill. Chrome's print dialog ships with "Background
+     graphics" unticked and most people never touch it -- every
+     background-color in the document silently disappears in that state. These
+     bars were backgrounds, so the distribution blocks printed as a column of
+     naked percentages with no bars at all. Borders are painted regardless. */
+  border-bottom: 10px solid #eeebe5;
+  border-radius: 0;
 }
 
 .report-bar-fill {
   position: absolute;
-  inset: 0 auto 0 0;
-  background: var(--report-accent);
-  opacity: 0.85;
+  left: 0;
+  bottom: -10px;
+  height: 0;
+  /* Same reason: the fill is the bottom border of a zero-height box. */
+  border-bottom: 10px solid var(--report-accent);
 }
 
 .report-bar-label {
   position: relative;
-  padding: 0 8px;
+  z-index: 1;
+  padding: 0 0 0 2px;
   line-height: 18px;
   white-space: nowrap;
 }
@@ -1779,7 +1786,19 @@ h3 {
 }
 
 /* The cover: everything centred, the whole sheet given over to identity. */
+.report-plate {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+}
+
 .report-cover-inner {
+  /* The plate is absolutely positioned inside this, and the text must sit
+     above it -- z-index only orders positioned siblings, so the children are
+     given one explicitly rather than relying on source order. */
+  position: relative;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -1904,18 +1923,32 @@ h3 {
   margin-bottom: 14px;
 }
 
-/* The flag: a claret stub, a gap, then the hairline running to the margin. */
+/* The flag: a claret stub, a gap, then the hairline running to the margin.
+   Built from two BORDERS rather than a gradient. A gradient is a background
+   image, and background images are dropped along with background colours when
+   "Background graphics" is unticked -- which would take this template's entire
+   signature with it, on every sheet, on the default print path. */
+.tpl-editorial .report-eyebrow {
+  position: relative;
+  padding-bottom: 11px;
+}
+.tpl-editorial .report-eyebrow::before,
 .tpl-editorial .report-eyebrow::after {
   content: "";
-  display: block;
-  margin-top: 8px;
-  height: 3px;
-  background: linear-gradient(
-    to right,
-    var(--report-accent) 0 56px,
-    transparent 56px 64px,
-    var(--report-rule) 64px 100%
-  );
+  position: absolute;
+  bottom: 0;
+}
+/* the stub */
+.tpl-editorial .report-eyebrow::before {
+  left: 0;
+  width: 56px;
+  border-top: 3px solid var(--report-accent);
+}
+/* the hairline, starting after an 8px gap */
+.tpl-editorial .report-eyebrow::after {
+  left: 64px;
+  right: 0;
+  border-top: 1px solid var(--report-rule);
 }
 
 .tpl-editorial .report-headline {
@@ -1945,18 +1978,15 @@ h3 {
 }
 
 .tpl-editorial .report-bar-track {
-  background: #efece6;
-  border-radius: 0;
+  border-bottom-color: #eeebe5;
 }
 .tpl-editorial .report-bar-fill {
-  background: var(--report-ink);
-  opacity: 1;
+  border-bottom-color: var(--report-ink);
 }
 /* difference blend keeps the label readable whether it sits on the filled part
    of the bar or the empty part, without measuring where the fill ends. */
 .tpl-editorial .report-bar-label {
-  color: #fff;
-  mix-blend-mode: difference;
+  color: var(--report-ink);
 }
 .tpl-editorial .report-cover-client {
   font-family: var(--f-serif);
@@ -1983,10 +2013,14 @@ h3 {
 .tpl-bold .report-eyebrow {
   font-size: 9.5px;
   letter-spacing: 0.2em;
-  color: #ffffff;
-  background: var(--report-ink);
-  border-bottom: 0;
-  padding: 7px 10px;
+  /* Ink on paper with a heavy rule under it, rather than white knocked out of
+     an ink band. The band was the nicer object and it disappeared entirely
+     when "Background graphics" was unticked, taking its white text with it --
+     an invisible section marker on every sheet. */
+  color: var(--report-ink);
+  font-weight: 700;
+  border-bottom: 4px solid var(--report-ink);
+  padding: 0 0 6px;
   margin: 0 0 18px;
 }
 
@@ -2016,17 +2050,17 @@ h3 {
 }
 
 .tpl-bold .report-bar-track {
-  background: #eeebe6;
-  border-radius: 0;
+  border-bottom-color: #eeebe6;
+  border-bottom-width: 14px;
   height: 22px;
 }
 .tpl-bold .report-bar-fill {
-  background: var(--report-ink);
-  opacity: 1;
+  border-bottom-color: var(--report-ink);
+  border-bottom-width: 14px;
+  bottom: -14px;
 }
 .tpl-bold .report-bar-label {
-  color: #ffffff;
-  mix-blend-mode: difference;
+  color: var(--report-ink);
   font-weight: 600;
   line-height: 22px;
 }
@@ -2039,7 +2073,9 @@ h3 {
   font-size: 14px;
 }
 .tpl-bold .report-cover-inner {
-  background: var(--report-ink);
+  /* No background here: the ground is an <img> plate, which prints whether or
+     not "Background graphics" is ticked. A background-color would look right
+     on screen and leave a blank sheet on paper. */
   color: #ffffff;
   margin: -30px -34px -52px;
   padding: 70px 34px;
@@ -2076,14 +2112,16 @@ h3 {
   padding-left: 96px;
 }
 
+/* A BORDER, not a filled 1px box: the spine is this template's signature and
+   a background would drop it on the default print path. */
 .tpl-minimal .report-page::before {
   content: "";
   position: absolute;
   left: 74px;
   top: 30px;
   bottom: 52px;
-  width: 1px;
-  background: var(--report-rule);
+  width: 0;
+  border-left: 1px solid var(--report-rule);
 }
 
 /* The cover is a plate, not a page of the grid. */
@@ -2119,16 +2157,11 @@ h3 {
 
 /* A rule that fills, rather than a bar that sits in a trough. */
 .tpl-minimal .report-bar-track {
-  background: transparent;
   border-bottom: 1px solid var(--report-rule);
-  border-radius: 0;
 }
 .tpl-minimal .report-bar-fill {
-  background: var(--report-ink);
-  height: 2px;
-  top: auto;
-  bottom: 0;
-  opacity: 1;
+  border-bottom: 3px solid var(--report-ink);
+  bottom: -1px;
 }
 .tpl-minimal .report-bar-label {
   color: var(--report-ink);
@@ -2183,9 +2216,11 @@ h3 {
   left: 40px;
   top: 34px;
   bottom: 56px;
-  width: 1px;
-  background: var(--report-accent);
-  opacity: 0.45;
+  width: 0;
+  /* Bronze at full strength rather than a 45%-opacity fill: opacity on a
+     background is another thing the print path can flatten, and the colour is
+     already light enough to read as a hairline. */
+  border-left: 1px solid var(--report-accent);
 }
 
 .tpl-luxury .report-page:first-child::before {
@@ -2221,13 +2256,14 @@ h3 {
 }
 
 .tpl-luxury .report-bar-track {
-  background: #f2ede3;
-  border-radius: 0;
+  border-bottom-color: #efe8da;
+  border-bottom-width: 8px;
   height: 14px;
 }
 .tpl-luxury .report-bar-fill {
-  background: var(--report-accent);
-  opacity: 0.5;
+  border-bottom-color: var(--report-accent);
+  border-bottom-width: 8px;
+  bottom: -8px;
 }
 .tpl-luxury .report-bar-label {
   color: var(--report-ink);
@@ -2249,7 +2285,6 @@ h3 {
 }
 
 .tpl-luxury .report-cover-inner {
-  background: var(--report-ink);
   color: #f3ece0;
   margin: -30px -34px -52px;
   padding: 70px 34px;
