@@ -19,6 +19,19 @@ export const SHRINKAGE_K = 5;
 export const MIN_POSTS_TO_RANK = 3;
 /** Posts of account history needed for a trustworthy baseline. */
 export const BASELINE_WINDOW = 10;
+/**
+ * The FEWEST prior posts a baseline may be computed from.
+ *
+ * BASELINE_WINDOW is how far back to look; this is how little is too little
+ * to look at. Without it a single prior post became the account's "norm" and
+ * the ratio against it was published as a performance figure -- 37,704x, on a
+ * client's Insights tab.
+ *
+ * Deliberately equal to MIN_POSTS_TO_RANK: both answer "is there enough
+ * history to say anything", and letting them disagree is what allowed a score
+ * to be withheld as unrankable while the index behind it was shown anyway.
+ */
+export const MIN_BASELINE_SAMPLE = MIN_POSTS_TO_RANK;
 
 export type Snapshot = { capturedAt: Date; value: number };
 
@@ -88,9 +101,26 @@ export function median(values: number[]): number | null {
 export function accountBaseline(
   priorValues: number[],
   window = BASELINE_WINDOW,
+  minSample = MIN_BASELINE_SAMPLE,
 ): number | null {
   const recent = priorValues.slice(-window).filter((v) => v > 0);
-  if (recent.length === 0) return null;
+  // A median needs something to be the middle OF. One prior post is not an
+  // account's norm, it is that post -- and dividing by it produces a ratio
+  // with the shape of a finding and none of the content.
+  //
+  // Measured before this gate existed: the top index in the workspace was
+  // 37,704.4x, from a 2,149,152-view video whose entire prior window was a
+  // single 57-view post, and ClientInsights printed it verbatim as
+  // "n=5 · peak 37704.42x". 58 of 385 scored posts rested on fewer than three
+  // priors and 15 of those were labelled "boosting". ln(37704) also feeds
+  // logScore -> weightedMean, so one thin baseline could dominate a person's
+  // score for good.
+  //
+  // Three matches MIN_POSTS_TO_RANK, which already governs whether a score is
+  // shown at all. The two thresholds answer the same question -- is there
+  // enough history to say anything -- and disagreeing was the bug: rankable
+  // withheld the SCORE while the INDEX it derives from was published anyway.
+  if (recent.length < minSample) return null;
   return median(recent);
 }
 
