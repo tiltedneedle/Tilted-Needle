@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { runSync, serviceClient } from "@/lib/syncRunner";
+import { thinnableIds, KEEP_ALL_DAYS } from "@/lib/thinSnapshots";
 
 /**
  * Scheduled public-metrics refresh.
@@ -125,6 +126,42 @@ export async function GET(req: Request) {
     } catch {
       // Swallowed on purpose -- see above.
     }
+
+    /**
+     * Thin old snapshot history.
+     *
+     * A no-op today by design: nothing in the table is older than the 90-day
+     * keep-all window, so a dry run against live data removes 0 of 3,225 rows.
+     * It arms itself as the data ages, which is the point -- adding it later
+     * costs the same and there would be something to lose.
+     *
+     * Only rows OLDER than the window are read. That bounds the query, and it
+     * is conservative in the right direction: the newest eligible point loses
+     * its right-hand neighbour from the set and so is never considered, which
+     * keeps a row rather than removing one on incomplete information.
+     */
+    let thinned = 0;
+    try {
+      const cutoff = new Date(Date.now() - KEEP_ALL_DAYS * 86400000).toISOString();
+      const { data: oldRows } = await db
+        .from("post_snapshots")
+        .select("id, platform_post_id, captured_at, views")
+        .lt("captured_at", cutoff)
+        .order("captured_at")
+        .limit(20000);
+      const ids = thinnableIds((oldRows ?? []) as never);
+      if (ids.length > 0) {
+        // Chunked: a delete with thousands of ids in the URL exceeds what
+        // PostgREST will accept.
+        for (let i = 0; i < ids.length; i += 200) {
+          await db.from("post_snapshots").delete().in("id", ids.slice(i, i + 200));
+        }
+        thinned = ids.length;
+      }
+    } catch {
+      // Housekeeping, like the purge. It must not abort a metrics run.
+    }
+
     // How many accounts this platform has in total, so a batching caller can
     // work out how many requests a full pass needs instead of guessing.
     let eligible = 0;
@@ -172,6 +209,9 @@ export async function GET(req: Request) {
       // Deleting a client's entire history should leave a trace somewhere
       // even when nobody was watching.
       purgedClients: purged.map((p) => ({ name: p.purged_client_name, videos: p.purged_items })),
+      // 0 until data crosses the keep-all window; reported so the first
+      // non-zero pass is visible rather than silent.
+      snapshotsThinned: thinned,
       durationMs: Date.now() - started,
       accounts: results.length,
       eligible,
