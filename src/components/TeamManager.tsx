@@ -5,9 +5,8 @@ import { useRouter } from "next/navigation";
 import Select from "@/components/ui/Select";
 import {
   addMemberByEmail,
-  createGroup,
-  deleteGroup,
-  setGroupMember,
+  removeMember,
+  sendPasswordReset,
   setMemberActive,
   setMemberRole,
   updateCapacity,
@@ -22,25 +21,49 @@ type Member = {
   seat: SeatType;
   isActive: boolean;
   capacityHours: number;
+  /**
+   * From auth.users, which no RLS policy can reach -- so these arrive already
+   * resolved by the server component. Null means the service role could not
+   * read the account, not that the person has no email.
+   *
+   * There is deliberately no password field, here or anywhere. Supabase keeps
+   * a one-way hash; the reset link is the only route back into an account.
+   */
+  email?: string | null;
+  lastSignInAt?: string | null;
 };
-type Group = { id: string; name: string };
-type GroupMember = { group_id: string; user_id: string };
 
-const TABS = ["FULL", "LIMITED", "GROUPS"] as const;
+/**
+ * GROUPS is gone from the tabs.
+ *
+ * user_groups and user_group_members were read and written by this page and
+ * by nothing else in the codebase -- not permissions, not reports, not
+ * filters, not billing. A member's "Group" was a label with no consequence
+ * anywhere, which is worse than an absent feature: it invites people to
+ * organise around a distinction the system does not act on.
+ *
+ * The tables and their CRUD actions are left in place, so nothing is lost if
+ * groups are given a job later (scoping a report or a filter by team is the
+ * obvious one). Until then the page does not claim they do something.
+ */
+const TABS = ["FULL", "LIMITED"] as const;
 
 export default function TeamManager({
   workspaceId,
   members,
-  groups,
-  groupMembers,
   canManage,
+  isOwnerOrAdmin = false,
   selfUserId,
 }: {
   workspaceId: string;
   members: Member[];
-  groups: Group[];
-  groupMembers: GroupMember[];
   canManage: boolean;
+  /**
+   * Removal is a level above the rest of this page. A manager can change a
+   * role or capacity; taking someone off the workspace is owner-or-admin,
+   * matching the memberships_delete policy that enforces it for real.
+   */
+  isOwnerOrAdmin?: boolean;
   /** Own row renders static -- no demoting or deactivating yourself. */
   selfUserId?: string;
 }) {
@@ -52,12 +75,9 @@ export default function TeamManager({
   const refresh = () => startTransition(() => router.refresh());
 
   const filtered = useMemo(
-    () => members.filter((m) => tab === "GROUPS" || m.seat === tab.toLowerCase()),
+    () => members.filter((m) => m.seat === tab.toLowerCase()),
     [members, tab],
   );
-
-  const groupsOf = (userId: string) =>
-    groups.filter((g) => groupMembers.some((gm) => gm.group_id === g.id && gm.user_id === userId));
 
   return (
     <>
@@ -83,17 +103,7 @@ export default function TeamManager({
         </p>
       )}
 
-      {tab === "GROUPS" ? (
-        <GroupsPanel
-          workspaceId={workspaceId}
-          members={members}
-          groups={groups}
-          groupMembers={groupMembers}
-          canManage={canManage}
-          setError={setError}
-          refresh={refresh}
-        />
-      ) : (
+      {(
         <>
           {canManage && (
             <AddMemberRow workspaceId={workspaceId} onError={setError} refresh={refresh} />
@@ -110,10 +120,11 @@ export default function TeamManager({
             <thead>
               <tr className="border-b border-[var(--border)] text-left text-[10.5px] font-medium uppercase tracking-[0.06em] text-[var(--muted)]">
                 <th className="px-3 py-2 font-medium">Name</th>
+                <th className="px-3 py-2 font-medium">Account</th>
                 <th className="px-3 py-2 font-medium">Role</th>
-                <th className="px-3 py-2 font-medium">Group</th>
                 <th className="px-3 py-2 font-medium">Status</th>
                 <th className="px-3 py-2 text-right font-medium">Capacity / wk</th>
+                <th className="px-3 py-2 text-right font-medium">Access</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[var(--border)]">
@@ -159,8 +170,22 @@ export default function TeamManager({
                       </span>
                     )}
                   </td>
-                  <td className="px-3 py-2.5 text-xs text-[var(--muted)]">
-                    {groupsOf(m.userId).map((g) => g.name).join(", ") || "—"}
+                  {/* Who this row actually IS. A roster of display names left
+                      no way to tell which account a person holds, or whether
+                      anyone had ever signed in with it -- both live in
+                      auth.users, which no RLS policy can read, so the server
+                      component resolves them with the service role.
+
+                      Never a password. There is no such column to show. */}
+                  <td className="px-3 py-2.5">
+                    <div className="min-w-0 truncate text-xs text-[var(--muted)]" title={m.email ?? undefined}>
+                      {m.email ?? "no email on file"}
+                    </div>
+                    <div className="text-[11px] text-[var(--muted)]">
+                      {m.lastSignInAt
+                        ? `last seen ${new Date(m.lastSignInAt).toLocaleDateString()}`
+                        : "never signed in"}
+                    </div>
                   </td>
                   <td className="px-3 py-2.5 text-xs">
                     {editable ? (
@@ -203,12 +228,28 @@ export default function TeamManager({
                       </span>
                     )}
                   </td>
+                  {/* Getting someone back in, and taking someone out -- the
+                      two account operations that used to live nowhere, which
+                      is why "deletion" had to happen in the Supabase console
+                      and a forgotten password had no answer at all. */}
+                  <td className="px-3 py-2.5 text-right">
+                    {editable ? (
+                      <AccessCell
+                        member={m}
+                        canRemove={isOwnerOrAdmin}
+                        onError={setError}
+                        refresh={refresh}
+                      />
+                    ) : (
+                      <span className="text-xs text-[var(--muted)]">—</span>
+                    )}
+                  </td>
                 </tr>
                 );
               })}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-3 py-8 text-center text-sm text-[var(--muted)]">
+                  <td colSpan={6} className="px-3 py-8 text-center text-sm text-[var(--muted)]">
                     No {tab.toLowerCase()} members.
                   </td>
                 </tr>
@@ -229,6 +270,105 @@ export default function TeamManager({
  * "they sign up, you add them" -- the action explains exactly that when
  * the email isn't found.
  */
+/**
+ * The two account operations: hand the account back, or take access away.
+ *
+ * WHY THERE IS NO "SHOW PASSWORD". Supabase stores a one-way hash. Nothing --
+ * not this app, not the service role, not the Supabase dashboard -- can read
+ * a user's password back. A reset link is the only honest answer to "they
+ * cannot get in", and it has the property that no password is ever handled by
+ * anyone but its owner.
+ *
+ * REMOVE is not delete-the-person. Time entries, role credits, to-dos and
+ * training progress all hang off `profiles`, never off `memberships`, so
+ * dropping the membership revokes access and leaves every record intact --
+ * their hours still count and the videos they edited still say so. Deleting
+ * the account would cascade through all of it, which is why nothing in this
+ * app offers that.
+ *
+ * Confirmation is a second click on the same button rather than a dialog:
+ * removal is reversible by re-adding the person, so the cost of a slip is a
+ * re-add, not a loss. Deactivate, sitting one column left, remains the
+ * gentler option and says so.
+ */
+function AccessCell({
+  member,
+  canRemove,
+  onError,
+  refresh,
+}: {
+  member: Member;
+  canRemove: boolean;
+  onError: (msg: string | null) => void;
+  refresh: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [sent, setSent] = useState(false);
+
+  return (
+    <span className="flex items-center justify-end gap-1">
+      <button
+        className="rounded px-2 py-1 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--bg-subtle)] hover:text-[var(--fg)] disabled:opacity-50"
+        disabled={busy || sent || !member.email}
+        title={
+          member.email
+            ? `Email ${member.email} a link to set a new password. Nobody, including you, can read their existing one.`
+            : "No email on file for this account."
+        }
+        onClick={async () => {
+          setBusy(true);
+          onError(null);
+          const res = await sendPasswordReset(member.id);
+          setBusy(false);
+          if (res.error) return onError(res.error);
+          setSent(true);
+        }}
+      >
+        {sent ? "Link sent" : busy ? "Sending…" : "Reset link"}
+      </button>
+
+      {canRemove &&
+        (confirming ? (
+          <span className="flex items-center gap-1">
+            <button
+              className="rounded bg-[var(--danger)]/15 px-2 py-1 text-xs font-medium text-[var(--danger)] transition-colors hover:bg-[var(--danger)]/25 disabled:opacity-50"
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                onError(null);
+                const res = await removeMember(member.id);
+                setBusy(false);
+                if (res.error) {
+                  setConfirming(false);
+                  return onError(res.error);
+                }
+                refresh();
+              }}
+              title={`${member.name} loses access. Their tracked time and credits stay.`}
+            >
+              {busy ? "Removing…" : "Confirm"}
+            </button>
+            <button
+              className="rounded px-1.5 py-1 text-xs text-[var(--muted)] transition-colors hover:text-[var(--fg)]"
+              onClick={() => setConfirming(false)}
+            >
+              Cancel
+            </button>
+          </span>
+        ) : (
+          <button
+            className="rounded px-2 py-1 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--danger)]"
+            onClick={() => setConfirming(true)}
+            title="Remove from this workspace — access only; their history is kept"
+          >
+            Remove
+          </button>
+        ))}
+    </span>
+  );
+}
+
 function AddMemberRow({
   workspaceId,
   onError,
@@ -318,121 +458,5 @@ function CapacityInput({
       />
       <span className="text-xs text-[var(--muted)]">h</span>
     </div>
-  );
-}
-
-function GroupsPanel({
-  workspaceId,
-  members,
-  groups,
-  groupMembers,
-  canManage,
-  setError,
-  refresh,
-}: {
-  workspaceId: string;
-  members: Member[];
-  groups: Group[];
-  groupMembers: GroupMember[];
-  canManage: boolean;
-  setError: (m: string | null) => void;
-  refresh: () => void;
-}) {
-  const [name, setName] = useState("");
-  const [expanded, setExpanded] = useState<string | null>(null);
-
-  return (
-    <>
-      {canManage && (
-        <div className="card mb-4 flex items-end gap-2 p-3">
-          <label className="text-xs text-[var(--muted)]">
-            New group
-            <input
-              className="input mt-1 min-w-[180px]"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Editors, Contractors…"
-            />
-          </label>
-          <button
-            className="btn-primary"
-            onClick={async () => {
-              if (!name.trim()) return setError("Group name is required.");
-              const res = await createGroup(workspaceId, name);
-              if (res.error) return setError(res.error);
-              setName("");
-              setError(null);
-              refresh();
-            }}
-          >
-            Create
-          </button>
-        </div>
-      )}
-
-      {groups.length === 0 ? (
-        <div className="empty">
-          No groups yet. Groups let reports and filters target a set of
-          people at once instead of picking each person individually.
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {groups.map((g) => {
-            const inGroup = new Set(
-              groupMembers.filter((gm) => gm.group_id === g.id).map((gm) => gm.user_id),
-            );
-            return (
-              <div key={g.id} className="card overflow-hidden">
-                <button
-                  className="flex w-full items-center gap-2 px-3 py-2.5 text-left transition-colors hover:bg-[var(--bg-subtle)]"
-                  onClick={() => setExpanded(expanded === g.id ? null : g.id)}
-                >
-                  <span className="text-sm font-medium">{g.name}</span>
-                  <span className="text-xs text-[var(--muted)]">{inGroup.size} members</span>
-                  <div className="flex-1" />
-                  {canManage && (
-                    <span
-                      role="button"
-                      tabIndex={0}
-                      className="rounded px-2 py-1 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--danger)]"
-                      onClick={async (e) => {
-                        e.stopPropagation();
-                        const res = await deleteGroup(g.id);
-                        if (res.error) setError(res.error);
-                        refresh();
-                      }}
-                    >
-                      Delete
-                    </span>
-                  )}
-                </button>
-                {expanded === g.id && (
-                  <div className="animate-rise divide-y divide-[var(--border)] border-t border-[var(--border)]">
-                    {members.map((m) => (
-                      <label
-                        key={m.userId}
-                        className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm"
-                      >
-                        <input
-                          type="checkbox"
-                          disabled={!canManage}
-                          checked={inGroup.has(m.userId)}
-                          onChange={async (e) => {
-                            const res = await setGroupMember(g.id, m.userId, e.target.checked);
-                            if (res.error) return setError(res.error);
-                            refresh();
-                          }}
-                        />
-                        {m.name}
-                      </label>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </>
   );
 }

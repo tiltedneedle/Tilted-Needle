@@ -5,6 +5,7 @@ import { CLIENT_BIN_DAYS, type BinnedClient } from "@/lib/clientBin";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { ACTIVE_WORKSPACE_COOKIE } from "@/lib/workspace";
 import { logAudit } from "@/lib/audit";
 import { dispatchWebhook } from "@/lib/webhooks";
@@ -2033,6 +2034,75 @@ export async function setMemberRole(membershipId: string, role: string): Promise
   revalidateTeam();
   revalidatePath("/home");
   return {};
+}
+
+/**
+ * Take someone out of this workspace.
+ *
+ * WHAT THIS DOES NOT DO is the important part. Every record a person leaves
+ * behind -- time entries, role credits, to-dos, training progress -- hangs off
+ * `profiles`, never off `memberships`. So deleting the membership row revokes
+ * access and keeps the history intact: their hours still count, the videos
+ * they edited still say so, and the reports for months they worked do not
+ * silently change shape.
+ *
+ * Deleting the ACCOUNT would be a different act entirely. profiles cascades
+ * from auth.users, and everything above cascades from profiles, so removing
+ * the user would erase their tracked time and every credit with it. That is
+ * not offered anywhere, and should not be.
+ *
+ * Owner-or-admin only, matching the memberships_delete policy rather than the
+ * looser can_manage_workspace gate the other two use: a manager can change a
+ * role, but taking someone off the workspace is a level up.
+ */
+export async function removeMember(membershipId: string): Promise<Result> {
+  const supabase = await createClient();
+  const guard = await guardedMembershipTarget(supabase, membershipId);
+  if (guard.error) return { error: guard.error };
+  // RLS enforces this too; checking here buys a sentence a person can act on
+  // instead of an empty result that looks like a bug.
+  const { data: auth } = await supabase.auth.getUser();
+  const { data: me } = await supabase
+    .from("memberships")
+    .select("role")
+    .eq("user_id", auth?.user?.id ?? "")
+    .maybeSingle();
+  const myRole = (me as { role: string } | null)?.role;
+  if (myRole !== "owner" && myRole !== "admin") {
+    return { error: "Only an owner or admin can remove someone from the workspace." };
+  }
+  const { error } = await supabase.from("memberships").delete().eq("id", membershipId);
+  if (error) return { error: error.message };
+  revalidateTeam();
+  revalidatePath("/home");
+  return {};
+}
+
+/**
+ * Email someone a link to set a new password.
+ *
+ * This is the ONLY honest answer to "what is that user's password". Supabase
+ * stores a one-way hash; there is no view, export or admin call that returns
+ * a password, and anything that claims to is resetting it. So the app does
+ * not show credentials -- it hands the account back to its owner and never
+ * handles the secret itself.
+ *
+ * Deliberately does not report whether the address exists. A signed-in
+ * manager could otherwise use it to enumerate which emails have accounts.
+ */
+export async function sendPasswordReset(membershipId: string): Promise<Result & { sentTo?: string }> {
+  const supabase = await createClient();
+  const guard = await guardedMembershipTarget(supabase, membershipId);
+  if (guard.error) return { error: guard.error };
+
+  const admin = createAdminClient();
+  const { data: user } = await admin.auth.admin.getUserById(guard.target!.user_id);
+  const email = user?.user?.email;
+  if (!email) return { error: "That account has no email address on file." };
+
+  const { error } = await supabase.auth.resetPasswordForEmail(email);
+  if (error) return { error: error.message };
+  return { sentTo: email };
 }
 
 export async function setMemberActive(membershipId: string, isActive: boolean): Promise<Result> {
