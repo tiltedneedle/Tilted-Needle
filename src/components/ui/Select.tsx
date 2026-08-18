@@ -31,12 +31,24 @@ export default function Select({
   ariaLabel,
   disabled = false,
   invalid = false,
+  clearable = true,
 }: {
   value: string;
   onChange: (value: string) => void;
   options: { value: string; label: string }[];
   /** Shown when nothing is chosen; also the "clear" row when clearable. */
   placeholder?: string;
+  /**
+   * Whether "no value" is a choice a person can make here.
+   *
+   * False for a field that must always hold something -- a member's role, for
+   * instance. The clear row was previously unconditional, which put a greyed
+   * "member" above the real options on the Team admin role picker: it looked
+   * like a fourth choice, it was the placeholder text wearing an option's
+   * clothes, and clicking it did nothing at all because the call site guarded
+   * with `if (!v) return`. A dead row that looks live is worse than no row.
+   */
+  clearable?: boolean;
   className?: string;
   ariaLabel?: string;
   disabled?: boolean;
@@ -98,22 +110,28 @@ export default function Select({
           ariaLabel={ariaLabel}
         >
           {/* The clear row. A native select needs an empty <option> for this
-              and it reads as a blank line; naming it says what it does. */}
-          <button
-            type="button"
-            role="option"
-            aria-selected={!value}
-            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-[var(--muted)] transition-colors hover:bg-[var(--bg-subtle)]"
-            onClick={() => {
-              onChange("");
-              setOpen(false);
-            }}
-          >
-            <span className="grid size-4 shrink-0 place-items-center">
-              {!value && <Check size={11} strokeWidth={3} />}
-            </span>
-            <span className="min-w-0 flex-1 truncate">{placeholder}</span>
-          </button>
+              and it reads as a blank line; naming it says what it does.
+
+              Only where clearing is a real choice. On a required field it was
+              a row that could not do anything, sitting above the options and
+              reading as one of them. */}
+          {clearable && (
+            <button
+              type="button"
+              role="option"
+              aria-selected={!value}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-[var(--muted)] transition-colors hover:bg-[var(--bg-subtle)]"
+              onClick={() => {
+                onChange("");
+                setOpen(false);
+              }}
+            >
+              <span className="grid size-4 shrink-0 place-items-center">
+                {!value && <Check size={11} strokeWidth={3} />}
+              </span>
+              <span className="min-w-0 flex-1 truncate">{placeholder}</span>
+            </button>
+          )}
 
           {options.length === 0 && (
             <div className="px-3 py-2 text-xs text-[var(--muted)]">

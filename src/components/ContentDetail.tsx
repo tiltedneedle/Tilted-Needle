@@ -771,6 +771,11 @@ export default function ContentDetail({
                 value=""
                 placeholder="Assign…"
                 ariaLabel={`Assign ${role.name}`}
+                // No clear row: this picker exists to choose a person, and
+                // "nobody" is not something it can write. Rendered, the row
+                // showed "Assign…" with a tick beside it -- a checked option
+                // that did nothing on click.
+                clearable={false}
                 onChange={async (v) => {
                   if (!v) return;
                   const res = await assignRole({

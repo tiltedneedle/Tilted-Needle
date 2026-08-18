@@ -169,10 +169,13 @@ export default function ImportManager({
                         )}
                       </span>
                       {/* The old empty <option> was `disabled`: unmapping is
-                          not a real state, a row must resolve to somebody. So
-                          the clear row is ignored rather than written. */}
+                          not a real state, a row must resolve to somebody.
+                          The clear row used to render anyway and get ignored
+                          on click, which is the same dead row the Team admin
+                          role picker had. Now it is simply not offered. */}
                       <Select
                         className="max-w-[180px]"
+                        clearable={false}
                         value={m.resolved_user_id ?? ""}
                         onChange={async (v) => {
                           if (!v) return;

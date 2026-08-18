@@ -129,15 +129,18 @@ export default function TeamManager({
                     {m.name}
                   </td>
                   <td className="px-3 py-2.5">
-                    {/* A member always HAS a role, so the clear row is
-                        ignored -- writing "" would strip someone's
-                        permissions rather than leave them unchanged. */}
+                    {/* A member always HAS a role, so there is no clear row.
+                        It used to render anyway and get swallowed by the
+                        `if (!v) return` below -- a greyed "member" above the
+                        three real options that looked like a fourth choice
+                        and did nothing when clicked. The guard stays as a
+                        belt-and-braces against writing "" over a role. */}
                     {editable ? (
                       <Select
                         className="max-w-[140px]"
                         value={m.role}
                         ariaLabel={`Role for ${m.name}`}
-                        placeholder="member"
+                        clearable={false}
                         onChange={async (v) => {
                           if (!v) return;
                           const res = await setMemberRole(m.id, v);
