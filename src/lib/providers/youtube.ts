@@ -127,6 +127,67 @@ export async function classifyShort(
 }
 
 /**
+ * Classify a whole discovery batch, concurrently and under a deadline.
+ *
+ * The loop this replaced awaited one probe at a time. A channel with no
+ * sync_window_days asks for 200 playlist items with no date cutoff, and any
+ * video at or under 180 seconds -- or with no duration recorded -- needs a
+ * network probe, so a run could sit through ~200 sequential HEAD requests at
+ * 1.3-2.2s each. That is 260-440 SECONDS in one provider call, against a
+ * Vercel Hobby ceiling of 300 for the entire cron: the run was killed
+ * mid-flight, and whichever accounts came later in the list never synced at
+ * all. It got worse with every video a channel published.
+ *
+ * Two bounds, and the tri-state is what makes both safe:
+ *
+ *   CONCURRENCY turns the same work into ~1/8th the wall clock. Modest on
+ *   purpose -- these are unauthenticated requests to youtube.com, and a burst
+ *   of 50 is how an IP earns a 429, which this code correctly reads as "no
+ *   evidence" but which still buys nothing.
+ *
+ *   A DEADLINE stops the batch spending the whole function. Past it, the rest
+ *   classify as null WITHOUT a network call, which is exactly the state the
+ *   tri-state was designed to carry: long-form keeps an unknown, so no
+ *   long-form work is dropped, and Shorts skips it -- leaving the video
+ *   unwritten, still "unseen", and picked up on the next run. Slower to
+ *   converge, never wrong, and it always leaves time for the accounts queued
+ *   behind this one.
+ */
+const PROBE_CONCURRENCY = 8;
+const PROBE_BUDGET_MS = 45_000;
+
+export async function classifyShorts(
+  posts: { externalId: string; lengthSeconds: number | null }[],
+  budgetMs = PROBE_BUDGET_MS,
+  concurrency = PROBE_CONCURRENCY,
+): Promise<Map<string, boolean | null>> {
+  const out = new Map<string, boolean | null>();
+  const deadline = Date.now() + budgetMs;
+  let next = 0;
+
+  async function worker() {
+    for (;;) {
+      const i = next++;
+      if (i >= posts.length) return;
+      const p = posts[i];
+      // Past the budget, answer without asking. classifyShort would still
+      // return the free `false` for anything over 180s, but the point here is
+      // to stop making requests, and an unknown is safe for both callers.
+      if (Date.now() > deadline && !(p.lengthSeconds != null && p.lengthSeconds > 180)) {
+        out.set(p.externalId, null);
+        continue;
+      }
+      out.set(p.externalId, await classifyShort(p.externalId, p.lengthSeconds));
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, Math.max(1, posts.length)) }, worker),
+  );
+  return out;
+}
+
+/**
  * Kept because a client with BOTH a youtube and a youtube_shorts account
  * discovers the same channel twice in one sync run, and would otherwise probe
  * every candidate video twice. Short TTL and a hard cap: this is a
@@ -516,9 +577,10 @@ export const youtubeProvider: PublicProvider = {
        this run only: it is never written under the Shorts account, so it is
        still "unseen" next time and gets another chance. */
     const wantShorts = options.shortsOnly === true;
+    const verdicts = await classifyShorts(found);
     const out: DiscoveredPost[] = [];
     for (const p of found) {
-      const isShort = await classifyShort(p.externalId, p.lengthSeconds);
+      const isShort = verdicts.get(p.externalId) ?? null;
       if (wantShorts ? isShort === true : isShort !== true) out.push(p);
     }
     return { ok: true, data: out };

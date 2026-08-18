@@ -11,6 +11,7 @@
  */
 import { one } from "@/lib/types";
 import { selectAll } from "@/lib/selectAll";
+import { selectIn } from "@/lib/selectIn";
 import type { LineChartPoint } from "@/components/LineChart";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -140,15 +141,30 @@ async function gainsByPost(
   // looking perfectly plausible. Same failure class as the content_
   // assignments truncation selectAll exists for; id breaks captured_at ties
   // so pages never overlap.
-  const { data } = await selectAll(() =>
-    db
-      .from("post_snapshots")
-      .select("id, platform_post_id, captured_at, views")
-      .eq("workspace_id", ws)
-      .in("platform_post_id", postIds)
-      .order("captured_at")
-      .order("id"),
+  //
+  // CHUNKED as well as paged, and they guard different limits. selectAll is
+  // about the 1000-ROW response cap; selectIn is about the QUERY STRING, into
+  // which .in() writes every id. All 443 workspace post ids went in as one
+  // filter -- roughly 16 KB of URL -- and the gateway dropped the request. The
+  // error was destructured away, so every channel on /clients/[id] rendered
+  // "no recent change" after a ~10s wait, which reads as a quiet month rather
+  // than a failed query.
+  const { data, error } = await selectIn(postIds, (chunk) =>
+    selectAll(() =>
+      db
+        .from("post_snapshots")
+        .select("id, platform_post_id, captured_at, views")
+        .eq("workspace_id", ws)
+        .in("platform_post_id", chunk)
+        .order("captured_at")
+        .order("id"),
+    ),
   );
+  // Surfaced rather than swallowed. A gain of zero and a gain we could not
+  // read are different facts, and only one of them is about the client.
+  if (error) {
+    console.error("gainsByPost: snapshot read failed", error);
+  }
 
   const byPost = new Map<string, { at: number; views: number }[]>();
   for (const s of (data ?? []) as {

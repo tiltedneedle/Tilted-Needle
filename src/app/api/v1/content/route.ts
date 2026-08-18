@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveApiKey, isErrorResponse } from "@/lib/publicApi";
 import { loadExcludedItemIds } from "@/lib/excludedItems";
 import { selectAll } from "@/lib/selectAll";
+import { selectIn } from "@/lib/selectIn";
 import { one } from "@/lib/types";
 
 /**
@@ -53,14 +54,30 @@ export async function GET(request: NextRequest) {
   const items = (allItems ?? []).filter((i) => !excluded.has(i.id)).slice(0, limit);
 
   const ids = (items ?? []).map((i) => i.id);
-  const { data: posts } = ids.length
-    ? await admin
-        .from("platform_posts")
-        .select(
-          "content_item_id, account:accounts(platform_slug), metrics:post_current_metrics(views, likes, comments)",
-        )
-        .in("content_item_id", ids)
-    : { data: [] };
+  /**
+   * Chunked, and the error is no longer thrown away.
+   *
+   * This route advertises limit up to 500, and .in() writes every id into the
+   * query string -- so above roughly 330 ids the URL outgrew what the gateway
+   * accepts and the request was rejected. The result was destructured as
+   * `{ data: posts }` with no error check, so the failure became an empty
+   * array and the endpoint answered 200 with "platforms": [] on every item:
+   * a confident, well-formed, entirely wrong response to a public API.
+   *
+   * A 500 is the honest answer when we could not read the posts. Returning
+   * items with no platforms says the videos were never posted.
+   */
+  const { data: posts, error: postsError } = await selectIn(ids, (chunk) =>
+    admin
+      .from("platform_posts")
+      .select(
+        "content_item_id, account:accounts(platform_slug), metrics:post_current_metrics(views, likes, comments)",
+      )
+      .in("content_item_id", chunk),
+  );
+  if (postsError) {
+    return NextResponse.json({ error: postsError.message }, { status: 500 });
+  }
 
   type PostRow = {
     content_item_id: string;
