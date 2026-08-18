@@ -150,6 +150,72 @@ export async function deleteAsset(assetId: string): Promise<Result> {
 }
 
 /** Client photo and the link back to the source document. */
+/**
+ * Removes an entire client's guidelines: every section and every asset.
+ *
+ * deleteSection and deleteAsset already existed, but only one row at a time.
+ * Clearing a client that had accumulated a dozen sections meant a dozen
+ * confirmations, which is the kind of friction that leads to nobody clearing
+ * anything -- so stale guidance stays on screen and gets treated as current.
+ *
+ * Deliberately does NOT touch the client, its image, or its document link.
+ * "Delete the guidelines" means the written guidance, not the client record;
+ * conflating the two is how someone loses a client by tidying up.
+ */
+export async function deleteAllGuidelines(
+  clientId: string,
+): Promise<Result & { summary?: string }> {
+  const session = await requireSession();
+  const supabase = await createClient();
+
+  // Ownership is proven through the user's own RLS-bound client: a client in
+  // another workspace simply does not come back.
+  const { data: client } = await supabase
+    .from("clients")
+    .select("id, name")
+    .is("deleted_at", null)
+    .eq("id", clientId)
+    .eq("workspace_id", session.active.id)
+    .maybeSingle();
+  if (!client) return { error: "That client was not found." };
+
+  const [{ count: sectionCount }, { count: assetCount }] = await Promise.all([
+    supabase
+      .from("client_guideline_sections")
+      .select("id", { count: "exact", head: true })
+      .eq("client_id", clientId),
+    supabase
+      .from("client_assets")
+      .select("id", { count: "exact", head: true })
+      .eq("client_id", clientId),
+  ]);
+
+  if ((sectionCount ?? 0) === 0 && (assetCount ?? 0) === 0) {
+    return { error: "There are no guidelines to delete." };
+  }
+
+  const { error: sErr } = await supabase
+    .from("client_guideline_sections")
+    .delete()
+    .eq("client_id", clientId);
+  if (sErr) return { error: sErr.message };
+
+  const { error: aErr } = await supabase
+    .from("client_assets")
+    .delete()
+    .eq("client_id", clientId);
+  if (aErr) return { error: aErr.message };
+
+  revalidatePath("/guidelines", "layout");
+  return {
+    summary:
+      `Deleted ${sectionCount ?? 0} section${sectionCount === 1 ? "" : "s"} and ` +
+      `${assetCount ?? 0} asset${assetCount === 1 ? "" : "s"} for ${
+        (client as { name: string }).name
+      }.`,
+  };
+}
+
 export async function updateClientMeta(
   clientId: string,
   fields: { imageUrl?: string | null; docUrl?: string | null },

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, ExternalLink } from "lucide-react";
 import ClientImage from "@/components/ClientImage";
+import { ClientImageControl, DeleteGuidelinesButton } from "@/components/ClientMetaControls";
 import GuidelineSections from "@/components/GuidelineSections";
 import AssetKit from "@/components/AssetKit";
 import { PLATFORM_COLORS, canManage } from "@/lib/types";
@@ -82,6 +83,16 @@ export default async function GuidelinePage({
               {assets.length} asset{assets.length === 1 ? "" : "s"} in the kit
             </span>
           </div>
+
+          {/* Both controls live here rather than in a settings page: this is
+              the only screen that shows a client's picture and its guidelines
+              together, so it is where changing either makes sense. */}
+          {manages && (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <ClientImageControl clientId={client.id} currentUrl={client.imageUrl} />
+              <DeleteGuidelinesButton clientId={client.id} clientName={client.name} />
+            </div>
+          )}
         </div>
 
         {client.docUrl && (
