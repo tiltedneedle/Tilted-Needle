@@ -26,9 +26,10 @@ import {
  * WHAT IT WILL NOT DO is fill a gap. Half of a full client report is audience
  * data no public API serves and Instagram never will: followers, reach,
  * demographics, traffic sources. Those come from account_metrics, typed by a
- * person and confirmed. Where a period has not been entered, the section says
- * so. A generated report that quietly prints zeros for the numbers nobody
- * entered is worse than no report, because it looks finished.
+ * person and confirmed. Where a period has not been entered this returns null
+ * for those fields, and the DOCUMENT then draws nothing at all -- no tile, no
+ * chart, no page. A client should never receive a sheet whose content is a
+ * note about our own missing data, and a zero is a claim nobody can support.
  */
 
 export type ReportPlatformSection = {
@@ -55,6 +56,21 @@ export type ReportPlatformSection = {
   unmeasurable: UnmeasurableVideo[];
   /** Videos the system holds for this account inside the period. */
   candidateCount: number;
+  /**
+   * Ranked distributions -- ages, locations, traffic sources, content mix.
+   *
+   * Empty means "not recorded this cycle", and the document draws nothing
+   * rather than an empty chart: a client should never receive a page whose
+   * content is a note about our own missing data.
+   */
+  breakdowns: {
+    kind: string;
+    label: string;
+    value: number | null;
+    rank: number;
+    unit: string;
+    annotation: string | null;
+  }[];
 };
 
 export type ClientReport = {
@@ -144,6 +160,39 @@ export async function buildClientReport(
   const metricsByAccount = new Map(
     ((metricRows ?? []) as Record<string, unknown>[]).map((m) => [m.account_id as string, m]),
   );
+
+  // The ranked distributions hanging off those periods. Rank comes from the
+  // stored order, never recomputed from value -- five search queries can all
+  // sit at 0.2% and their order still means something.
+  const periodIds = ((metricRows ?? []) as { id: string }[]).map((m) => m.id);
+  const { data: breakdownRows } = periodIds.length
+    ? await supabase
+        .from("account_breakdowns")
+        .select("account_metric_id, kind, label, value, rank, unit, annotation")
+        .in("account_metric_id", periodIds)
+        .order("rank")
+    : { data: [] };
+  const breakdownsByPeriod = new Map<string, ReportPlatformSection["breakdowns"]>();
+  for (const b of (breakdownRows ?? []) as {
+    account_metric_id: string;
+    kind: string;
+    label: string;
+    value: number | null;
+    rank: number;
+    unit: string;
+    annotation: string | null;
+  }[]) {
+    const list = breakdownsByPeriod.get(b.account_metric_id) ?? [];
+    list.push({
+      kind: b.kind,
+      label: b.label,
+      value: b.value,
+      rank: b.rank,
+      unit: b.unit,
+      annotation: b.annotation,
+    });
+    breakdownsByPeriod.set(b.account_metric_id, list);
+  }
 
   // The immediately preceding confirmed period per account, for the deltas.
   const { data: priorRows } = await supabase
@@ -256,6 +305,7 @@ export async function buildClientReport(
       top,
       unmeasurable,
       candidateCount: mine.length,
+      breakdowns: m ? (breakdownsByPeriod.get(m.id as string) ?? []) : [],
     };
   });
 

@@ -3,27 +3,26 @@ import type { ClientReport, ReportPlatformSection } from "@/lib/buildClientRepor
 /**
  * The client report as a document, in the grammar the agency already uses.
  *
- * Reproduced from the two real reports rather than invented: wide-tracked
- * small caps over a rule for section markers, a headline sentence carrying the
- * finding with the figures supporting it, large numerals over small-cap
- * labels, findings numbered 01/02/03, and a footer on every sheet. Those
- * choices are the reason a page reads as this agency's report and not as a
- * dashboard screenshot.
+ * THE DOCUMENT IS BUILT FROM WHAT EXISTS, never padded out to a fixed shape.
+ * A platform with nothing to say gets no page; a figure nobody recorded gets
+ * no tile; a block with no rows is not drawn. There is no "not recorded"
+ * anywhere on these pages, because a client receiving a sheet that announces
+ * our own missing data is worse than not receiving that sheet at all -- it
+ * reads as an unfinished job rather than a shorter month.
  *
- * One page per section, because that is how the originals paginate and
- * because a platform's figures split across a sheet boundary is the specific
- * ugliness the print rules exist to prevent.
+ * That is a different standard from the screen the report is prepared on,
+ * where absences must be loud so they can be fixed. The blockers panel and the
+ * unmeasurable-video list live there, marked no-print, and never travel.
  *
- * Every number here is either measured or absent. Nothing is estimated, and a
- * missing figure prints as a stated gap rather than a zero -- a zero is a
- * claim, and one nobody has evidence for.
+ * Everything that IS printed is measured. Nothing is estimated, interpolated
+ * or defaulted to zero.
  */
 
 const N = (n: number | null | undefined) =>
   n == null ? null : n.toLocaleString("en-GB");
 
-/** Wide letter-spacing done as real spaces, as the source documents set it. */
-const spaced = (s: string) => s.toUpperCase().split("").join(" ");
+/** Wide letter-spacing as real spaces, the way the source documents set it. */
+const spaced = (s: string) => s.toUpperCase().split("").join(" ");
 
 function Footer({ client, page, period }: { client: string; page: number; period: string }) {
   return (
@@ -35,19 +34,29 @@ function Footer({ client, page, period }: { client: string; page: number; period
   );
 }
 
+/**
+ * A figure, or nothing at all.
+ *
+ * Returning null for a missing value is the whole rule in miniature: a tile
+ * reading "not recorded" tells the client about our data pipeline, which is
+ * not what they are paying to read about.
+ */
 function Figure({
   value,
   label,
   delta,
+  size = 34,
 }: {
-  value: number | null;
+  value: number | null | undefined;
   label: string;
   delta?: number | null;
+  size?: number;
 }) {
+  if (value == null) return null;
   return (
     <div>
-      <div className="report-figure-value">
-        {N(value) ?? <span style={{ fontSize: 15, color: "var(--report-muted)" }}>not recorded</span>}
+      <div className="report-figure-value" style={{ fontSize: size }}>
+        {N(value)}
       </div>
       <div className="report-figure-label">{label}</div>
       {/* Commentary on the figure above, never a figure in its own right. */}
@@ -67,11 +76,13 @@ function Figure({
 /**
  * A proportional bar beside an exact number.
  *
- * The bar is for scanning the shape of a distribution; the number is what gets
- * quoted back. Scaled against the largest row rather than 100, so a set that
- * legitimately sums to 60% still fills the space and stays readable.
+ * The bar is for reading the shape of a distribution at a glance; the number
+ * is what gets quoted. Scaled against the largest row rather than against 100,
+ * so a set that legitimately sums to 60% still fills the width and stays
+ * legible.
  */
 function BarList({ rows }: { rows: { label: string; value: number; suffix?: string }[] }) {
+  if (rows.length === 0) return null;
   const max = Math.max(...rows.map((r) => r.value), 1);
   return (
     <div>
@@ -91,6 +102,32 @@ function BarList({ rows }: { rows: { label: string; value: number; suffix?: stri
   );
 }
 
+/** Does this platform have anything at all worth a sheet? */
+export function sectionHasContent(s: ReportPlatformSection): boolean {
+  const m = s.metrics;
+  const anyFigure =
+    m != null &&
+    [m.views, m.likes, m.followers, m.subscribers, m.netFollowers, m.netSubscribers, m.reach, m.profileViews]
+      .some((v) => v != null);
+  return anyFigure || s.top.length > 0 || s.breakdowns.length > 0;
+}
+
+const BREAKDOWN_TITLES: Record<string, string> = {
+  follower_age: "Followers by age",
+  follower_gender: "Followers by gender",
+  follower_location: "Top locations",
+  follower_active_days: "Most active days",
+  viewer_age: "Viewers by age",
+  viewer_gender: "Viewers by gender",
+  viewer_location: "Viewer locations",
+  views_by_format: "Views by content type",
+  interactions_by_format: "Interactions by content type",
+  interaction_share_by_format: "Interaction share by format",
+  traffic_source: "Where the views came from",
+  search_query: "Top search queries",
+  subscription_source: "Where subscribers came from",
+};
+
 function PlatformPage({
   section: s,
   report,
@@ -103,60 +140,57 @@ function PlatformPage({
   const isYouTube = s.platform.startsWith("youtube");
   const m = s.metrics;
 
+  // Grouped in the order a reader wants them: how far it went, then who saw it.
+  const kinds = [...new Set(s.breakdowns.map((b) => b.kind))];
+
   return (
     <section className="report-page">
       <div className="report-eyebrow">
-        {spaced("Channel growth")} &nbsp;·&nbsp; {spaced(s.platformLabel)} &nbsp;·&nbsp;{" "}
-        {spaced(report.periodLabel)}
+        {spaced(s.platformLabel)} &nbsp;·&nbsp; {spaced(report.periodLabel)}
       </div>
 
-      {/* Two different absences, and conflating them misleads.
-          "No figures were recorded" on a page that then lists three real
-          videos reads as a contradiction: what is missing is the ACCOUNT-level
-          data (followers, reach), which only a person can enter. The video
-          data is measured and present. Say which is which. */}
-      <h2 className="report-headline">
-        {m
-          ? s.narrative
-          : s.top.length > 0
-            ? `${s.platformLabel} published ${s.candidateCount} ${s.candidateCount === 1 ? "video" : "videos"} in this period. Audience figures have not been recorded.`
-            : s.narrative}
-      </h2>
+      <h2 className="report-headline">{s.narrative}</h2>
 
-      {m ? (
-        <div className="report-figures">
-          <Figure value={m.views} label="Views" delta={s.viewsDeltaPct} />
-          <Figure value={m.likes} label="Likes" />
-          {isYouTube ? (
-            <>
-              <Figure value={m.subscribers} label="Subscribers" />
-              <Figure value={m.netSubscribers} label="New subscribers this period" />
-            </>
-          ) : (
-            <>
-              <Figure value={m.followers} label="Followers" />
-              <Figure value={m.netFollowers} label="Net new followers this period" />
-            </>
-          )}
-          {m.reach != null && <Figure value={m.reach} label="Accounts reached" />}
-          {m.profileViews != null && <Figure value={m.profileViews} label="Profile visits" />}
-        </div>
-      ) : (
-        /* Named precisely, with the fix. A blank here would read as a design
-           choice rather than as missing evidence. */
-        <p
-          style={{
-            fontSize: 12.5,
-            lineHeight: 1.55,
-            color: "var(--report-muted)",
-            marginBottom: 20,
-          }}
-        >
-          Audience figures for @{s.handle} have not been recorded for this period. Followers,
-          reach and profile visits come from the platform&apos;s own dashboard — enter and confirm
-          them on Data sync and this section fills in.
-        </p>
-      )}
+      {/* Figures render themselves away when absent, so this row shows exactly
+          what is known and never a gap where a tile should be. */}
+      <div className="report-figures">
+        <Figure value={m?.views} label="Views" delta={s.viewsDeltaPct} />
+        <Figure value={m?.likes} label="Likes" />
+        <Figure value={m?.comments} label="Comments" />
+        {isYouTube ? (
+          <>
+            <Figure value={m?.subscribers} label="Subscribers" />
+            <Figure value={m?.netSubscribers} label="New subscribers" />
+          </>
+        ) : (
+          <>
+            <Figure value={m?.followers} label="Followers" />
+            <Figure value={m?.netFollowers} label="Net new followers" />
+          </>
+        )}
+        <Figure value={m?.reach} label="Accounts reached" />
+        <Figure value={m?.profileViews} label="Profile visits" />
+      </div>
+
+      {kinds.map((kind) => {
+        const rows = s.breakdowns
+          .filter((b) => b.kind === kind && b.value != null)
+          .sort((a, b) => a.rank - b.rank)
+          .map((b) => ({
+            label: b.annotation ? `${b.label} (${b.annotation})` : b.label,
+            value: b.value as number,
+            suffix: b.unit === "percent" ? "%" : "",
+          }));
+        if (rows.length === 0) return null;
+        return (
+          <div key={kind} style={{ marginTop: 22 }}>
+            <div className="report-eyebrow">
+              {spaced(BREAKDOWN_TITLES[kind] ?? kind.replace(/_/g, " "))}
+            </div>
+            <BarList rows={rows} />
+          </div>
+        );
+      })}
 
       {s.top.length > 0 && (
         <>
@@ -167,24 +201,12 @@ function PlatformPage({
             <div key={t.postId} className="report-rank">
               <div className="report-rank-number">{String(i + 1).padStart(2, "0")}</div>
               <div>
-                {/* Verbatim, including typos, curly quotes and emoji. The
+                {/* Verbatim, including typos, curly quotes and emoji: the
                     caption is the client's own writing. */}
-                <div className="report-quote">
-                  {t.title ? `“${t.title}”` : "Untitled"}
-                </div>
+                <div className="report-quote">{t.title ? `“${t.title}”` : "Untitled"}</div>
                 <div className="report-figures" style={{ gap: "0 32px", marginBottom: 0 }}>
-                  <div>
-                    <div className="report-figure-value" style={{ fontSize: 22 }}>
-                      {N(t.views)}
-                    </div>
-                    <div className="report-figure-label">Views</div>
-                  </div>
-                  <div>
-                    <div className="report-figure-value" style={{ fontSize: 22 }}>
-                      {N(t.likes)}
-                    </div>
-                    <div className="report-figure-label">Likes</div>
-                  </div>
+                  <Figure value={t.views} label="Views" size={22} />
+                  <Figure value={t.likes} label="Likes" size={22} />
                 </div>
               </div>
             </div>
@@ -198,21 +220,20 @@ function PlatformPage({
 }
 
 export default function ReportDocument({ report }: { report: ClientReport }) {
-  const entered = report.sections.filter((s) => s.metrics);
-  const platforms = report.sections.map((s) => s.platformLabel);
+  // Only platforms with something to show. A sheet whose entire content is an
+  // apology for missing data is worse than a shorter report.
+  const sections = report.sections.filter(sectionHasContent);
+  const platforms = sections.map((s) => s.platformLabel);
+  const withViews = sections.filter((s) => s.metrics?.views != null);
 
-  // Findings are generated from what moved, and only from what was measured.
-  // The originals open with three; fewer is honest when fewer are supported.
-  const findings = report.sections
-    .filter((s) => s.metrics?.views != null)
-    .sort((a, b) => (b.metrics?.views ?? 0) - (a.metrics?.views ?? 0))
-    .slice(0, 3);
+  // The summary needs at least two channels to be summarising anything; with
+  // one it would restate the page that follows it.
+  const showSummary = withViews.length > 1;
 
   let page = 1;
 
   return (
     <div className="report">
-      {/* Cover */}
       <section className="report-page">
         <div className="report-cover-inner">
           <div className="report-cover-title">{spaced("Social media performance report")}</div>
@@ -226,15 +247,11 @@ export default function ReportDocument({ report }: { report: ClientReport }) {
         </div>
       </section>
 
-      {/* Executive summary. Only rendered when something was actually
-          measured -- a summary of nothing is the emptiest page a client can
-          receive. */}
-      {entered.length > 0 && (
+      {showSummary && (
         <section className="report-page">
           <div className="report-eyebrow">{spaced("Executive summary")}</div>
           <h2 className="report-headline">
-            {report.periodLabel} across {platforms.length}{" "}
-            {platforms.length === 1 ? "channel" : "channels"}.
+            {report.periodLabel} across {platforms.length} channels.
           </h2>
 
           <div className="report-figures">
@@ -242,9 +259,8 @@ export default function ReportDocument({ report }: { report: ClientReport }) {
             <Figure value={report.combined.likes} label="Combined likes" />
           </div>
 
-          {/* The caveat sits with the figure, on the page, because this is the
-              one number on the document that is a sum of things measured on
-              different scales. */}
+          {/* The caveat sits with the figure, on the page: this is the one
+              number here that sums things measured on different scales. */}
           <p
             style={{
               fontSize: 10.5,
@@ -259,44 +275,43 @@ export default function ReportDocument({ report }: { report: ClientReport }) {
 
           <div className="report-eyebrow">{spaced("By channel")}</div>
           <BarList
-            rows={entered
-              .filter((s) => s.metrics?.views != null)
+            rows={withViews
               .map((s) => ({ label: s.platformLabel, value: s.metrics!.views as number }))
               .sort((a, b) => b.value - a.value)}
           />
 
-          {findings.length > 0 && (
-            <>
-              <div className="report-eyebrow" style={{ marginTop: 26 }}>
-                {spaced("Top-line findings")}
-              </div>
-              {findings.map((s, i) => (
-                <div key={s.platform} className="report-finding">
-                  <div className="report-finding-number">{String(i + 1).padStart(2, "0")}</div>
-                  <div>
-                    <div className="report-finding-lead">
-                      {s.platformLabel} delivered {N(s.metrics?.views)} views
-                      {s.viewsDeltaPct != null
-                        ? `, ${s.viewsDeltaPct >= 0 ? "up" : "down"} ${Math.abs(s.viewsDeltaPct).toFixed(1)}% on the previous period.`
-                        : "."}
-                    </div>
-                    <div className="report-finding-body">{s.narrative}</div>
+          <div className="report-eyebrow" style={{ marginTop: 26 }}>
+            {spaced("Top-line findings")}
+          </div>
+          {withViews
+            .slice()
+            .sort((a, b) => (b.metrics?.views ?? 0) - (a.metrics?.views ?? 0))
+            .slice(0, 3)
+            .map((s, i) => (
+              <div key={s.platform} className="report-finding">
+                <div className="report-finding-number">{String(i + 1).padStart(2, "0")}</div>
+                <div>
+                  <div className="report-finding-lead">
+                    {s.platformLabel} delivered {N(s.metrics?.views)} views
+                    {s.viewsDeltaPct != null
+                      ? `, ${s.viewsDeltaPct >= 0 ? "up" : "down"} ${Math.abs(s.viewsDeltaPct).toFixed(1)}% on the previous period.`
+                      : "."}
                   </div>
+                  <div className="report-finding-body">{s.narrative}</div>
                 </div>
-              ))}
-            </>
-          )}
+              </div>
+            ))}
 
           <Footer client={report.clientName} page={++page} period={report.periodLabel} />
         </section>
       )}
 
-      {report.sections.map((s) => (
+      {sections.map((s) => (
         <PlatformPage key={s.platform} section={s} report={report} page={++page} />
       ))}
 
-      {/* Method, last. Every claim on the preceding pages should be traceable
-          from here, including the two places where our dates differ. */}
+      {/* Method, last, and only the notes that actually apply. A caveat about
+          a figure the report does not contain is noise. */}
       <section className="report-page">
         <div className="report-eyebrow">{spaced("About these figures")}</div>
         <h2 className="report-headline">Where each number came from.</h2>
@@ -304,17 +319,22 @@ export default function ReportDocument({ report }: { report: ClientReport }) {
           <p style={{ marginBottom: 12 }}>
             Period: {report.period.start} to {report.period.end}, inclusive.
           </p>
-          <p style={{ marginBottom: 12 }}>
-            Videos are ranked by the views they gained inside the period, not by their lifetime
-            totals — a video published months ago can still be the month&apos;s best performer, and
-            one with a large historic count is not necessarily doing anything now.
-          </p>
-          <p style={{ marginBottom: 12 }}>{report.likesCaveat}</p>
-          <p>
-            Audience figures — followers, reach and profile visits — are transcribed from each
-            platform&apos;s own dashboard, because no public interface publishes them. Where a
-            figure is absent it is stated as such and never shown as zero.
-          </p>
+          {sections.some((s) => s.top.length > 0) && (
+            <>
+              <p style={{ marginBottom: 12 }}>
+                Videos are ranked by the views they gained inside the period rather than by their
+                lifetime totals — a video published earlier can still be the month&apos;s strongest
+                performer, and a large historic count does not mean a video is working now.
+              </p>
+              <p style={{ marginBottom: 12 }}>{report.likesCaveat}</p>
+            </>
+          )}
+          {sections.some((s) => s.metrics) && (
+            <p>
+              Audience figures — followers, reach and profile visits — are taken from each
+              platform&apos;s own dashboard, because no public interface publishes them.
+            </p>
+          )}
         </div>
         <Footer client={report.clientName} page={++page} period={report.periodLabel} />
       </section>

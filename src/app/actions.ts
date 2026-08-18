@@ -3924,3 +3924,91 @@ export async function unconfirmPeriod(input: {
   revalidatePath("/data");
   return {};
 }
+
+/**
+ * Replace one kind of ranked breakdown on a period.
+ *
+ * Wholesale per kind, never row by row. A bucket that has dropped out of the
+ * source -- a location falling out of the top three, a traffic source going to
+ * zero and being omitted -- must disappear from the report too, and an upsert
+ * would strand it there forever, quietly, looking like current data.
+ *
+ * Rank is carried from the caller's ordering rather than recomputed from
+ * value, because value cannot reconstruct it: the live TikTok report lists
+ * five search queries all sitting at 0.2%, and their order is the platform's
+ * own judgement about which mattered.
+ */
+export async function saveBreakdown(input: {
+  workspaceId: string;
+  periodId: string;
+  kind: string;
+  unit: "percent" | "count";
+  rows: { label: string; value: number | null; annotation?: string | null }[];
+}): Promise<Result & { saved?: number }> {
+  const supabase = await createClient();
+
+  const { error: delError } = await supabase
+    .from("account_breakdowns")
+    .delete()
+    .eq("account_metric_id", input.periodId)
+    .eq("kind", input.kind);
+  if (delError) return { error: delError.message };
+
+  const clean = input.rows.filter((r) => r.label.trim() !== "");
+  if (clean.length === 0) {
+    // No rows is a meaningful state: "not exported this cycle". The report
+    // prints a caveat for it rather than an empty chart.
+    revalidatePath("/data");
+    return { saved: 0 };
+  }
+
+  const { error } = await supabase.from("account_breakdowns").insert(
+    clean.map((r, i) => ({
+      workspace_id: input.workspaceId,
+      account_metric_id: input.periodId,
+      kind: input.kind,
+      label: r.label.trim(),
+      rank: i + 1,
+      value: r.value,
+      unit: input.unit,
+      annotation: r.annotation?.trim() || null,
+    })),
+  );
+  if (error) return { error: error.message };
+
+  revalidatePath("/data");
+  return { saved: clean.length };
+}
+
+/** Everything already entered for one account and period, for the sheet. */
+export async function loadPeriod(input: {
+  accountId: string;
+  periodStart: string;
+  periodEnd: string;
+}): Promise<{
+  period: Record<string, unknown> | null;
+  breakdowns: { kind: string; label: string; value: number | null; rank: number }[];
+}> {
+  const supabase = await createClient();
+  const { data: period } = await supabase
+    .from("account_metrics")
+    .select("*")
+    .eq("account_id", input.accountId)
+    .eq("period_start", input.periodStart)
+    .eq("period_end", input.periodEnd)
+    .maybeSingle();
+
+  if (!period) return { period: null, breakdowns: [] };
+
+  const { data: breakdowns } = await supabase
+    .from("account_breakdowns")
+    .select("kind, label, value, rank")
+    .eq("account_metric_id", (period as { id: string }).id)
+    .order("kind")
+    .order("rank");
+
+  return {
+    period: period as Record<string, unknown>,
+    breakdowns: (breakdowns ?? []) as { kind: string; label: string; value: number | null; rank: number }[],
+  };
+}
