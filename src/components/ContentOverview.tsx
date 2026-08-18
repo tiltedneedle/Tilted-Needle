@@ -389,6 +389,10 @@ export default function ContentOverview({
             workspaceId={workspaceId}
             selected={[...selected]}
             titles={Object.fromEntries(rows.map((v) => [v.id, v.title]))}
+            platformsById={Object.fromEntries(
+              rows.map((v) => [v.id, v.platforms.map((p) => p.platform)]),
+            )}
+            creditsById={Object.fromEntries(rows.map((v) => [v.id, v.credits ?? []]))}
             roles={roles}
             members={members}
             clients={clients.map((c) => ({ id: c.id, name: c.name }))}
@@ -422,10 +426,12 @@ export default function ContentOverview({
                 canManage={canManage}
                 selectable={selecting}
                 selected={selected.has(v.id)}
-                // Only when this row is part of the selection, so the role
-                // menu on an unticked row keeps its ordinary one-video
-                // meaning even while a selection is live elsewhere.
-                bulkTargets={selecting && selected.has(v.id) ? [...selected] : undefined}
+                // A row's credit circles are ALWAYS one video, selection or
+                // not. They used to write to the whole selection when the row
+                // was ticked, which made the same gesture mean two different
+                // things depending on a checkbox -- and made "fix this one
+                // video" impossible to do while a batch was up. Everything
+                // that acts on the batch is in the bar now.
                 onToggleSelect={() =>
                   setSelected((s) => {
                     const next = new Set(s);

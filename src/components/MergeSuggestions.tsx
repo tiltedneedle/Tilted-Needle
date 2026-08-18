@@ -15,10 +15,11 @@ import {
 /**
  * "These two look like the same video."
  *
- * The merge machinery has existed since the cross-platform work and on live
- * data had been used exactly zero times, while twenty-six pairs sat unmerged.
- * Building it was never the missing half -- nobody scrolls 286 rows hunting
- * for the Instagram twin of a TikTok from March.
+ * Same platform only. This used to propose cross-posts -- the TikTok and the
+ * Instagram carrying one caption -- and those are not duplicates: two
+ * platforms are two posts with two audiences, and merging them throws one
+ * away. What is left is the honest case: two rows describing one post, from a
+ * re-import or a hand-added row landing on top of something the sync had.
  *
  * Collapsed by default and placed after the list, not before it. This is a
  * tidying job, not the reason anyone opens Content, and a panel proposing
@@ -71,7 +72,7 @@ export default function MergeSuggestions({
         {/* Counts what is still UNMERGED. Merged rows stay listed so their
             Undo stays reachable, but they are no longer work to do. */}
         <span className="text-xs text-[var(--muted)]">
-          {groups.filter((g) => !done.has(g.key)).length} look like the same video on two platforms
+          {groups.filter((g) => !done.has(g.key)).length} look like two rows for one post
         </span>
       </button>
 

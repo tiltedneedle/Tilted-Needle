@@ -1,16 +1,26 @@
 /**
- * Finding the same video posted to two platforms.
- *
- * Merging has existed since the cross-platform work, and on live data it had
- * been used exactly zero times while 26 pairs sat unmerged. The mechanism was
- * never the missing piece -- discovery was. Nobody scrolls 286 rows looking
- * for the Instagram twin of a TikTok they posted in March.
+ * Finding two rows that describe the same single post.
  *
  * The whole design problem here is that a wrong suggestion is expensive.
  * Merging folds two rows into one and moves posts, credits and tracked time
  * across; it is undoable, but only if someone notices. So this errs hard
  * toward silence: every rule below exists to refuse a pair rather than to
  * find one.
+ *
+ * WHAT CHANGED, and what it costs. This used to look for cross-posts -- the
+ * same caption on TikTok and Instagram -- and it found 42 groups on live data.
+ * Those groups are not duplicates. Two platforms carrying the same video are
+ * two posts with two audiences and two reach curves, and merging them throws
+ * one away. Restricted to a single platform, the same live data yields ZERO
+ * suggestions, and no client currently runs two accounts on one platform, so
+ * the only same-platform pair that exists is two rows on the SAME account --
+ * which merge_content_items refuses by design, because one account posting
+ * twice is two videos.
+ *
+ * So this finds nothing today, and that is the correct amount. It stays
+ * because the case it looks for is real: a re-import or a hand-added row that
+ * duplicates something the sync already had. When that happens it will be one
+ * platform, and this will say so.
  */
 
 export type MergeCandidateVideo = {
@@ -85,17 +95,29 @@ export function findMergeCandidates(videos: MergeCandidateVideo[]): MergeCandida
     const clients = new Set(list.map((v) => v.clientId));
     if (clients.size > 1) continue;
 
-    // The pair has to actually span platforms. Two rows on the SAME platform
-    // with the same caption are usually a genuine repost or a series entry,
-    // not one video counted twice -- and merging them would destroy the
-    // distinction between two real posts.
+    // SAME PLATFORM ONLY. This rule was the exact opposite until now: a group
+    // had to span platforms, on the theory that one video cross-posted to
+    // TikTok and Instagram is one video. In practice that reading is wrong
+    // often enough to be worse than useless. A TikTok and a YouTube Short with
+    // the same caption are two posts, made at different times, to different
+    // audiences, each with its own reach curve -- folding them into one row
+    // hides one of them and produces a video whose "platforms" list implies a
+    // cross-post that nobody actually performed. Matching captions is weak
+    // evidence, and it was being asked to carry a strong conclusion.
+    //
+    // Merge is now what its name suggests: two rows describing ONE post on ONE
+    // platform, collapsed back into one. That is the only case where the
+    // second row is genuinely not a thing that exists.
     const platforms = [...new Set(list.flatMap((v) => v.platforms.map((p) => p.platform)))].sort();
-    if (platforms.length < 2) continue;
+    if (platforms.length !== 1) continue;
 
-    // Every row must still be single-platform. A row already spanning two
-    // platforms has been merged before; offering it again risks re-merging a
-    // deliberate split back together.
-    if (list.some((v) => new Set(v.platforms.map((p) => p.platform)).size > 1)) continue;
+    // Every row must still be a single post. More than one post under one row
+    // means it has been merged before, and re-merging it risks folding a split
+    // somebody made on purpose back together. Counting posts rather than
+    // platforms is what catches this now: with the group pinned to one
+    // platform, a previously merged row no longer stands out by its platform
+    // list, only by carrying two posts.
+    if (list.some((v) => (v.postCount ?? 1) > 1)) continue;
 
     out.push({
       key,

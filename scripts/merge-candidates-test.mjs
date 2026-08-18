@@ -1,4 +1,11 @@
-// Tests for cross-platform merge suggestions.
+// Tests for merge suggestions -- SAME PLATFORM ONLY.
+//
+// The polarity of the platform rule inverted here, so most of these cases
+// changed sides. It used to require a group to SPAN platforms, on the theory
+// that one caption on TikTok and Instagram is one video cross-posted. It is
+// not: those are two posts, two audiences, two reach curves, and folding them
+// together hides one of them behind a record of a cross-post nobody made.
+// A duplicate is two rows describing ONE post, which means one platform.
 //
 // Nearly all of these assert a REFUSAL, which is the point. Merging folds two
 // rows into one and carries posts, credits and tracked time across; a wrong
@@ -40,17 +47,17 @@ eq("null-ish input does not throw", M.normaliseTitle(undefined), "");
 {
   const got = M.findMergeCandidates([
     v({ id: "a", platforms: [{ platform: "tiktok" }] }),
-    v({ id: "b", platforms: [{ platform: "instagram" }] }),
+    v({ id: "b", platforms: [{ platform: "tiktok" }] }),
   ]);
-  eq("the same caption on two platforms is a candidate", got.length, 1);
-  eq("both platforms are reported", got[0]?.platforms.join("+"), "instagram+tiktok");
+  eq("two rows for the same caption on ONE platform is a candidate", got.length, 1);
+  eq("the single platform is reported", got[0]?.platforms.join("+"), "tiktok");
   eq("the client name travels for display", got[0]?.clientName, "Tilted Needle");
 }
 
 {
   const got = M.findMergeCandidates([
     v({ id: "a", title: "Michelin star chef rates our lunch 🍽", platforms: [{ platform: "tiktok" }] }),
-    v({ id: "b", title: "michelin star chef rates our lunch", platforms: [{ platform: "instagram" }] }),
+    v({ id: "b", title: "michelin star chef rates our lunch", platforms: [{ platform: "tiktok" }] }),
   ]);
   eq("captions matching only after normalising still group", got.length, 1);
 }
@@ -58,7 +65,7 @@ eq("null-ish input does not throw", M.normaliseTitle(undefined), "");
 /* -- Refusals: the ones that protect real data ----------------------------- */
 {
   const untitled = Array.from({ length: 5 }, (_, i) =>
-    v({ id: "u" + i, title: "Untitled", platforms: [{ platform: i % 2 ? "tiktok" : "instagram" }] }));
+    v({ id: "u" + i, title: "Untitled", platforms: [{ platform: "tiktok" }] }));
   eq("forty unrelated Untitled rows are never grouped",
     M.findMergeCandidates(untitled).length, 0);
 }
@@ -66,31 +73,51 @@ eq("null-ish input does not throw", M.normaliseTitle(undefined), "");
 eq("a short title is not evidence",
   M.findMergeCandidates([
     v({ id: "a", title: "car", platforms: [{ platform: "tiktok" }] }),
-    v({ id: "b", title: "car", platforms: [{ platform: "instagram" }] }),
+    v({ id: "b", title: "car", platforms: [{ platform: "tiktok" }] }),
   ]).length, 0);
 
 eq("generic one-word captions are refused even when long enough",
   M.findMergeCandidates([
     v({ id: "a", title: "shorts", platforms: [{ platform: "tiktok" }] }),
-    v({ id: "b", title: "shorts", platforms: [{ platform: "instagram" }] }),
+    v({ id: "b", title: "shorts", platforms: [{ platform: "tiktok" }] }),
   ]).length, 0);
 
 eq("two clients are never merged, however well the titles match",
   M.findMergeCandidates([
     v({ id: "a", clientId: "client-a", platforms: [{ platform: "tiktok" }] }),
-    v({ id: "b", clientId: "client-b", platforms: [{ platform: "instagram" }] }),
+    v({ id: "b", clientId: "client-b", platforms: [{ platform: "tiktok" }] }),
   ]).length, 0);
 
-eq("two rows on the SAME platform are a repost, not one video twice",
+// THE RULE THAT INVERTED. A caption on TikTok and the same caption on
+// Instagram is two posts, not one video seen twice, and this used to be the
+// feature's entire happy path.
+eq("the same caption on two platforms is two posts, not a duplicate",
   M.findMergeCandidates([
-    v({ id: "a", platforms: [{ platform: "instagram" }] }),
+    v({ id: "a", platforms: [{ platform: "tiktok" }] }),
     v({ id: "b", platforms: [{ platform: "instagram" }] }),
+  ]).length, 0);
+
+// YouTube and YouTube Shorts count as separate platforms, and that is
+// deliberate: a long-form upload and a Short are not the same post even when
+// the caption is copied across.
+eq("youtube and youtube shorts are still two platforms",
+  M.findMergeCandidates([
+    v({ id: "a", platforms: [{ platform: "youtube" }] }),
+    v({ id: "b", platforms: [{ platform: "youtube_shorts" }] }),
   ]).length, 0);
 
 eq("a row that already spans platforms is left alone",
   M.findMergeCandidates([
     v({ id: "a", platforms: [{ platform: "tiktok" }, { platform: "instagram" }] }),
     v({ id: "b", platforms: [{ platform: "instagram" }] }),
+  ]).length, 0);
+
+// Already merged: one platform, but two posts under it. Offering this again
+// would fold a split somebody made on purpose back together.
+eq("a row already carrying two posts is left alone",
+  M.findMergeCandidates([
+    v({ id: "a", postCount: 2, platforms: [{ platform: "tiktok" }] }),
+    v({ id: "b", postCount: 1, platforms: [{ platform: "tiktok" }] }),
   ]).length, 0);
 
 eq("a lone video is not a group", M.findMergeCandidates([v()]).length, 0);
@@ -101,7 +128,7 @@ eq("an empty list is fine", M.findMergeCandidates([]).length, 0);
   // Refusing here would hide exactly the rows most in need of tidying.
   const got = M.findMergeCandidates([
     v({ id: "a", clientId: null, clientName: null, platforms: [{ platform: "tiktok" }] }),
-    v({ id: "b", clientId: null, clientName: null, platforms: [{ platform: "instagram" }] }),
+    v({ id: "b", clientId: null, clientName: null, platforms: [{ platform: "tiktok" }] }),
   ]);
   eq("two unassigned rows still group together", got.length, 1);
 }
@@ -109,16 +136,18 @@ eq("an empty list is fine", M.findMergeCandidates([]).length, 0);
 /* -- Survivor choice ------------------------------------------------------- */
 {
   const group = M.findMergeCandidates([
-    v({ id: "few", postCount: 1, platforms: [{ platform: "tiktok" }] }),
-    v({ id: "many", postCount: 3, platforms: [{ platform: "instagram" }] }),
+    v({ id: "later", postCount: 1, producedAt: "2026-06-01", platforms: [{ platform: "tiktok" }] }),
+    v({ id: "first", postCount: 1, producedAt: "2026-01-01", platforms: [{ platform: "tiktok" }] }),
   ])[0];
-  eq("the row carrying the most history survives", M.suggestSurvivor(group), "many");
+  // Post count can no longer differ within a group -- a row carrying two posts
+  // is refused above -- so the produced date is what actually decides now.
+  eq("the earliest row survives", M.suggestSurvivor(group), "first");
 }
 
 {
   const group = M.findMergeCandidates([
     v({ id: "later", postCount: 1, producedAt: "2026-05-01", platforms: [{ platform: "tiktok" }] }),
-    v({ id: "earlier", postCount: 1, producedAt: "2026-01-01", platforms: [{ platform: "instagram" }] }),
+    v({ id: "earlier", postCount: 1, producedAt: "2026-01-01", platforms: [{ platform: "tiktok" }] }),
   ])[0];
   eq("ties break toward the original, not the cross-post",
     M.suggestSurvivor(group), "earlier");
@@ -127,7 +156,7 @@ eq("an empty list is fine", M.findMergeCandidates([]).length, 0);
 {
   const group = M.findMergeCandidates([
     v({ id: "dated", postCount: 1, producedAt: "2026-01-01", platforms: [{ platform: "tiktok" }] }),
-    v({ id: "undated", postCount: 1, producedAt: null, platforms: [{ platform: "instagram" }] }),
+    v({ id: "undated", postCount: 1, producedAt: null, platforms: [{ platform: "tiktok" }] }),
   ])[0];
   eq("a missing date sorts last rather than winning", M.suggestSurvivor(group), "dated");
 }
@@ -136,9 +165,9 @@ eq("an empty list is fine", M.findMergeCandidates([]).length, 0);
 {
   const input = [
     v({ id: "a1", title: "zebra crossing story time", platforms: [{ platform: "tiktok" }] }),
-    v({ id: "a2", title: "zebra crossing story time", platforms: [{ platform: "instagram" }] }),
+    v({ id: "a2", title: "zebra crossing story time", platforms: [{ platform: "tiktok" }] }),
     v({ id: "b1", title: "apple orchard afternoon walk", platforms: [{ platform: "tiktok" }] }),
-    v({ id: "b2", title: "apple orchard afternoon walk", platforms: [{ platform: "instagram" }] }),
+    v({ id: "b2", title: "apple orchard afternoon walk", platforms: [{ platform: "tiktok" }] }),
   ];
   const first = M.findMergeCandidates(input).map((g) => g.key).join(",");
   const again = M.findMergeCandidates([...input].reverse()).map((g) => g.key).join(",");

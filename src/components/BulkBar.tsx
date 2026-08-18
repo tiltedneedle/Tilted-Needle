@@ -1,8 +1,11 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Merge, X } from "lucide-react";
+import { Merge, Plus, X } from "lucide-react";
+import Avatar from "@/components/Avatar";
+import PlatformIcon from "@/components/PlatformIcon";
+import Popover from "@/components/ui/Popover";
 import Select from "@/components/ui/Select";
 import {
   bulkAssignRole,
@@ -11,7 +14,8 @@ import {
   type ClientAssignment,
 } from "@/app/actions";
 import { useToast } from "@/components/ui/Toast";
-import type { TileMember, TileRole } from "@/components/VideoTile";
+import { PLATFORM_LABEL } from "@/lib/types";
+import { SHORT_ROLE, type TileCredit, type TileMember, type TileRole } from "@/components/VideoTile";
 
 /**
  * Sentinel for "take these off their client".
@@ -41,6 +45,8 @@ export default function BulkBar({
   workspaceId,
   selected,
   titles,
+  platformsById,
+  creditsById,
   roles,
   members,
   clients,
@@ -51,6 +57,15 @@ export default function BulkBar({
   selected: string[];
   /** id -> title, for the merge survivor picker. */
   titles: Record<string, string>;
+  /**
+   * id -> the platforms that video is posted to, for the merge gate.
+   *
+   * Merge is same-platform only now, and that has to be decided here rather
+   * than by letting people press the button and reading the refusal.
+   */
+  platformsById: Record<string, string[]>;
+  /** id -> its credits, so the master assigner can show who already holds what. */
+  creditsById: Record<string, TileCredit[]>;
   roles: TileRole[];
   members: TileMember[];
   clients: { id: string; name: string }[];
@@ -68,8 +83,6 @@ export default function BulkBar({
   const toast = useToast();
   const [, startTransition] = useTransition();
   const [busy, setBusy] = useState(false);
-  const [roleId, setRoleId] = useState("");
-  const [userId, setUserId] = useState("");
   const [clientId, setClientId] = useState("");
   const [merging, setMerging] = useState(false);
   const [survivor, setSurvivor] = useState("");
@@ -80,16 +93,57 @@ export default function BulkBar({
     startTransition(() => router.refresh());
   };
 
-  async function assign() {
-    if (!roleId || !userId) return;
-    setBusy(true);
-    const res = await bulkAssignRole({ workspaceId, contentItemIds: selected, userId, roleId });
-    setBusy(false);
-    if (res.error) return toast("danger", res.error);
-    const name = members.find((m) => m.userId === userId)?.name ?? "Someone";
-    const role = roles.find((r) => r.id === roleId)?.name ?? "that role";
-    done(`${name} credited as ${role} on ${res.added ?? 0} video${res.added === 1 ? "" : "s"}.`);
-  }
+  /**
+   * MERGE IS SAME-PLATFORM ONLY.
+   *
+   * It used to be the cross-platform tool: pick a TikTok and its Instagram
+   * twin, fold them into one row. That is not a duplicate. Two platforms
+   * carrying the same video are two posts with two audiences and two reach
+   * curves; merging them hides one and invents a cross-post record that
+   * describes nothing that happened.
+   *
+   * So the button only appears when everything selected sits on one and the
+   * same platform. Computed rather than left to the server's refusal, because
+   * "press it and read the error" is a worse way to learn a rule than not
+   * being offered the button.
+   */
+  const mergePlatform = useMemo(() => {
+    if (selected.length < 2) return null;
+    const all = selected.flatMap((id) => platformsById[id] ?? []);
+    // Nothing selected carries a post. These are the hand-added rows -- the
+    // "41 with no link" -- and two of them with the same title really are one
+    // video entered twice, with no posts to conflict. Offered, labelled as
+    // what it is rather than borrowing a platform name it does not have.
+    if (all.length === 0) return "none";
+    const distinct = [...new Set(all)];
+    return distinct.length === 1 ? distinct[0] : null;
+  }, [selected, platformsById]);
+
+  /**
+   * Who already holds each role, across the selection, and on how many.
+   *
+   * Rolled up here rather than in the parent so the bar owns the whole idea of
+   * "the selection": the parent hands over raw per-video credits and does not
+   * have to know that the strip cares about counts. Sorted by coverage so the
+   * avatar the strip shows is the person credited on the most of them, which
+   * is the one that best describes the batch.
+   */
+  const creditedByRole = useMemo(() => {
+    const out = new Map<string, { userId: string; name: string; count: number }[]>();
+    for (const id of selected) {
+      for (const c of creditsById[id] ?? []) {
+        const list = out.get(c.roleSlug) ?? [];
+        const found = list.find((h) => h.userId === c.userId);
+        if (found) found.count++;
+        else list.push({ userId: c.userId, name: c.userName, count: 1 });
+        out.set(c.roleSlug, list);
+      }
+    }
+    for (const list of out.values()) {
+      list.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+    }
+    return out;
+  }, [selected, creditsById]);
 
   async function setClient() {
     // Guarded, not just disabled: the button below cannot be pressed without
@@ -142,32 +196,22 @@ export default function BulkBar({
 
       <span className="mx-1 h-4 w-px bg-[var(--border)]" />
 
-      {/* Credit someone. The reason the whole feature exists: credits sit at
-          8% because assigning them one video at a time is not something anyone
-          will do 255 times. */}
-      <Select
-        className="max-w-[150px]"
-        value={roleId}
-        onChange={setRoleId}
-        placeholder="Role"
-        ariaLabel="Role to credit"
-        options={roles.map((r) => ({ value: r.id, label: r.name }))}
+      {/* The master assigner: the same five circles that sit on every row,
+          except this one writes to the whole selection.
+          It replaced Role ▾ + Person ▾ + Credit, which asked for three
+          interactions and two of them were dropdowns whose options you had to
+          read before you could choose. The circles are the control people
+          already know from the rows, and the role is implied by which circle
+          you open -- so crediting twelve videos is now click, click. */}
+      <MasterCredit
+        workspaceId={workspaceId}
+        ids={selected}
+        roles={roles}
+        members={members}
+        creditedByRole={creditedByRole}
+        busy={busy}
+        onDone={done}
       />
-      <Select
-        className="max-w-[160px]"
-        value={userId}
-        onChange={setUserId}
-        placeholder="Person"
-        ariaLabel="Person to credit"
-        options={members.map((m) => ({ value: m.userId, label: m.name }))}
-      />
-      <button
-        className="btn-primary px-2.5 py-1 text-xs"
-        disabled={busy || !roleId || !userId}
-        onClick={assign}
-      >
-        Credit
-      </button>
 
       <span className="mx-1 h-4 w-px bg-[var(--border)]" />
 
@@ -198,7 +242,7 @@ export default function BulkBar({
 
       <div className="flex-1" />
 
-      {selected.length > 1 && (
+      {mergePlatform && (
         <button
           className="btn flex items-center gap-1 px-2.5 py-1 text-xs"
           disabled={busy}
@@ -206,13 +250,19 @@ export default function BulkBar({
             setSurvivor(selected[0]);
             setMerging((v) => !v);
           }}
-          title="Same video posted to several platforms? Merge them into one."
+          title={
+            mergePlatform === "none"
+              ? "Two rows for the same video, neither linked to a post? Merge them into one."
+              : `Two rows for the same ${PLATFORM_LABEL[mergePlatform] ?? mergePlatform} post? Merge them into one.`
+          }
         >
-          <Merge size={12} /> Merge {selected.length}
+          <Merge size={12} />
+          {mergePlatform !== "none" && <PlatformIcon platform={mergePlatform} size={11} />}
+          Merge {selected.length}
         </button>
       )}
 
-      {merging && (
+      {merging && mergePlatform && (
         <div className="w-full border-t border-[var(--border)] pt-2">
           <p className="mb-1.5 text-xs text-[var(--muted)]">
             Keeping one video and moving the others&apos; posts, credits and hours onto
@@ -245,6 +295,195 @@ export default function BulkBar({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * The master assigner: one credit strip that writes to every selected video.
+ *
+ * This replaced Role ▾ + Person ▾ + Credit. Those three controls were the
+ * slow path -- two dropdowns you had to open and read before you could choose,
+ * for a job people do dozens of times in a sitting -- and they were the second
+ * way to do something the rows already did, which is how the confusion started.
+ *
+ * WHY THE ROW MENUS NO LONGER DO THIS. Until now, opening a role menu on a
+ * TICKED row credited the whole selection, and on an unticked row credited
+ * just that row. Same control, same gesture, blast radius depending on a
+ * checkbox somewhere else on screen. That is a trap: the one place you want
+ * to fix a single video is while you have a batch selected, and that was
+ * exactly the click that changed all of them. Rows are now always one video.
+ * Everything that acts on the selection lives in this bar, where the words
+ * "N selected" are two inches away.
+ *
+ * Add-only, deliberately. Removal stays per-row: an assignment id belongs to
+ * one video, adding a credit is idempotent and visible, and taking one away
+ * from twelve videos on a single click is a far worse accident. What is
+ * already held is shown, so the strip still reports rather than just writes.
+ */
+function MasterCredit({
+  workspaceId,
+  ids,
+  roles,
+  members,
+  creditedByRole,
+  busy,
+  onDone,
+}: {
+  workspaceId: string;
+  ids: string[];
+  roles: TileRole[];
+  members: TileMember[];
+  /** roleSlug -> everyone credited on any selected video, with how many. */
+  creditedByRole: Map<string, { userId: string; name: string; count: number }[]>;
+  busy: boolean;
+  onDone: (msg: string) => void;
+}) {
+  const [openRole, setOpenRole] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+  const toast = useToast();
+  const anchorRef = useRef<HTMLDivElement>(null);
+
+  function credit(role: TileRole, m: TileMember) {
+    startTransition(async () => {
+      const res = await bulkAssignRole({
+        workspaceId,
+        contentItemIds: ids,
+        userId: m.userId,
+        roleId: role.id,
+      });
+      setOpenRole(null);
+      if (res.error) return toast("danger", res.error);
+      // "added", not the selection size: people already credited in this role
+      // are skipped, and reporting 12 when 4 changed teaches the wrong thing
+      // about what the button does.
+      const n = res.added ?? 0;
+      onDone(
+        n === 0
+          ? `${m.name} was already credited as ${role.name} on all ${ids.length}.`
+          : `${m.name} credited as ${role.name} on ${n} video${n === 1 ? "" : "s"}.`,
+      );
+    });
+  }
+
+  return (
+    <div className="flex items-start gap-0.5">
+      {roles.map((role) => {
+        const holders = creditedByRole.get(role.slug) ?? [];
+        const lead = holders[0];
+        const isOpen = openRole === role.slug;
+        // "on all of them" is the thing worth knowing at a glance, and it is
+        // not the same question as "credited at all" once a batch is mixed.
+        const onAll = lead?.count === ids.length;
+
+        return (
+          <div key={role.id} ref={isOpen ? anchorRef : undefined} className="relative">
+            <button
+              type="button"
+              disabled={busy || pending}
+              onClick={() => setOpenRole(isOpen ? null : role.slug)}
+              className={`flex w-[42px] flex-col items-center gap-0.5 rounded-[8px] px-0.5 py-1 transition-colors hover:bg-[var(--bg-subtle)] disabled:opacity-50 ${
+                isOpen ? "bg-[var(--bg-subtle)]" : ""
+              }`}
+              title={
+                holders.length
+                  ? `${role.name} on the selection: ${holders
+                      .map((h) => `${h.name} (${h.count}/${ids.length})`)
+                      .join(", ")}`
+                  : `Credit someone as ${role.name} on all ${ids.length} selected`
+              }
+              aria-label={`Credit ${role.name} on all ${ids.length} selected videos`}
+            >
+              <span className="relative">
+                {lead ? (
+                  <span className="block rounded-full shadow-[0_0_0_2px_var(--panel)]">
+                    <Avatar name={lead.name} seed={lead.userId} size={22} title="" />
+                  </span>
+                ) : (
+                  <span className="flex size-[22px] items-center justify-center rounded-full border border-dashed border-[var(--border-strong)] bg-[var(--panel)] text-[var(--muted)]">
+                    <Plus size={10} strokeWidth={2} />
+                  </span>
+                )}
+                {/* A dot, not a number: "some but not all" is the whole
+                    message, and the exact count is in the tooltip and the
+                    menu header for anyone who wants it. */}
+                {lead && !onAll && (
+                  <span className="absolute -bottom-0.5 -right-0.5 size-[8px] rounded-full bg-[var(--warn)] shadow-[0_0_0_1.5px_var(--panel)]" />
+                )}
+              </span>
+              <span className="w-full truncate text-center text-[9px] leading-tight text-[var(--muted)]">
+                {SHORT_ROLE[role.slug] ?? role.name}
+              </span>
+            </button>
+
+            {isOpen && (
+              <Popover
+                anchorRef={anchorRef}
+                onClose={() => setOpenRole(null)}
+                align="left"
+                role="menu"
+                ariaLabel={`${role.name} across the selection`}
+                width={228}
+                maxHeight={340}
+                className="!py-0"
+              >
+                <div className="border-b border-[var(--border)] px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+                  {role.name}
+                  <span className="ml-1 font-medium normal-case tracking-normal text-[var(--accent)]">
+                    · all {ids.length} selected
+                  </span>
+                </div>
+
+                {holders.length > 0 && (
+                  <div className="border-b border-[var(--border)] py-1">
+                    {holders.map((h) => (
+                      <div key={h.userId} className="flex items-center gap-2 px-2.5 py-1">
+                        <Avatar name={h.name} seed={h.userId} size={18} />
+                        <span className="min-w-0 flex-1 truncate text-xs">{h.name}</span>
+                        <span className="tabular shrink-0 text-[11px] text-[var(--muted)]">
+                          {h.count}/{ids.length}
+                        </span>
+                      </div>
+                    ))}
+                    {/* Says where removal lives rather than leaving people
+                        hunting the menu for a Remove that is not here. */}
+                    <p className="px-2.5 pb-0.5 pt-1 text-[10px] leading-snug text-[var(--muted)]">
+                      Picking someone below credits all {ids.length}. To take a credit
+                      away, use the circles on the video itself.
+                    </p>
+                  </div>
+                )}
+
+                <div className="max-h-52 overflow-y-auto py-1">
+                  {members.map((m) => {
+                    const held = holders.find((h) => h.userId === m.userId);
+                    const everywhere = held?.count === ids.length;
+                    return (
+                      <button
+                        key={m.userId}
+                        type="button"
+                        disabled={everywhere}
+                        className="flex w-full items-center gap-2 px-2.5 py-1 text-left transition-colors hover:bg-[var(--bg-subtle)] disabled:cursor-default disabled:opacity-45 disabled:hover:bg-transparent"
+                        onClick={() => credit(role, m)}
+                      >
+                        <Avatar name={m.name} seed={m.userId} size={20} />
+                        <span className="min-w-0 flex-1 truncate text-xs">{m.name}</span>
+                        {/* The useful state is the partial one: it means
+                            clicking fills the gap rather than doing nothing. */}
+                        {held && (
+                          <span className="tabular shrink-0 text-[10px] text-[var(--muted)]">
+                            {everywhere ? "all" : `+${ids.length - held.count}`}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </Popover>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
