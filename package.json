@@ -51,6 +51,7 @@
     "test:rollupunique": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/rollup-unique-test.mjs",
     "test:clientreport": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/client-report-test.mjs",
     "test:periodfields": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/period-fields-test.mjs",
+    "test:publishdate": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/publish-date-test.mjs",
     "test:labels": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/content-labels-test.mjs",
     "test:client-scope": "node scripts/client-scope-test.mjs",
     "test:tz": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/tz-test.mjs",
