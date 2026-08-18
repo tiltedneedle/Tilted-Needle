@@ -53,7 +53,7 @@ export default function ThemeToggle() {
   return (
     <div
       className="flex items-center gap-0.5 rounded-lg p-0.5"
-      style={{ background: "rgb(255 255 255 / 0.05)" }}
+      style={{ background: "var(--on-dark-hover)" }}
       role="radiogroup"
       aria-label="Theme"
     >

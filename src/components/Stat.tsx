@@ -44,7 +44,7 @@ export function Stat({
       <div className="flex items-start justify-between gap-2">
         <div
           className="text-[11px] font-medium uppercase tracking-wide"
-          style={{ color: hero ? "rgb(255 255 255 / 0.6)" : "var(--muted)" }}
+          style={{ color: hero ? "var(--on-dark-muted)" : "var(--muted)" }}
         >
           {label}
         </div>
@@ -52,7 +52,9 @@ export function Stat({
           <Icon
             size={16}
             strokeWidth={1.8}
-            className={hero ? "text-white/50" : "text-[var(--muted)]"}
+            // Through the token, not text-white/50: the icon type accepts a
+            // className but no style prop, so this is the only way in.
+            className={hero ? "text-[var(--on-dark-muted)]" : "text-[var(--muted)]"}
           />
         )}
       </div>
@@ -69,7 +71,7 @@ export function Stat({
       {hint && (
         <div
           className="relative mt-1.5 text-xs"
-          style={{ color: hero ? "rgb(255 255 255 / 0.55)" : "var(--muted)" }}
+          style={{ color: hero ? "var(--on-dark-muted)" : "var(--muted)" }}
         >
           {/* A hint that names a fixable subset should be able to reach it.
               "41 with no link" is the start of a job, and making it a dead

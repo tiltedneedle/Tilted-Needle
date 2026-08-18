@@ -279,7 +279,7 @@ export default function Sidebar({
                     fontWeight: isActive ? 600 : 500,
                   }}
                   onMouseEnter={(e) => {
-                    if (!isActive) e.currentTarget.style.background = "rgb(255 255 255 / 0.05)";
+                    if (!isActive) e.currentTarget.style.background = "var(--on-dark-hover)";
                   }}
                   onMouseLeave={(e) => {
                     if (!isActive) e.currentTarget.style.background = "transparent";
@@ -300,7 +300,7 @@ export default function Sidebar({
         ))}
       </nav>
 
-      <div className="p-3" style={{ borderTop: "1px solid rgb(255 255 255 / 0.08)" }}>
+      <div className="p-3" style={{ borderTop: "1px solid var(--on-dark-active)" }}>
         <div className="mb-2 flex items-center justify-between px-2">
           <span
             className="text-[11px] font-medium uppercase tracking-wide"

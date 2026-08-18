@@ -167,6 +167,33 @@
   --sidebar-fg: #fafafa;
   --sidebar-muted: #9a9aa4;
   --sidebar-accent: var(--red-bright);
+
+  /* ---- Surfaces that are dark in BOTH themes ---------------------------
+     The sidebar and the hero stat card. They do not follow --fg/--muted,
+     because those invert with the theme and these surfaces do not -- so
+     anything drawn on them was reaching for white-alpha literals instead,
+     and there were eight of them across five files with no name and no way
+     to change them together.
+
+     The trap this closes is not the duplication, it is ProgressRing: its
+     track defaulted to rgb(255 255 255 / 0.18), a dark-surface assumption
+     sitting in a SHARED component's signature. Every current caller happens
+     to sit on the hero card, so it is correct today and would have been
+     invisible the first time someone put a ring on an ordinary card.
+
+     Named for the condition rather than the component, so a third
+     always-dark surface has something to use. */
+  --on-dark-fg: rgb(255 255 255 / 0.92);
+  /* 0.6, the brighter of the two values this replaced (0.6 on the hero
+     label, 0.55 on its hint) -- so consolidating them cannot make anything
+     dimmer than it was. */
+  --on-dark-muted: rgb(255 255 255 / 0.6);
+  --on-dark-icon: rgb(255 255 255 / 0.75);
+  /* Hover and pressed washes for controls sitting on those surfaces. */
+  --on-dark-hover: rgb(255 255 255 / 0.05);
+  --on-dark-active: rgb(255 255 255 / 0.08);
+  /* The unfilled remainder of a ring or meter. */
+  --on-dark-track: rgb(255 255 255 / 0.18);
   --success: var(--success-500);
   --danger: var(--danger-500);
   --warning: var(--warning-500);

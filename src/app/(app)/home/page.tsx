@@ -251,7 +251,7 @@ export default async function HomePage() {
             <div className="relative">
               <div
                 className="text-[11px] font-medium uppercase tracking-wide"
-                style={{ color: "rgb(255 255 255 / 0.6)" }}
+                style={{ color: "var(--on-dark-muted)" }}
               >
                 Today&apos;s sheet
               </div>
@@ -262,18 +262,18 @@ export default async function HomePage() {
                 {todos.length ? (
                   <>
                     <CountUp value={done} />
-                    <span style={{ color: "rgb(255 255 255 / 0.55)" }}>/{todos.length}</span>
+                    <span style={{ color: "var(--on-dark-muted)" }}>/{todos.length}</span>
                   </>
                 ) : (
                   "—"
                 )}
               </div>
-              <div className="relative mt-1.5 text-xs" style={{ color: "rgb(255 255 255 / 0.55)" }}>
+              <div className="relative mt-1.5 text-xs" style={{ color: "var(--on-dark-muted)" }}>
                 {todos.length ? "tasks done across the team" : "nothing assigned yet"}
               </div>
             </div>
             <ProgressRing fraction={todos.length ? done / todos.length : 0} size={64} stroke={6}>
-              <ListChecks size={18} style={{ color: "rgb(255 255 255 / 0.75)" }} />
+              <ListChecks size={18} style={{ color: "var(--on-dark-icon)" }} />
             </ProgressRing>
           </div>
           <Stat
@@ -627,7 +627,7 @@ export default async function HomePage() {
           <div className="relative">
             <div
               className="text-[11px] font-medium uppercase tracking-wide"
-              style={{ color: "rgb(255 255 255 / 0.6)" }}
+              style={{ color: "var(--on-dark-muted)" }}
             >
               Today
             </div>
@@ -638,18 +638,18 @@ export default async function HomePage() {
               {todos.length ? (
                 <>
                   <CountUp value={doneCount} />
-                  <span style={{ color: "rgb(255 255 255 / 0.55)" }}>/{todos.length}</span>
+                  <span style={{ color: "var(--on-dark-muted)" }}>/{todos.length}</span>
                 </>
               ) : (
                 "—"
               )}
             </div>
-            <div className="relative mt-1.5 text-xs" style={{ color: "rgb(255 255 255 / 0.55)" }}>
+            <div className="relative mt-1.5 text-xs" style={{ color: "var(--on-dark-muted)" }}>
               {todos.length ? "tasks done" : "nothing assigned yet"}
             </div>
           </div>
           <ProgressRing fraction={todos.length ? doneCount / todos.length : 0} size={64} stroke={6}>
-            <ListChecks size={18} style={{ color: "rgb(255 255 255 / 0.75)" }} />
+            <ListChecks size={18} style={{ color: "var(--on-dark-icon)" }} />
           </ProgressRing>
         </div>
         <Stat

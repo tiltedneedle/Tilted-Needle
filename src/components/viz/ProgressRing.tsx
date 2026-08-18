@@ -12,7 +12,7 @@ export default function ProgressRing({
   size = 76,
   stroke = 7,
   color = "var(--accent)",
-  track = "rgb(255 255 255 / 0.18)",
+  track = "var(--on-dark-track)",
   children,
 }: {
   /** 0..1 */
