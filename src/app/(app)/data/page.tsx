@@ -2,6 +2,7 @@ import { OPERATING_TZ, formatInstant } from "@/lib/tz";
 import PageHeader from "@/components/PageHeader";
 import DataPanel, { type PanelAccount } from "@/components/DataPanel";
 import AnalyticsImport from "@/components/AnalyticsImport";
+import PeriodSheet from "@/components/PeriodSheet";
 import PipelineHealth from "@/components/PipelineHealth";
 import { loadPipelineStatus } from "@/lib/pipelineStatus";
 import { Stat, StatGrid, SectionHeading } from "@/components/Stat";
@@ -80,6 +81,23 @@ export default async function DataPage() {
     client_id: string | null;
     client: { name: string; is_archived: boolean } | { name: string; is_archived: boolean }[] | null;
   };
+  /**
+   * The live accounts the period sheet can be filled in for.
+   *
+   * Archived accounts are excluded: nobody writes a monthly report for a
+   * channel that has been switched off, and offering them would make the
+   * picker longer than the job it exists for.
+   */
+  const periodAccounts = ((accountsRes.data ?? []) as unknown as Row[])
+    .filter((a) => !a.is_archived)
+    .map((a) => ({
+      id: a.id,
+      platform: a.platform_slug,
+      handle: a.handle,
+      clientName: one(a.client)?.name ?? null,
+    }))
+    .sort((x, y) => (x.clientName ?? "").localeCompare(y.clientName ?? ""));
+
   const accounts: PanelAccount[] = ((accountsRes.data ?? []) as unknown as Row[]).map((a) => ({
     id: a.id,
     platformSlug: a.platform_slug,
@@ -260,6 +278,19 @@ export default async function DataPage() {
       />
       <div className="mb-7">
         <AnalyticsImport workspaceId={ws} />
+      </div>
+
+      {/* The audience figures a client report needs and no interface serves.
+          Instagram publishes no account-level export -- Meta withholds one
+          deliberately -- and OAuth is banned here by schema constraint, so for
+          the largest platform this form is the data path permanently, not a
+          stopgap waiting on an integration. */}
+      <SectionHeading
+        title="Monthly audience figures"
+        note="Followers, reach and demographics — read off each platform's own dashboard, because nothing publishes them"
+      />
+      <div className="mb-7">
+        <PeriodSheet workspaceId={ws} accounts={periodAccounts} />
       </div>
 
       <SectionHeading

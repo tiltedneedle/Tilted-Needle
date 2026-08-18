@@ -220,3 +220,63 @@ export function checkBreakdown(
     message: `These add up to ${sum.toFixed(1)}%, not 100%. Rounding explains a point or so; more than that usually means a row is missing.`,
   };
 }
+
+/* ---- Breakdowns ---------------------------------------------------------- */
+
+export type BreakdownSpec = {
+  kind: string;
+  label: string;
+  unit: "percent" | "count";
+  /** Suggested rows, so the form is a fill-in rather than a blank page. */
+  suggest?: string[];
+  hint?: string;
+};
+
+/**
+ * Which ranked lists each platform's report can carry.
+ *
+ * Per platform, because offering Instagram a "traffic source" list it does not
+ * publish would invite someone to invent one. The suggested labels come from
+ * the real reports and from each platform's own vocabulary -- Instagram says
+ * "Women"/"Men" where TikTok says "Female"/"Male", and both are reproduced as
+ * the platform states them so the report matches the screen a client can check
+ * it against.
+ */
+export const BREAKDOWNS: Record<string, BreakdownSpec[]> = {
+  instagram: [
+    { kind: "follower_age", label: "Followers by age", unit: "percent",
+      suggest: ["18-24", "25-34", "35-44", "45-54", "55-64", "65+"] },
+    { kind: "follower_gender", label: "Followers by gender", unit: "percent",
+      suggest: ["Women", "Men"] },
+    { kind: "follower_location", label: "Top locations", unit: "percent",
+      hint: "In the order Instagram lists them" },
+    { kind: "follower_active_days", label: "Most active days", unit: "percent",
+      hint: "Leave the values blank if you only have the order" },
+    { kind: "views_by_format", label: "Views by content type", unit: "count",
+      suggest: ["Reels", "Stories", "Posts"] },
+    { kind: "interactions_by_format", label: "Interactions by content type", unit: "count",
+      suggest: ["Reels", "Stories", "Posts", "Live videos"] },
+  ],
+  tiktok: [
+    { kind: "follower_gender", label: "Followers by gender", unit: "percent",
+      suggest: ["Female", "Male"] },
+    { kind: "viewer_gender", label: "Viewers by gender", unit: "percent",
+      suggest: ["Female", "Male"] },
+    { kind: "traffic_source", label: "Where the views came from", unit: "percent",
+      suggest: ["For You", "Personal profile", "Search", "Following", "Sound"] },
+    { kind: "search_query", label: "Top search queries", unit: "percent",
+      hint: "Keep TikTok's own order — several can share a value and the order still means something" },
+    { kind: "follower_location", label: "Top locations", unit: "percent" },
+  ],
+  youtube: [
+    { kind: "traffic_source", label: "Where the views came from", unit: "percent" },
+    { kind: "subscription_source", label: "Where subscribers came from", unit: "percent" },
+  ],
+  youtube_shorts: [
+    { kind: "traffic_source", label: "Where the views came from", unit: "percent" },
+  ],
+};
+
+export function breakdownsFor(platform: string): BreakdownSpec[] {
+  return BREAKDOWNS[platform] ?? [];
+}

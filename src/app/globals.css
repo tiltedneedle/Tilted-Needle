@@ -1570,6 +1570,21 @@ h3 {
    is wrong.
    --------------------------------------------------------------------------- */
 
+.report,
+.report h1,
+.report h2,
+.report h3,
+.report p,
+.report li,
+.report div,
+.report span {
+  /* The document is always on white paper, whatever theme the app is in.
+     Without this the headline inherited --fg, which in dark mode is near-white
+     -- so "Where each number came from." rendered white on white and the page
+     looked empty. Colour is set on the document, not left to the app. */
+  color: inherit;
+}
+
 .report {
   --report-ink: #1a1a1e;
   --report-muted: #6b6b74;
@@ -1596,6 +1611,10 @@ h3 {
    marker, and the thing that most makes a page read as this document rather
    than a dashboard. */
 .report-eyebrow {
+  /* Tracking is set with real spaces, so the doubled space at a word
+     boundary must survive. Without pre-wrap HTML collapses it and
+     "SOCIAL MEDIA" prints as "SOCIALMEDIA". */
+  white-space: pre-wrap;
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.26em;
@@ -1609,6 +1628,7 @@ h3 {
 /* The sentence that states what the page found. Deliberately large: in the
    real reports this line carries the argument and the figures support it. */
 .report-headline {
+  color: var(--report-ink);
   font-size: 21px;
   line-height: 1.25;
   letter-spacing: -0.015em;
@@ -1769,6 +1789,10 @@ h3 {
 }
 
 .report-cover-title {
+  /* Tracking is set with real spaces, so the doubled space at a word
+     boundary must survive. Without pre-wrap HTML collapses it and
+     "SOCIAL MEDIA" prints as "SOCIALMEDIA". */
+  white-space: pre-wrap;
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.3em;
@@ -1785,6 +1809,10 @@ h3 {
 }
 
 .report-cover-platforms {
+  /* Tracking is set with real spaces, so the doubled space at a word
+     boundary must survive. Without pre-wrap HTML collapses it and
+     "SOCIAL MEDIA" prints as "SOCIALMEDIA". */
+  white-space: pre-wrap;
   font-size: 10.5px;
   letter-spacing: 0.32em;
   text-transform: uppercase;
@@ -1792,6 +1820,10 @@ h3 {
 }
 
 .report-cover-period {
+  /* Tracking is set with real spaces, so the doubled space at a word
+     boundary must survive. Without pre-wrap HTML collapses it and
+     "SOCIAL MEDIA" prints as "SOCIALMEDIA". */
+  white-space: pre-wrap;
   margin-top: 30px;
   font-size: 15px;
   letter-spacing: 0.3em;

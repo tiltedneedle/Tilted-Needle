@@ -149,7 +149,15 @@ function PlatformPage({
         {spaced(s.platformLabel)} &nbsp;·&nbsp; {spaced(report.periodLabel)}
       </div>
 
-      <h2 className="report-headline">{s.narrative}</h2>
+      {/* Two different absences, and conflating them misleads. "No figures
+          were recorded" above three videos with view counts reads as a
+          contradiction: what is missing is the ACCOUNT-level data, which only
+          a person can enter. The video data is measured and present. */}
+      <h2 className="report-headline">
+        {m
+          ? s.narrative
+          : `${s.candidateCount} ${s.candidateCount === 1 ? "video" : "videos"} published on ${s.platformLabel} this period.`}
+      </h2>
 
       {/* Figures render themselves away when absent, so this row shows exactly
           what is known and never a gap where a tile should be. */}
