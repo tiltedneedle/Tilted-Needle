@@ -101,6 +101,30 @@ export async function GET(req: Request) {
   try {
     const db = serviceClient();
     const started = Date.now();
+
+    /**
+     * Empty the recycle bin, before anything else.
+     *
+     * It runs here because this is the only thing in the product that already
+     * executes on a schedule with the service role -- and the purge NEEDS the
+     * service role, since it is the one function in the schema that destroys
+     * data on purpose and is revoked from every user-facing role.
+     *
+     * First, not last, so a run that later dies on maxDuration has still done
+     * it. A bin that only empties when the sync happens to finish would keep
+     * "0 days left" clients around indefinitely, which is worse than either
+     * behaviour on its own: the UI would promise a deletion that never came.
+     *
+     * A failure here must not abort the sync. Purging is housekeeping;
+     * refreshing metrics is the job.
+     */
+    let purged: { purged_client_name: string; purged_items: number }[] = [];
+    try {
+      const { data } = await db.rpc("purge_deleted_clients", { p_grace_days: 7 });
+      purged = (data ?? []) as { purged_client_name: string; purged_items: number }[];
+    } catch {
+      // Swallowed on purpose -- see above.
+    }
     // How many accounts this platform has in total, so a batching caller can
     // work out how many requests a full pass needs instead of guessing.
     let eligible = 0;
@@ -144,6 +168,10 @@ export async function GET(req: Request) {
       // Callers that want to tolerate a partial failure should read `failed`
       // and `synced` and decide for themselves; that is why both are returned.
       ok: failedCount === 0,
+      // Reported so a purge is visible in the run log rather than silent.
+      // Deleting a client's entire history should leave a trace somewhere
+      // even when nobody was watching.
+      purgedClients: purged.map((p) => ({ name: p.purged_client_name, videos: p.purged_items })),
       durationMs: Date.now() - started,
       accounts: results.length,
       eligible,

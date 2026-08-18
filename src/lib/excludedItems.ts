@@ -87,7 +87,7 @@ export async function loadExcludedItemIds(db: Db, ws: string): Promise<Set<strin
   /* RULE 2 -- not a current client. */
   const { data: archived } = await db
     .from("clients")
-    .select("id")
+    .select("id").is("deleted_at", null).is("deleted_at", null)
     .eq("workspace_id", ws)
     .eq("is_archived", true);
 

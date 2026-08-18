@@ -92,7 +92,7 @@ async function loadRaw(ws: string): Promise<RawContentData> {
         .not("ended_at", "is", null)
         .order("id"),
     ),
-    db.from("clients").select("id, name, is_archived").eq("workspace_id", ws).order("name"),
+    db.from("clients").select("id, name, is_archived").is("deleted_at", null).is("deleted_at", null).eq("workspace_id", ws).order("name"),
     db.from("platforms").select("slug, display_name").eq("is_enabled", true).order("sort_order"),
     selectAll(() =>
       db

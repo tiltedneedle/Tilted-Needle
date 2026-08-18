@@ -15,7 +15,7 @@ export default async function PortalPage() {
   const supabase = await createClient();
 
   const [clientRes, itemsRes, postsRes] = await Promise.all([
-    supabase.from("clients").select("id, name").limit(1).maybeSingle(),
+    supabase.from("clients").select("id, name").is("deleted_at", null).is("deleted_at", null).limit(1).maybeSingle(),
     // Approved only. The portal is the agency's claim about what it
     // delivered, so a video the client posted themselves does not belong in
     // it -- not as a row and not in the totals. Hiding it entirely, rather

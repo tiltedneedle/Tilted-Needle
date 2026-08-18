@@ -571,7 +571,7 @@ export async function runSync(
    */
   const archived = await db
     .from("clients")
-    .select("id")
+    .select("id").is("deleted_at", null).is("deleted_at", null)
     .eq("is_archived", true);
   const archivedClientIds = new Set(
     ((archived.data ?? []) as { id: string }[]).map((c) => c.id),

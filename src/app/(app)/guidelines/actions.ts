@@ -165,6 +165,10 @@ export async function updateClientMeta(
   const { error } = await supabase
     .from("clients")
     .update(patch)
+    // A binned client is not editable. This is an UPDATE rather than a read,
+    // and the same rule applies: writing guidelines to something the user
+    // believes they deleted would resurrect part of it silently.
+    .is("deleted_at", null)
     .eq("id", clientId)
     .eq("workspace_id", session.active.id);
   if (error) return { error: error.message };

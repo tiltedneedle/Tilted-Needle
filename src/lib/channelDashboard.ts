@@ -41,7 +41,7 @@ export async function loadClientChannels(
 ): Promise<ClientChannels | null> {
   const { data: client } = await db
     .from("clients")
-    .select("id, name, email, is_archived")
+    .select("id, name, email, is_archived").is("deleted_at", null).is("deleted_at", null)
     .eq("id", clientId)
     .eq("workspace_id", ws)
     .maybeSingle();

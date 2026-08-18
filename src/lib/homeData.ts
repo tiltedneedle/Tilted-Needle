@@ -44,7 +44,7 @@ function shortLabel(iso: string): string {
 export async function loadArchivedClientItemIds(db: Db, ws: string): Promise<Set<string>> {
   const { data: archived } = await db
     .from("clients")
-    .select("id")
+    .select("id").is("deleted_at", null).is("deleted_at", null)
     .eq("workspace_id", ws)
     .eq("is_archived", true);
   const ids = ((archived ?? []) as { id: string }[]).map((c) => c.id);

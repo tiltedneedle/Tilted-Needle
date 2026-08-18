@@ -334,7 +334,7 @@ async function TimeEntriesReport({
       .order("name"),
     supabase
       .from("clients")
-      .select("id, workspace_id, name, email, is_archived")
+      .select("id, workspace_id, name, email, is_archived").is("deleted_at", null).is("deleted_at", null)
       .eq("workspace_id", ws)
       .order("name"),
   ]);

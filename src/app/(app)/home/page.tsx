@@ -122,7 +122,7 @@ export default async function HomePage() {
         .eq("is_active", true),
       supabase
         .from("clients")
-        .select("id", { count: "exact", head: true })
+        .select("id", { count: "exact", head: true }).is("deleted_at", null).is("deleted_at", null)
         .eq("workspace_id", ws)
         .eq("is_archived", false),
       supabase

@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath, revalidateTag } from "next/cache";
+import { CLIENT_BIN_DAYS, type BinnedClient } from "@/lib/clientBin";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
@@ -2454,6 +2455,119 @@ export async function discardImportBatch(batchId: string): Promise<Result> {
   if (error) return { error: error.message };
   revalidatePath("/import");
   return {};
+}
+
+/**
+ * Moves a client to the recycle bin.
+ *
+ * Not a delete. `clients.deleted_at` is stamped and NOTHING else moves --
+ * content_items keep pointing at the client, which is what makes restore a
+ * single column update rather than a journal that has to be replayed. The
+ * read layer treats a binned client's content as unassigned; the data still
+ * knows who it belonged to.
+ *
+ * A hard delete here would have been actively wrong: every client_id foreign
+ * key is ON DELETE SET NULL, so `delete from clients` leaves the videos
+ * behind with a null client -- indistinguishable from a video nobody has
+ * assigned yet, and unrecoverable, because the link is the thing that got
+ * erased.
+ */
+export async function binClient(clientId: string): Promise<Result & { summary?: string }> {
+  const supabase = await createClient();
+  const { data: client, error: readErr } = await supabase
+    .from("clients")
+    .select("id, name, workspace_id, deleted_at")
+    .eq("id", clientId)
+    .maybeSingle();
+  if (readErr || !client) return { error: readErr?.message ?? "That client was not found." };
+  if ((client as { deleted_at: string | null }).deleted_at) {
+    return { error: "That client is already in the bin." };
+  }
+
+  const { error } = await supabase
+    .from("clients")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("id", clientId);
+  if (error) return { error: error.message };
+
+  const { count } = await supabase
+    .from("content_items")
+    .select("id", { count: "exact", head: true })
+    .eq("client_id", clientId);
+
+  revalidatePath("/", "layout");
+  revalidateTeam();
+  revalidateTag("content", "max");
+  return {
+    summary:
+      `${(client as { name: string }).name} moved to the bin. ` +
+      `${count ?? 0} video${count === 1 ? "" : "s"} kept, unassigned. ` +
+      `Restorable for ${CLIENT_BIN_DAYS} days.`,
+  };
+}
+
+/** Takes a client back out of the bin, re-linking its content as it was. */
+export async function restoreClient(clientId: string): Promise<Result & { summary?: string }> {
+  const supabase = await createClient();
+  const { data: client } = await supabase
+    .from("clients")
+    .select("id, name, deleted_at")
+    .eq("id", clientId)
+    .maybeSingle();
+  if (!client) return { error: "That client was not found." };
+  if (!(client as { deleted_at: string | null }).deleted_at) {
+    return { error: "That client is not in the bin." };
+  }
+
+  const { error } = await supabase
+    .from("clients")
+    .update({ deleted_at: null })
+    .eq("id", clientId);
+  if (error) return { error: error.message };
+
+  revalidatePath("/", "layout");
+  revalidateTeam();
+  revalidateTag("content", "max");
+  return { summary: `${(client as { name: string }).name} restored, with all of its content.` };
+}
+
+/** What is currently in the bin, and how long each has left. */
+export async function listBinnedClients(): Promise<BinnedClient[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("clients")
+    .select("id, name, deleted_at")
+    .not("deleted_at", "is", null)
+    .order("deleted_at", { ascending: false });
+
+  const rows = (data ?? []) as { id: string; name: string; deleted_at: string }[];
+  if (rows.length === 0) return [];
+
+  // One grouped count rather than a query per client.
+  const { data: items } = await supabase
+    .from("content_items")
+    .select("id, client_id")
+    .in("client_id", rows.map((r) => r.id));
+  const counts = new Map<string, number>();
+  for (const i of (items ?? []) as { client_id: string }[]) {
+    counts.set(i.client_id, (counts.get(i.client_id) ?? 0) + 1);
+  }
+
+  const now = Date.now();
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    deletedAt: r.deleted_at,
+    // Rounded UP: a client with six hours left has "1 day", not "0 days",
+    // because 0 reads as "already gone" when it is still restorable.
+    daysLeft: Math.max(
+      0,
+      Math.ceil(
+        (new Date(r.deleted_at).getTime() + CLIENT_BIN_DAYS * 86400000 - now) / 86400000,
+      ),
+    ),
+    itemCount: counts.get(r.id) ?? 0,
+  }));
 }
 
 /** Archive rather than delete: entries reference these rows as history. */

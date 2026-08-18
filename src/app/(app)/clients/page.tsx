@@ -2,6 +2,8 @@ import Link from "next/link";
 import PageHeader from "@/components/PageHeader";
 import NewClientForm from "@/components/NewClientForm";
 import ClientActiveToggle from "@/components/ClientActiveToggle";
+import { DeleteClientButton, ClientBinPanel } from "@/components/ClientBin";
+import { listBinnedClients } from "@/app/actions";
 import { Empty } from "@/components/Stat";
 import { canManage, PLATFORM_COLORS, PLATFORM_LABEL } from "@/lib/types";
 import { createClient } from "@/lib/supabase/server";
@@ -22,7 +24,7 @@ export default async function ClientsPage() {
   const [clientsRes, accountsRes] = await Promise.all([
     supabase
       .from("clients")
-      .select("id, name, is_archived")
+      .select("id, name, is_archived").is("deleted_at", null).is("deleted_at", null)
       .eq("workspace_id", ws)
       .order("name"),
     supabase
@@ -41,6 +43,7 @@ export default async function ClientsPage() {
     platformsByClient.get(a.client_id)!.add(a.platform_slug);
   }
 
+  const binned = canManage(session.active.role) ? await listBinnedClients() : [];
   const active = clients.filter((c) => !c.is_archived);
   const archived = clients.filter((c) => c.is_archived);
 
@@ -84,7 +87,10 @@ export default async function ClientsPage() {
                 </div>
               </div>
               {canManage(session.active.role) && (
-                <ClientActiveToggle clientId={c.id} isActive={!c.is_archived} />
+                <>
+                  <ClientActiveToggle clientId={c.id} isActive={!c.is_archived} />
+                  <DeleteClientButton clientId={c.id} clientName={c.name} />
+                </>
               )}
             </Link>
           ))}
@@ -105,13 +111,18 @@ export default async function ClientsPage() {
               >
                 <span className="min-w-0 flex-1 truncate">{c.name}</span>
                 {canManage(session.active.role) && (
-                  <ClientActiveToggle clientId={c.id} isActive={!c.is_archived} />
+                  <>
+                    <ClientActiveToggle clientId={c.id} isActive={!c.is_archived} />
+                    <DeleteClientButton clientId={c.id} clientName={c.name} />
+                  </>
                 )}
               </Link>
             ))}
           </div>
         </details>
       )}
+
+      <ClientBinPanel clients={binned} />
     </div>
   );
 }

@@ -50,7 +50,7 @@ export default async function DataPage() {
     // the business has stopped working with is not something to offer.
     supabase
       .from("clients")
-      .select("id, name")
+      .select("id, name").is("deleted_at", null).is("deleted_at", null)
       .eq("workspace_id", ws)
       .eq("is_archived", false)
       .order("name"),
