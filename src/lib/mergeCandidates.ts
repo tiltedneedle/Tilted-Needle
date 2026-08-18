@@ -31,6 +31,8 @@ export type MergeCandidateVideo = {
   producedAt: string | null;
   platforms: { platform: string }[];
   postCount: number;
+  /** The accounts this video's posts sit on, one entry per post. */
+  accountIds?: string[];
 };
 
 export type MergeCandidate = {
@@ -108,8 +110,14 @@ export function findMergeCandidates(videos: MergeCandidateVideo[]): MergeCandida
     // Merge is now what its name suggests: two rows describing ONE post on ONE
     // platform, collapsed back into one. That is the only case where the
     // second row is genuinely not a thing that exists.
+    //
+    // Zero platforms is allowed as well as one. A group where nothing has been
+    // posted is two hand-added rows for the same video, which is a duplicate
+    // with no posts to conflict -- and refusing it here while the bulk bar's
+    // merge button offers exactly that case would leave the two halves of one
+    // feature disagreeing about what a duplicate is.
     const platforms = [...new Set(list.flatMap((v) => v.platforms.map((p) => p.platform)))].sort();
-    if (platforms.length !== 1) continue;
+    if (platforms.length > 1) continue;
 
     // Every row must still be a single post. More than one post under one row
     // means it has been merged before, and re-merging it risks folding a split
@@ -118,6 +126,27 @@ export function findMergeCandidates(videos: MergeCandidateVideo[]): MergeCandida
     // platform, a previously merged row no longer stands out by its platform
     // list, only by carrying two posts.
     if (list.some((v) => (v.postCount ?? 1) > 1)) continue;
+
+    /**
+     * NO ACCOUNT MAY APPEAR TWICE. One account posting twice is two videos.
+     *
+     * This is merge_content_items' own rule, restated here because the finder
+     * has to know it: without this, the panel proposes merges the database
+     * will refuse, which is a worse offer than no offer.
+     *
+     * It became load-bearing the moment the platform rule inverted. Requiring
+     * a group to span platforms used to make this impossible for free -- two
+     * posts on one account cannot be on two platforms -- so a reused caption
+     * was harmless. Pinned to one platform, the caption is the ONLY evidence
+     * left, and a caption gets reused: "Email to inquire!" on @tiltedneedle
+     * named two genuinely different TikToks a month apart, and the panel
+     * offered to merge them.
+     *
+     * Rows with no posts carry no accounts and so are unaffected, which is
+     * right: a hand-added duplicate has no account to clash on.
+     */
+    const accts = list.flatMap((v) => v.accountIds ?? []);
+    if (new Set(accts).size !== accts.length) continue;
 
     out.push({
       key,

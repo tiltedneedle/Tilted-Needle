@@ -78,7 +78,7 @@ async function loadRaw(ws: string): Promise<RawContentData> {
       db
         .from("platform_posts")
         .select(
-          "id, content_item_id, posted_at, thumbnail_url, external_id, account:accounts(platform_slug, last_synced_at), metrics:post_current_metrics(views, likes, comments)",
+          "id, content_item_id, posted_at, thumbnail_url, external_id, account_id, account:accounts(platform_slug, last_synced_at), metrics:post_current_metrics(views, likes, comments)",
         )
         .eq("workspace_id", ws)
         .order("id"),

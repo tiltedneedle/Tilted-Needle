@@ -33,6 +33,9 @@ const v = (over = {}) => ({
   producedAt: over.producedAt ?? "2026-03-01",
   platforms: over.platforms ?? [{ platform: "tiktok" }],
   postCount: over.postCount ?? 1,
+  // One distinct account per row by default, so a fixture only exercises the
+  // same-account rule when it deliberately says so.
+  accountIds: over.accountIds ?? ["acct-" + (over.id ?? "id1")],
 });
 
 /* -- Normalising ----------------------------------------------------------- */
@@ -119,6 +122,38 @@ eq("a row already carrying two posts is left alone",
     v({ id: "a", postCount: 2, platforms: [{ platform: "tiktok" }] }),
     v({ id: "b", postCount: 1, platforms: [{ platform: "tiktok" }] }),
   ]).length, 0);
+
+// THE ONE THAT ESCAPED. Two genuinely different TikToks, a month apart, on
+// @tiltedneedle, both captioned "Email to inquire!". Requiring a group to span
+// platforms used to make this impossible for free; pinned to one platform the
+// caption is the only evidence left, and captions get reused.
+eq("two posts on the SAME account are two videos, not one row twice",
+  M.findMergeCandidates([
+    v({ id: "a", title: "email to inquire please contact", accountIds: ["tiktok-tn"] }),
+    v({ id: "b", title: "email to inquire please contact", accountIds: ["tiktok-tn"] }),
+  ]).length, 0);
+
+// The same platform via two DIFFERENT accounts is still a real duplicate --
+// the database accepts it, so the finder must too.
+eq("the same platform through two different accounts may still merge",
+  M.findMergeCandidates([
+    v({ id: "a", accountIds: ["tiktok-main"] }),
+    v({ id: "b", accountIds: ["tiktok-backup"] }),
+  ]).length, 1);
+
+// A hand-added row has no post and so no account to clash on. This is the
+// case the rule must not catch.
+eq("a no-post row still pairs with the synced row it duplicates",
+  M.findMergeCandidates([
+    v({ id: "manual", platforms: [], postCount: 0, accountIds: [] }),
+    v({ id: "synced", platforms: [{ platform: "tiktok" }], accountIds: ["tiktok-tn"] }),
+  ]).length, 1);
+
+eq("two rows with no posts at all still pair",
+  M.findMergeCandidates([
+    v({ id: "a", platforms: [], postCount: 0, accountIds: [] }),
+    v({ id: "b", platforms: [], postCount: 0, accountIds: [] }),
+  ]).length, 1);
 
 eq("a lone video is not a group", M.findMergeCandidates([v()]).length, 0);
 eq("an empty list is fine", M.findMergeCandidates([]).length, 0);

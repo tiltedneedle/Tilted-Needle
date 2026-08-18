@@ -269,6 +269,7 @@ export async function loadContentOverview(
     posted_at: string | null;
     thumbnail_url: string | null;
     external_id: string | null;
+    account_id: string | null;
     account:
       | { platform_slug: string; last_synced_at: string | null }
       | { platform_slug: string; last_synced_at: string | null }[]
@@ -372,6 +373,15 @@ export async function loadContentOverview(
   // can be matched back to the actual post.
   const codeByItem = new Map<string, string>();
   const postsByItem = new Map<string, number>();
+  /**
+   * Which accounts a video's posts hang off.
+   *
+   * Only the merge finder uses this, and it needs it for one rule: two rows
+   * sharing an account are two videos, never one row twice. That is the
+   * database's own rule (merge_content_items refuses such a merge), and the
+   * finder has to know it or it proposes merges that cannot be performed.
+   */
+  const accountsByItem = new Map<string, string[]>();
   const gainByItem = new Map<string, { views: number; days: number; latestAt: number }>();
   const platformGainByItem = new Map<string, Map<string, number>>();
   const lifecycleByItem = new Map<string, VideoSummary["lifecycle"]>();
@@ -390,6 +400,11 @@ export async function loadContentOverview(
       comments: m?.comments ?? 0,
     });
     postsByItem.set(p.content_item_id, (postsByItem.get(p.content_item_id) ?? 0) + 1);
+    if (p.account_id) {
+      const list = accountsByItem.get(p.content_item_id) ?? [];
+      list.push(p.account_id);
+      accountsByItem.set(p.content_item_id, list);
+    }
     // First non-null wins, and posts arrive in a stable order -- so a video
     // does not flip between its platforms' poster frames on every reload.
     // Note this respects the platform filter above: filter to TikTok and you
@@ -494,6 +509,7 @@ export async function loadContentOverview(
     trackedSeconds: secondsByItem.get(i.id) ?? 0,
     bestIndex: bestIndexByItem.get(i.id) ?? null,
     postCount: postsByItem.get(i.id) ?? 0,
+    accountIds: accountsByItem.get(i.id) ?? [],
     credits: creditsByItem.get(i.id) ?? [],
     recentGain: (() => {
       const g = gainByItem.get(i.id);
