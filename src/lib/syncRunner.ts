@@ -11,6 +11,7 @@
  * safety net, so every query below is explicitly scoped by workspace_id.
  */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { operatingDate } from "@/lib/tz";
 import { providerFor, type DiscoveredPost } from "@/lib/providers";
 import { fetchVideoDetails } from "@/lib/providers/youtube";
 import {
@@ -24,6 +25,30 @@ import {
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Db = SupabaseClient<any>;
+
+
+/**
+ * The calendar day a post belongs to, in the workspace's operating timezone.
+ *
+ * Providers hand us a UTC date slice -- `timestamp.slice(0, 10)` -- which
+ * answers "what day was it in Greenwich". Nobody is asking that. On live data
+ * 103 of 443 posts fall on a different operating-timezone day than their own
+ * slice, and five of them cross a MONTH boundary, which is enough to put a
+ * video in the wrong client report.
+ *
+ * So the date is DERIVED from the instant wherever an instant exists, and the
+ * provider's slice is used only when it does not. Doing it here, at write
+ * time, means every reader gets a date that already means the right thing --
+ * rather than each of a dozen surfaces having to remember to convert, which is
+ * exactly the arrangement that produced the disagreement.
+ */
+function publishDay(postedAtTs: string | null | undefined, fallback: string | null): string | null {
+  if (postedAtTs) {
+    const d = new Date(postedAtTs);
+    if (!Number.isNaN(d.getTime())) return operatingDate(d);
+  }
+  return fallback;
+}
 
 export type AccountSyncResult = {
   accountId: string;
@@ -366,7 +391,9 @@ export async function syncAccount(
           workspace_id: account.workspace_id,
           client_id: account.client_id,
           title: post.title,
-          produced_at: post.postedAt,
+          // Our copy of the publish day, derived from the instant so it means
+          // the same thing as the post row beside it.
+          produced_at: publishDay(e?.postedAtTs, post.postedAt),
           length_seconds: lengthById.get(post.externalId) ?? null,
           description: e?.description ?? null,
           topic_labels: e?.topicLabels?.length ? e.topicLabels : null,
@@ -384,7 +411,9 @@ export async function syncAccount(
           account_id: account.id,
           external_id: post.externalId,
           url: post.url,
-          posted_at: post.postedAt,
+          // The provider's slice is a UTC day; this is the day the post
+          // belongs to here. See publishDay.
+          posted_at: publishDay(e?.postedAtTs, post.postedAt),
           // The full instant, before posted_at's date cast throws the hour
           // away for good. Nothing can recover this after the fact.
           posted_at_ts: e?.postedAtTs ?? null,
@@ -872,7 +901,7 @@ async function syncMeteredAccount(
               workspace_id: ws,
               client_id: account.client_id,
               title: post.title,
-              produced_at: post.postedAt,
+              produced_at: publishDay(post.enrichment?.postedAtTs, post.postedAt),
               length_seconds: post.lengthSeconds,
               notes: `Discovered automatically from ${platform} @${account.handle}.`,
             })
@@ -895,7 +924,21 @@ async function syncMeteredAccount(
               account_id: account.id,
               external_id: post.externalId,
               url: post.url,
-              posted_at: post.postedAt,
+              posted_at: publishDay(post.enrichment?.postedAtTs, post.postedAt),
+              /**
+               * THE INSTANT, which this path used to throw away.
+               *
+               * The free path above stores it with a comment saying nothing
+               * can recover it after the fact -- and this path, the METERED
+               * one, omitted it. So the platform we pay to read was the only
+               * platform whose publish time we discarded, which is why all 14
+               * posts with a date and no instant are Instagram.
+               *
+               * The provider already returns it in `enrichment`; it was
+               * simply not being read here.
+               */
+              posted_at_ts: post.enrichment?.postedAtTs ?? null,
+              has_captions: post.enrichment?.hasCaptions ?? null,
               thumbnail_url: post.thumbnailUrl ?? null,
               source: "api",
               last_scraped_at: new Date().toISOString(),

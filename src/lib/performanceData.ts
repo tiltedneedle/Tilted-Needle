@@ -76,7 +76,7 @@ export async function computeRankings(supabase: SupabaseClient<any>, ws: string)
       supabase
         .from("platform_posts")
         .select(
-          "id, content_item_id, account_id, posted_at, account:accounts(id, platform_slug), content:content_items(id, title)",
+          "id, content_item_id, account_id, posted_at, posted_at_ts, account:accounts(id, platform_slug), content:content_items(id, title)",
         )
         .eq("workspace_id", ws)
         .order("id"),
@@ -110,6 +110,8 @@ export async function computeRankings(supabase: SupabaseClient<any>, ws: string)
     content_item_id: string;
     account_id: string;
     posted_at: string | null;
+    /** The real publish instant; posted_at is only its UTC date slice. */
+    posted_at_ts: string | null;
     account: { id: string; platform_slug: string } | { id: string; platform_slug: string }[] | null;
     content: { id: string; title: string } | { id: string; title: string }[] | null;
   };
@@ -146,7 +148,17 @@ export async function computeRankings(supabase: SupabaseClient<any>, ws: string)
       postId: p.id,
       accountId: acct.id,
       platform: acct.platform_slug,
-      postedAt: new Date(p.posted_at),
+      /**
+       * The INSTANT where we have one, not the date.
+       *
+       * scoring.ts orders an account's posts by this to build each post's
+       * "prior window" -- the videos that came before it. Given a date, every
+       * post published on the same day compares equal, so their order falls to
+       * whatever the array happened to hold, and a baseline computed from
+       * "the previous ten posts" quietly depends on row order. Two runs could
+       * disagree. The instant makes it deterministic and correct.
+       */
+      postedAt: new Date(p.posted_at_ts ?? p.posted_at),
       snapshots: snapsByPost.get(p.id) ?? [],
     };
     if (!byAccount.has(acct.id)) byAccount.set(acct.id, []);

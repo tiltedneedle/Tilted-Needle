@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { selectAll } from "@/lib/selectAll";
 import { selectIn } from "@/lib/selectIn";
 import { PLATFORM_LABEL } from "@/lib/types";
+import { operatingDate } from "@/lib/tz";
 import { asTemplate, type ReportTemplate } from "@/lib/reportTemplates";
 import {
   deltaPct,
@@ -215,13 +216,24 @@ export async function buildClientReport(
     breakdownsByPeriod.set(b.account_metric_id, list);
   }
 
-  // The immediately preceding confirmed period per account, for the deltas.
+  /**
+   * The immediately preceding confirmed period per account, for the deltas.
+   *
+   * It must END before this one opens. Filtering on period_START alone let a
+   * period that merely began earlier but still overlaps count as "prior" --
+   * and the clearest case is a period matching ITSELF: a report run for
+   * 30 June - 30 July finds the 1 - 31 July row, whose period_start is later,
+   * fine -- but a report run for a range starting mid-period finds the very
+   * row it is reporting on, and every delta prints "+0.0% vs previous period".
+   * A change of exactly zero is a claim, and it is the one number nobody
+   * questions.
+   */
   const { data: priorRows } = await supabase
     .from("account_metrics")
     .select("account_id, period_end, views")
     .in("account_id", accounts.length ? accounts.map((a) => a.id) : ["none"])
     .eq("status", "confirmed")
-    .lt("period_start", period.start)
+    .lt("period_end", period.start)
     .order("period_end", { ascending: false });
   const priorByAccount = new Map<string, number | null>();
   for (const r of (priorRows ?? []) as { account_id: string; views: number | null }[]) {
@@ -265,7 +277,10 @@ export async function buildClientReport(
     views: number | null;
   }[]) {
     const list = snapsByPost.get(s.platform_post_id) ?? [];
-    list.push({ capturedAt: s.captured_at, views: s.views });
+    // Resolved HERE, so the pure ranking code compares like with like. Its
+    // period bounds are operating-timezone days; an instant sliced in UTC is a
+    // different calendar and put five live posts in the wrong month.
+    list.push({ capturedAt: operatingDate(new Date(s.captured_at)), views: s.views });
     snapsByPost.set(s.platform_post_id, list);
   }
 
@@ -284,9 +299,13 @@ export async function buildClientReport(
         contentItemId: p.content_item_id,
         platform: a.platform_slug,
         title: one(p.content)?.title ?? "",
-        // posted_at is a UTC date slice and disagrees with the real instant
-        // for 103 of 443 live posts, five of them across a month boundary.
-        postedAtTs: p.posted_at_ts ?? (p.posted_at ? `${p.posted_at}T00:00:00Z` : null),
+        // The publish DAY in operating time, not a raw instant: the ranking
+        // compares it against period bounds that are operating-timezone days.
+        // A UTC slice is a different calendar and moved five live posts into
+        // the wrong month.
+        postedAtTs: p.posted_at_ts
+          ? operatingDate(new Date(p.posted_at_ts))
+          : (p.posted_at ? p.posted_at.slice(0, 10) : null),
         likes: one(p.metrics)?.likes ?? 0,
         snapshots: snapsByPost.get(p.id) ?? [],
       }));

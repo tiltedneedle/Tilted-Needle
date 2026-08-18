@@ -32,6 +32,8 @@
  * for every post.
  */
 
+import { startOfOperatingDay } from "@/lib/tz";
+
 export type LifecycleShape =
   /** Not enough observation -- or not enough views -- to say anything. */
   | "unknown"
@@ -250,9 +252,22 @@ function halfLifeFrom(series: SeriesPoint[], postedAt: string | null): number | 
   return null;
 }
 
+/**
+ * Midnight on an operating-timezone date, as an instant.
+ *
+ * The offset used to be written here as a literal "+04:00" with a comment
+ * calling Dubai "the business timezone throughout this system". Two things
+ * were wrong with that. The zone is configurable -- OPERATING_TZ, defaulting
+ * to Asia/Dubai -- so setting it to Karachi left every age in this file an
+ * hour out and every video's lifecycle shape computed against the wrong
+ * midnight. And a literal offset cannot survive a zone with daylight saving:
+ * in London it would be an hour out for half the year, silently.
+ *
+ * startOfOperatingDay measures the zone's real offset at that instant instead,
+ * so it is right in any zone and across a DST change.
+ */
 function dateMs(isoDate: string): number {
-  // Dubai is the business timezone throughout this system (fixed UTC+4).
-  return new Date(`${isoDate}T00:00:00+04:00`).getTime();
+  return startOfOperatingDay(isoDate).getTime();
 }
 
 function ageIn(postedAt: string | null, now: number): number | null {

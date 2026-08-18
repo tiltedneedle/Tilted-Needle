@@ -136,10 +136,20 @@ function daysBetween(aDay: string, bDay: string): number {
  * Does this instant fall on or before the last day of the period?
  *
  * Compared as dates, not instants: the period ends on a DAY, and a reading at
- * 23:40 on that day is inside it. Both sides are already resolved in the
- * workspace's operating timezone by the caller -- this file never guesses a
- * zone, because a report that silently used UTC would move a video between
- * months without saying so.
+ * 23:40 on that day is inside it.
+ *
+ * BOTH SIDES ARRIVE AS OPERATING-TIMEZONE DAYS -- and that is now true rather
+ * than merely asserted. This comment previously claimed the caller resolved
+ * them while the caller passed raw instants straight through, so the slice
+ * below silently answered in UTC. Five live posts published between 20:00 and
+ * 23:59 UTC on the last day of June are 1 July locally, and every one of them
+ * was ranked into a JUNE report as a top video. buildClientReport now maps
+ * both snapshot captures and publish instants through operatingDate() before
+ * they get here.
+ *
+ * This file still never guesses a zone: it has none to guess with, which is
+ * the point. A pure comparator cannot be wrong about a timezone it is not
+ * given -- only about one it was told it had.
  */
 function onOrBefore(iso: string, day: string): boolean {
   return iso.slice(0, 10) <= day;
