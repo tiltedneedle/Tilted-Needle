@@ -6,6 +6,7 @@ import PageHeader from "@/components/PageHeader";
 import PlatformIcon from "@/components/PlatformIcon";
 import { Empty } from "@/components/Stat";
 import { AlertTriangle } from "lucide-react";
+import PrintReportButton from "@/components/PrintReportButton";
 
 /**
  * The monthly client report, for any client and any month.
@@ -61,7 +62,6 @@ export default async function ClientReportPage({
   const year = Number(sp.year) || now.getUTCFullYear();
   const month = Number(sp.month) || now.getUTCMonth() + 1;
   const report = clientId ? await buildClientReport(ws, clientId, year, month) : null;
-  const { label: periodLabel } = monthPeriod(year, month);
 
   // Twelve months back and three forward: a report is usually written for the
   // month just gone, occasionally re-issued for an older one, and the forward
@@ -81,12 +81,14 @@ export default async function ClientReportPage({
 
   return (
     <div className="mx-auto max-w-4xl px-6 py-6">
-      <PageHeader
-        title="Client report"
-        subtitle="Everything here is measured or declared missing. Nothing is estimated."
-      />
+      <div className="no-print">
+        <PageHeader
+          title="Client report"
+          subtitle="Everything here is measured or declared missing. Nothing is estimated."
+        />
+      </div>
 
-      <div className="card mb-5 flex flex-wrap items-center gap-2 p-3">
+      <div className="no-print card mb-5 flex flex-wrap items-center gap-2 p-3">
         <select
           className="input max-w-[240px] py-1.5 text-sm"
           defaultValue={clientId}
@@ -101,6 +103,9 @@ export default async function ClientReportPage({
             </option>
           ))}
         </select>
+        <div className="ml-auto">
+          <PrintReportButton />
+        </div>
         <div className="flex flex-wrap gap-1">
           {clients.slice(0, 8).map((c) => (
             <Link
@@ -118,7 +123,7 @@ export default async function ClientReportPage({
         </div>
       </div>
 
-      <div className="card mb-5 flex flex-wrap gap-1 p-2">
+      <div className="no-print card mb-5 flex flex-wrap gap-1 p-2">
         {months.map(({ y, m }) => (
           <Link
             key={`${y}-${m}`}
@@ -138,8 +143,9 @@ export default async function ClientReportPage({
         <Empty>Pick a client to generate a report.</Empty>
       ) : (
         <>
-          {/* The cover */}
-          <section className="card mb-5 p-6 text-center">
+          {/* The cover takes the first sheet on its own, as both real
+              reports do. */}
+          <section className="report-cover card mb-5 p-6 text-center">
             <div className="text-[10.5px] font-medium uppercase tracking-[0.18em] text-[var(--muted)]">
               Social media performance report
             </div>
@@ -153,7 +159,7 @@ export default async function ClientReportPage({
           {/* Refusals come before anything else. A report with a video missing
               looks complete, so this cannot be a footnote. */}
           {report.blockers.length > 0 && (
-            <section className="card mb-5 border-[var(--warn)]/40 p-4">
+            <section className="no-print card mb-5 border-[var(--warn)]/40 p-4">
               <div className="mb-2 flex items-center gap-2 text-sm font-medium">
                 <AlertTriangle size={14} className="text-[var(--warn)]" />
                 This report is not ready to send

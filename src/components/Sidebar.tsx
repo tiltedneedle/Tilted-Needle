@@ -14,6 +14,7 @@ import {
   Clock,
   Code2,
   CreditCard,
+  FileText,
   Folder,
   Gauge,
   GraduationCap,
@@ -111,6 +112,9 @@ const NAV = [
       { href: "/timesheet", label: "Timesheet", icon: Grid2x2 as IconType },
       { href: "/dashboard", label: "Hours", icon: Gauge as IconType },
       { href: "/reports", label: "Reports", icon: BarChart3 as IconType },
+      // The client-facing document, as opposed to /reports which is the
+      // internal analysis. It sat unreachable behind a typed URL until now.
+      { href: "/reports/client", label: "Client report", icon: FileText as IconType },
       { href: "/approvals", label: "Approvals", icon: CheckCircle2 as IconType },
       { href: "/time-off", label: "Time off", icon: Calendar as IconType },
     ],

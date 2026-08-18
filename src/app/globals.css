@@ -1459,3 +1459,96 @@ h3 {
     min-width: 24px;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Printing a client report.
+
+   This is the PDF path. The browser already lays the report out correctly and
+   already has a PDF writer, so "Save as PDF" uses both rather than shipping a
+   headless Chromium into a 250MB function or maintaining a second layout in a
+   PDF library that would drift from this one within a month.
+
+   Everything below exists because paper is not a screen: no sidebar, no
+   controls that cannot be clicked, no glass over a white page, and sections
+   that do not split across a page break mid-figure.
+   --------------------------------------------------------------------------- */
+@media print {
+  /* A4 with a real margin. `portrait` is stated because a browser will
+     otherwise inherit whatever the last print job used. */
+  @page {
+    size: A4 portrait;
+    margin: 14mm;
+  }
+
+  /* Force the light palette regardless of the viewer's theme. A dark report
+     prints as a solid black rectangle, wastes a cartridge, and is unreadable
+     if anyone prints it on actual paper. */
+  :root,
+  :root[data-theme="dark"] {
+    --bg: #ffffff;
+    --panel: #ffffff;
+    --surface: 255 255 255;
+    --fg: #111114;
+    --muted: #4a4a52;
+    --border: #d8d5cf;
+    --bg-subtle: #f4f2ee;
+  }
+
+  html,
+  body {
+    background: #ffffff !important;
+  }
+
+  /* The app frame is navigation, and navigation is not part of the document. */
+  aside,
+  nav,
+  .no-print {
+    display: none !important;
+  }
+
+  main,
+  .mx-auto {
+    max-width: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Glass is a screen effect. On paper the blur renders as a grey wash over
+     the numbers, which is the one thing on the page that must stay crisp. */
+  .card {
+    background: #ffffff !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    box-shadow: none !important;
+    border: 1px solid var(--border) !important;
+    /* A platform section broken across two pages puts a headline figure on one
+       sheet and its label on the next. */
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  /* The cover gets the first sheet to itself, as it does in the real reports. */
+  .report-cover {
+    break-after: page;
+    page-break-after: page;
+  }
+
+  /* Colour-printing the accent is optional on most printers; asking for it
+     keeps the platform marks distinguishable when it is available. */
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* A link's href is meaningless on paper and the underline is noise. */
+  a {
+    text-decoration: none !important;
+    color: inherit !important;
+  }
+
+  details {
+    /* Anything collapsed is not in the document; a reader holding paper
+       cannot open it. */
+    display: none !important;
+  }
+}
