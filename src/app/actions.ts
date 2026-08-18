@@ -38,6 +38,35 @@ function revalidateTeam() {
   revalidateTag("content", "max");
 }
 
+/**
+ * Revalidation for a write that ONLY touches content_assignments.
+ *
+ * The blend hazard described above is real, and it is why revalidateTeam
+ * busts both caches -- but it applies to writes that change tables BOTH
+ * caches read. A credit is not one of those. cachedContentData holds items,
+ * posts, time entries, clients, platforms and snapshots; assignments are not
+ * in it and are queried fresh on every render. So there is no moment to blend:
+ * the content cache still describes exactly the world it described a second
+ * ago, because this write did not touch anything in it.
+ *
+ * What it cost to bust it anyway, measured on live data: the six reads behind
+ * that cache take 2434 ms and return ~913 KB of JSON -- 534 items, 443 posts
+ * and 3341 snapshots -- and every single credit threw all of it away to add
+ * one row to a 62-row table. That is the whole of "assigning roles takes a
+ * while": the insert is a few hundred milliseconds, and the refresh behind it
+ * re-read the entire workspace.
+ *
+ * "rankings" MUST still be busted. computeRankings does read assignments, and
+ * there is a bug on record from when it was not invalidated: credits were
+ * added and every rankings-derived figure went on describing a world from
+ * before they existed.
+ */
+function revalidateCredits() {
+  revalidatePath("/content");
+  revalidatePath("/team-admin");
+  revalidateTag("rankings", "max");
+}
+
 /** Shape consumed by useActionState-driven forms. */
 export type ActionState = { error?: string };
 
@@ -727,7 +756,7 @@ export async function bulkAssignRole(input: {
   contentItemIds: string[];
   userId: string;
   roleId: string;
-}): Promise<Result & { added?: number }> {
+}): Promise<Result & { added?: number; addedTo?: string[] }> {
   if (input.contentItemIds.length === 0) return { added: 0 };
   const supabase = await createClient();
   const { data, error } = await supabase
@@ -742,12 +771,56 @@ export async function bulkAssignRole(input: {
       })),
       { onConflict: "content_item_id,user_id,role_id", ignoreDuplicates: true },
     )
-    .select("id");
+    // content_item_id, not just id: with ignoreDuplicates these rows are the
+    // ones actually INSERTED, which is exactly the set an undo may take back.
+    // Undoing by the whole selection would strip credits that were already
+    // there before the click, which is not an undo but a second edit.
+    .select("content_item_id");
   if (error) return { error: error.message };
 
-  revalidatePath("/content");
-  revalidateTeam();
-  return { added: data?.length ?? 0 };
+  revalidateCredits();
+  const addedTo = (data ?? []).map((r) => (r as { content_item_id: string }).content_item_id);
+  return { added: addedTo.length, addedTo };
+}
+
+/**
+ * Take one person's role credit off several videos at once.
+ *
+ * The master assigner was add-only on purpose: removing a credit from twelve
+ * videos with one click is a much worse accident than adding one, because
+ * adding is idempotent and visible while removing destroys rows. That reasoning
+ * held only while there was no way back. There is now -- this returns exactly
+ * which videos it touched, so the bar can offer an undo that restores the same
+ * set and nothing else.
+ *
+ * Scoped to the ids passed in, never "everywhere this person holds this role".
+ * The selection is the blast radius, and it is on screen.
+ */
+export async function bulkUnassignRole(input: {
+  workspaceId: string;
+  contentItemIds: string[];
+  userId: string;
+  roleId: string;
+}): Promise<Result & { removed?: number; removedFrom?: string[] }> {
+  if (input.contentItemIds.length === 0) return { removed: 0, removedFrom: [] };
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("content_assignments")
+    .delete()
+    .eq("workspace_id", input.workspaceId)
+    .eq("user_id", input.userId)
+    .eq("role_id", input.roleId)
+    .in("content_item_id", input.contentItemIds)
+    // Returned so the undo restores precisely what was removed. Recomputing
+    // the set afterwards would be a guess: someone else may have credited the
+    // same person on another video in between, and an undo that invents rows
+    // is not an undo.
+    .select("content_item_id");
+  if (error) return { error: error.message };
+
+  revalidateCredits();
+  const removedFrom = (data ?? []).map((r) => (r as { content_item_id: string }).content_item_id);
+  return { removed: removedFrom.length, removedFrom };
 }
 
 /** Move several videos to one client at once. */
@@ -1082,8 +1155,7 @@ export async function assignRole(input: {
     if (error.code === "23505") return { error: "Already assigned." };
     return { error: error.message };
   }
-  revalidatePath("/content");
-  revalidateTeam();
+  revalidateCredits();
   return {};
 }
 
@@ -1091,8 +1163,7 @@ export async function unassignRole(id: string): Promise<Result> {
   const supabase = await createClient();
   const { error } = await supabase.from("content_assignments").delete().eq("id", id);
   if (error) return { error: error.message };
-  revalidatePath("/content");
-  revalidateTeam();
+  revalidateCredits();
   return {};
 }
 

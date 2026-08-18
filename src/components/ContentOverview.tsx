@@ -9,9 +9,14 @@ import { datedName, downloadCsv, toCsv } from "@/lib/exportCsv";
 import { PlatformChips } from "@/components/PlatformReach";
 import VideoTile, { type TileMember, type TileRole } from "@/components/VideoTile";
 import LoadMoreList from "@/components/LoadMoreList";
-import BulkBar from "@/components/BulkBar";
+import BulkBar, { type CreditUndo } from "@/components/BulkBar";
 import MergeSuggestions from "@/components/MergeSuggestions";
-import { restoreContentClients, type ClientAssignment } from "@/app/actions";
+import {
+  bulkAssignRole,
+  bulkUnassignRole,
+  restoreContentClients,
+  type ClientAssignment,
+} from "@/app/actions";
 import { useRouter } from "next/navigation";
 import { useToast } from "@/components/ui/Toast";
 import { Undo2 } from "lucide-react";
@@ -165,6 +170,9 @@ export default function ContentOverview({
     label: string;
     previous: ClientAssignment[];
   } | null>(null);
+  // Same reason as undoMove: a bulk credit clears the selection, the bar goes
+  // away with it, and an undo that lived in the bar would leave with it.
+  const [undoCredit, setUndoCredit] = useState<CreditUndo | null>(null);
 
   // Clients are ranked on peak single-platform reach rather than a sum, for
   // the same reason nothing else here totals across platforms.
@@ -406,6 +414,7 @@ export default function ContentOverview({
             clients={clients.map((c) => ({ id: c.id, name: c.name }))}
             onClear={() => setSelected(new Set())}
             onUndoableMove={setUndoMove}
+            onUndoableCredit={setUndoCredit}
           />
         )}
 
@@ -414,6 +423,14 @@ export default function ContentOverview({
             workspaceId={workspaceId}
             undo={undoMove}
             onDismiss={() => setUndoMove(null)}
+          />
+        )}
+
+        {undoCredit && (
+          <UndoCredit
+            workspaceId={workspaceId}
+            undo={undoCredit}
+            onDismiss={() => setUndoCredit(null)}
           />
         )}
 
@@ -480,6 +497,74 @@ export default function ContentOverview({
  * whichever client happened to be first would be a quieter repeat of the bug
  * the undo exists for.
  */
+/**
+ * The way back from a bulk credit or a bulk removal.
+ *
+ * It reverses by doing the opposite write over the SAME ids the action
+ * reported touching -- not over the selection, which is already gone by now
+ * and was never the right set anyway: crediting five videos where two already
+ * had the credit inserts three rows, and putting back five would be an edit
+ * rather than an undo.
+ */
+function UndoCredit({
+  workspaceId,
+  undo,
+  onDismiss,
+}: {
+  workspaceId: string;
+  undo: CreditUndo;
+  onDismiss: () => void;
+}) {
+  const router = useRouter();
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+
+  return (
+    <div className="mb-3 flex flex-wrap items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg-subtle)] px-3 py-2 text-xs">
+      <span className="min-w-0 flex-1 text-[var(--muted)]">{undo.label}</span>
+      <button
+        className="btn flex items-center gap-1.5 px-2.5 py-1 text-xs"
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          const args = {
+            workspaceId,
+            contentItemIds: undo.ids,
+            userId: undo.userId,
+            roleId: undo.roleId,
+          };
+          const res =
+            undo.kind === "credited"
+              ? await bulkUnassignRole(args)
+              : await bulkAssignRole(args);
+          setBusy(false);
+          if (res.error) return toast("danger", res.error);
+          const n =
+            undo.kind === "credited"
+              ? ((res as { removed?: number }).removed ?? 0)
+              : ((res as { added?: number }).added ?? 0);
+          toast(
+            "success",
+            `${n} video${n === 1 ? "" : "s"} put back.`,
+          );
+          onDismiss();
+          router.refresh();
+        }}
+      >
+        <Undo2 size={13} />
+        {busy ? "Undoing…" : "Undo"}
+      </button>
+      <button
+        className="rounded px-2 py-1 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--fg)]"
+        onClick={onDismiss}
+        aria-label="Dismiss"
+      >
+        Dismiss
+      </button>
+    </div>
+  );
+}
+
 function UndoMove({
   workspaceId,
   undo,

@@ -10,6 +10,7 @@ import Select from "@/components/ui/Select";
 import {
   bulkAssignRole,
   bulkSetClient,
+  bulkUnassignRole,
   mergeContentItems,
   type ClientAssignment,
 } from "@/app/actions";
@@ -26,6 +27,27 @@ import { SHORT_ROLE, type TileCredit, type TileMember, type TileRole } from "@/c
  * unassigned by pressing Move without choosing anything.
  */
 const CLEAR_CLIENT = "__clear__";
+
+/**
+ * A credit change that can be taken back.
+ *
+ * `ids` is what the write ACTUALLY touched, not the selection: crediting five
+ * videos where two already had that credit inserts three rows, and an undo
+ * that removed all five would strip two credits nobody just made. The server
+ * actions return the affected ids for exactly this reason.
+ *
+ * It has to leave the bar. Finishing a bulk action clears the selection, which
+ * is what makes the bar disappear -- an undo living inside it would vanish at
+ * the moment it became useful. The same reasoning already applies to moves.
+ */
+export type CreditUndo = {
+  /** What was done, so the undo knows which direction to go. */
+  kind: "credited" | "uncredited";
+  ids: string[];
+  userId: string;
+  roleId: string;
+  label: string;
+};
 
 /**
  * What you can do to several videos at once, as a bar that appears when
@@ -53,6 +75,7 @@ export default function BulkBar({
   clients,
   onClear,
   onUndoableMove,
+  onUndoableCredit,
 }: {
   workspaceId: string;
   selected: string[];
@@ -79,6 +102,8 @@ export default function BulkBar({
    * vanish at the exact moment it became useful.
    */
   onUndoableMove?: (undo: { label: string; previous: ClientAssignment[] }) => void;
+  /** Same reasoning as onUndoableMove: the bar is gone by the time it matters. */
+  onUndoableCredit?: (undo: CreditUndo) => void;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -172,6 +197,7 @@ export default function BulkBar({
         creditedByRole={creditedByRole}
         busy={busy}
         onDone={done}
+        onUndoable={(u) => onUndoableCredit?.(u)}
       />
 
       <span className="mx-1 h-4 w-px bg-[var(--border)]" />
@@ -290,6 +316,7 @@ function MasterCredit({
   creditedByRole,
   busy,
   onDone,
+  onUndoable,
 }: {
   workspaceId: string;
   ids: string[];
@@ -299,6 +326,7 @@ function MasterCredit({
   creditedByRole: Map<string, { userId: string; name: string; count: number }[]>;
   busy: boolean;
   onDone: (msg: string) => void;
+  onUndoable: (u: CreditUndo) => void;
 }) {
   const [openRole, setOpenRole] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -306,6 +334,10 @@ function MasterCredit({
   const anchorRef = useRef<HTMLDivElement>(null);
 
   function credit(role: TileRole, m: TileMember) {
+    // Closed before the round trip, not after. The menu used to sit open while
+    // the server worked, which read as an unregistered click and invited a
+    // second one.
+    setOpenRole(null);
     startTransition(async () => {
       const res = await bulkAssignRole({
         workspaceId,
@@ -313,17 +345,49 @@ function MasterCredit({
         userId: m.userId,
         roleId: role.id,
       });
-      setOpenRole(null);
       if (res.error) return toast("danger", res.error);
       // "added", not the selection size: people already credited in this role
       // are skipped, and reporting 12 when 4 changed teaches the wrong thing
       // about what the button does.
       const n = res.added ?? 0;
-      onDone(
+      const msg =
         n === 0
           ? `${m.name} was already credited as ${role.name} on all ${ids.length}.`
-          : `${m.name} credited as ${role.name} on ${n} video${n === 1 ? "" : "s"}.`,
-      );
+          : `${m.name} credited as ${role.name} on ${n} video${n === 1 ? "" : "s"}.`;
+      // Nothing changed means nothing to take back, and an undo that would do
+      // nothing is worse than no undo -- it implies something happened.
+      if (n > 0 && res.addedTo?.length) {
+        onUndoable({ kind: "credited", ids: res.addedTo, userId: m.userId, roleId: role.id, label: msg });
+      }
+      onDone(msg);
+    });
+  }
+
+  /**
+   * Take a credit off everything selected.
+   *
+   * The master assigner was add-only, on the argument that removing from
+   * twelve videos in one click is a far worse accident than adding. That was
+   * right while there was no way back; with an undo that restores exactly the
+   * rows this removed, the argument no longer holds, and refusing to offer it
+   * just meant opening twelve videos to undo one mistake.
+   */
+  function uncredit(role: TileRole, holder: { userId: string; name: string }) {
+    setOpenRole(null);
+    startTransition(async () => {
+      const res = await bulkUnassignRole({
+        workspaceId,
+        contentItemIds: ids,
+        userId: holder.userId,
+        roleId: role.id,
+      });
+      if (res.error) return toast("danger", res.error);
+      const n = res.removed ?? 0;
+      const msg = `${holder.name} removed as ${role.name} from ${n} video${n === 1 ? "" : "s"}.`;
+      if (n > 0 && res.removedFrom?.length) {
+        onUndoable({ kind: "uncredited", ids: res.removedFrom, userId: holder.userId, roleId: role.id, label: msg });
+      }
+      onDone(msg);
     });
   }
 
@@ -404,13 +468,19 @@ function MasterCredit({
                         <span className="tabular shrink-0 text-[11px] text-[var(--muted)]">
                           {h.count}/{ids.length}
                         </span>
+                        <button
+                          type="button"
+                          className="shrink-0 rounded px-1 text-[11px] text-[var(--muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--danger)]"
+                          onClick={() => uncredit(role, h)}
+                          title={`Remove ${h.name} as ${role.name} from ${h.count} of the ${ids.length} selected`}
+                        >
+                          Remove
+                        </button>
                       </div>
                     ))}
-                    {/* Says where removal lives rather than leaving people
-                        hunting the menu for a Remove that is not here. */}
                     <p className="px-2.5 pb-0.5 pt-1 text-[10px] leading-snug text-[var(--muted)]">
-                      Picking someone below credits all {ids.length}. To take a credit
-                      away, use the circles on the video itself.
+                      Picking someone below credits all {ids.length}. Remove takes the
+                      credit off every selected video, and both can be undone.
                     </p>
                   </div>
                 )}

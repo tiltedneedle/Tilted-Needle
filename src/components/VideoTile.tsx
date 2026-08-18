@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Eye, Heart, MessageCircle, Plus } from "lucide-react";
 import Avatar from "@/components/Avatar";
@@ -15,6 +15,7 @@ import { PLATFORM_COLORS } from "@/lib/types";
 import { totalsByPlatform, type PlatformTotals } from "@/lib/rollup";
 import { SHAPE_LABEL, SHAPE_HINT, type LifecycleShape } from "@/lib/lifecycle";
 import AttachByUrl from "@/components/AttachByUrl";
+import { creditsKey, visibleCredits } from "@/lib/creditOverlay";
 import type { Account } from "@/lib/types";
 
 export type TileRole = { id: string; slug: string; name: string };
@@ -163,18 +164,53 @@ export function RoleCredits({
   // click on a menu item as OUTSIDE and would close before the click landed.
   const closeMenu = useCallback(() => setOpenRole(null), []);
 
-  function run(fn: () => Promise<{ error?: string }>, success?: string) {
+  /**
+   * What the stack shows before the server has caught up.
+   *
+   * Crediting someone is one INSERT, and it used to take well over a second
+   * to appear because the avatar waited on a full page refresh behind it. The
+   * refresh is now much cheaper -- a credit no longer throws away the cached
+   * workspace read -- but it is still a round trip, and this is a control
+   * people use dozens of times in a sitting. The circle fills on the click.
+   *
+   * `added` is keyed by role+user rather than by assignment id, because the
+   * real id does not exist yet; `removing` holds assignment ids, which do.
+   */
+  const [added, setAdded] = useState<TileCredit[]>([]);
+  const [removing, setRemoving] = useState<Set<string>>(new Set());
+
+  /**
+   * Drop the overlay the moment real data arrives.
+   *
+   * Keyed on the assignment ids rather than the array, which is a fresh
+   * object on every parent render and would clear the overlay instantly --
+   * before the server round trip finished, producing exactly the flicker this
+   * exists to remove.
+   */
+  const creditKey = creditsKey(credits);
+  useEffect(() => {
+    setAdded([]);
+    setRemoving(new Set());
+  }, [creditKey]);
+
+  /**
+   * Optimism is not a promise. If the write fails the overlay is rolled back
+   * and the error is shown, so the stack never keeps an avatar the database
+   * refused -- which would be worse than the wait it replaced.
+   */
+  function run(fn: () => Promise<{ error?: string }>, rollback?: () => void, success?: string) {
     startTransition(async () => {
       const res = await fn();
-      if (res?.error) setError(res.error);
-      else {
+      if (res?.error) {
+        rollback?.();
+        setError(res.error);
+      } else {
         setError(null);
         // A single credit is confirmed by the avatar appearing in the stack
         // you are already looking at; a toast for that is noise. Kept for
         // callers that do something less self-evident.
         if (success) toast("success", success);
       }
-      setOpenRole(null);
       router.refresh();
     });
   }
@@ -191,7 +227,10 @@ export function RoleCredits({
       className="group/stack relative flex items-start"
     >
       {roles.map((role, roleIndex) => {
-        const holders = credits.filter((c) => c.roleSlug === role.slug);
+        // Server truth, minus what is on its way out, plus what is on its way
+        // in. Deduped by user, so a credit that lands while its optimistic
+        // twin is still showing does not draw the same person twice.
+        const holders = visibleCredits(credits, role.slug, added, removing);
         const label = SHORT_ROLE[role.slug] ?? role.name;
         const isOpen = openRole === role.slug;
         const lead = holders[0];
@@ -307,7 +346,19 @@ export function RoleCredits({
                         <button
                           type="button"
                           className="rounded px-1 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--danger)]"
-                          onClick={() => run(() => unassignRole(h.assignmentId))}
+                          onClick={() => {
+                            setRemoving((s) => new Set(s).add(h.assignmentId));
+                            setOpenRole(null);
+                            run(
+                              () => unassignRole(h.assignmentId),
+                              () =>
+                                setRemoving((s) => {
+                                  const next = new Set(s);
+                                  next.delete(h.assignmentId);
+                                  return next;
+                                }),
+                            );
+                          }}
                           title={`Remove ${h.userName} from ${role.name}`}
                         >
                           Remove
@@ -325,16 +376,32 @@ export function RoleCredits({
                         key={m.userId}
                         type="button"
                         className="flex w-full items-center gap-2 px-2.5 py-1 text-left transition-colors hover:bg-[var(--bg-subtle)]"
-                        onClick={() =>
-                          run(() =>
-                            assignRole({
-                              workspaceId,
-                              contentItemId,
-                              userId: m.userId,
-                              roleId: role.id,
-                            }),
-                          )
-                        }
+                        onClick={() => {
+                          // A placeholder id: this credit has no assignment
+                          // row yet, and the key only has to be unique among
+                          // what is on screen for the second it survives.
+                          const optimistic = {
+                            assignmentId: `pending:${role.slug}:${m.userId}`,
+                            roleSlug: role.slug,
+                            userId: m.userId,
+                            userName: m.name,
+                          };
+                          setAdded((a) => [...a, optimistic]);
+                          setOpenRole(null);
+                          run(
+                            () =>
+                              assignRole({
+                                workspaceId,
+                                contentItemId,
+                                userId: m.userId,
+                                roleId: role.id,
+                              }),
+                            () =>
+                              setAdded((a) =>
+                                a.filter((x) => x.assignmentId !== optimistic.assignmentId),
+                              ),
+                          );
+                        }}
                       >
                         <Avatar name={m.name} seed={m.userId} size={20} />
                         <span className="min-w-0 flex-1 truncate text-xs">{m.name}</span>

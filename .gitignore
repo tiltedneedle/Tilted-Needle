@@ -47,3 +47,10 @@ next-env.d.ts
 # rule existed.
 /*.png
 /.playwright-mcp/
+
+# Throwaway investigation scripts. These are written into scripts/ rather than
+# a temp dir for one reason: node cannot resolve @supabase/supabase-js from
+# outside the repo, so a one-off query script has to live next to node_modules.
+# They are not deliverables, and twelve of them reached a public repo via a
+# `git add -A` while a background audit was still running.
+scripts/_tmp-*.mjs
