@@ -49,15 +49,31 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const push = useCallback(
     (tone: ToastTone, message: string) => {
       const id = nextId.current++;
-      setItems((prev) => [...prev, { id, tone, message }]);
-      // An error does not time out. Success and info are confirmations of
-      // something you just did and can safely evaporate; an error is the only
-      // record that something FAILED, and taking it away after four seconds
-      // means a message you glanced away from is gone for good. Those get a
-      // close button instead -- see below.
-      if (tone === "success" || tone === "info") {
-        setTimeout(() => dismiss(id), 4000);
-      }
+      setItems((prev) => {
+        /**
+         * The same message twice is one fact, not two.
+         *
+         * Pressing a failing control twice used to stack two identical
+         * errors, and neither timed out -- so a single broken button could
+         * bury the corner of the screen in copies of one sentence. Repeats
+         * replace rather than accumulate.
+         */
+        const withoutTwin = prev.filter((t) => !(t.tone === tone && t.message === message));
+        return [...withoutTwin, { id, tone, message }];
+      });
+      /**
+       * Errors last longer, not forever.
+       *
+       * The reasoning for making them permanent was sound -- an error is
+       * often the only record that something failed, and a four-second
+       * message you glance away from is gone for good. But permanent means a
+       * person has to clear the screen by hand after every failure, which is
+       * a chore attached to the worst moment. Fifteen seconds is long enough
+       * to read twice and short enough to tidy up after itself, and the close
+       * button stays for anyone who wants it gone sooner.
+       */
+      const ms = tone === "success" || tone === "info" ? 4000 : 15000;
+      setTimeout(() => dismiss(id), ms);
     },
     [dismiss],
   );

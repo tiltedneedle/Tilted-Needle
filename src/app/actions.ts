@@ -15,6 +15,7 @@ import { attachRefusal } from "@/lib/attachGuards";
 import { fetchVideoDetails } from "@/lib/providers/youtube";
 import { verifyVideo as tiktokVerifyVideo } from "@/lib/providers/tiktok";
 import { MANAGER_ROLES, one, type WorkspaceRole } from "@/lib/types";
+import { REPORT_TEMPLATES } from "@/lib/reportTemplates";
 
 type Result = { error?: string };
 
@@ -4026,9 +4027,16 @@ export async function setClientReportTemplate(input: {
   template: string;
 }): Promise<Result> {
   const supabase = await createClient();
-  // The database has the same CHECK; refusing here buys a sentence a person
-  // can act on rather than a constraint-violation string.
-  if (!["editorial", "bold", "minimal", "luxury"].includes(input.template)) {
+  /**
+   * Validated against the SAME list the picker renders from.
+   *
+   * This was a hand-copied array, and it went stale the moment a design was
+   * added: Digest existed in the database CHECK and in the picker, and every
+   * click on it was refused here with "That is not a report design." A second
+   * copy of a list is a copy that will disagree, and this one disagreed within
+   * an hour of being written.
+   */
+  if (!REPORT_TEMPLATES.some((t) => t.id === input.template)) {
     return { error: "That is not a report design." };
   }
   const { error } = await supabase

@@ -158,35 +158,67 @@ export default async function ClientReportPage({
           </section>
         )}
 
-        {/* Videos the system holds but cannot place in this period. Shown to
-            the operator, never printed: dropping them silently is how the
-            month's best video goes missing from a document. */}
+        {/* Videos the system holds but cannot place in this period.
+            SUMMARISED, not enumerated. Forty-four captions listed in full
+            pushed the actual report below the fold, so the thing this page
+            exists to show was the one thing not on screen -- and a wall of
+            forty-four lines is not more informative than a count, it is less,
+            because nobody reads it. The reasons are what is actionable: they
+            are the same three, and each has a different answer. */}
         {report && report.sections.some((s) => s.unmeasurable.length > 0) && (
           <details className="card mb-5 p-4">
             <summary className="cursor-pointer text-sm font-medium">
-              {report.sections.reduce((n, s) => n + s.unmeasurable.length, 0)} video(s) could not be
-              measured for this period
+              {report.sections.reduce((n, s) => n + s.unmeasurable.length, 0)} video
+              {report.sections.reduce((n, s) => n + s.unmeasurable.length, 0) === 1 ? "" : "s"} could
+              not be measured for this period
             </summary>
-            <div className="mt-2 space-y-2">
-              {report.sections
-                .filter((s) => s.unmeasurable.length > 0)
-                .map((s) => (
-                  <div key={s.platform}>
-                    <div className="text-xs font-medium">{s.platformLabel}</div>
-                    <ul className="mt-1 space-y-0.5">
-                      {s.unmeasurable.map((u) => (
-                        <li key={u.postId} className="text-xs text-[var(--muted)]">
-                          {u.title || "Untitled"} —{" "}
-                          {u.reason === "no-reading-by-period-end"
-                            ? "first measured after the period ended"
-                            : u.reason === "published-before-history"
-                              ? "published before our readings begin, so its share of this period cannot be separated"
-                              : "never measured"}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ))}
+            <div className="mt-2.5 space-y-2.5">
+              {(() => {
+                const all = report.sections.flatMap((s) =>
+                  s.unmeasurable.map((u) => ({ ...u, platform: s.platformLabel })),
+                );
+                const REASONS: { key: string; label: string; fix: string }[] = [
+                  {
+                    key: "no-reading-by-period-end",
+                    label: "First measured after the period ended",
+                    fix: "Published near the end of the month and not read until afterwards. They will count in next month's report.",
+                  },
+                  {
+                    key: "published-before-history",
+                    label: "Published before our readings begin",
+                    fix: "We cannot separate what they earned inside this period from what they earned before it. This resolves on its own as history accumulates.",
+                  },
+                  {
+                    key: "no-readings-at-all",
+                    label: "Never measured",
+                    fix: "No reading has ever been taken. Run a sync for the account, then generate again.",
+                  },
+                ];
+                return REASONS.map((r) => {
+                  const hit = all.filter((u) => u.reason === r.key);
+                  if (hit.length === 0) return null;
+                  const byPlatform = [...new Set(hit.map((h) => h.platform))]
+                    .map((p) => `${p} ${hit.filter((h) => h.platform === p).length}`)
+                    .join(" · ");
+                  return (
+                    <div key={r.key}>
+                      <div className="text-xs font-medium">
+                        {hit.length} — {r.label}
+                      </div>
+                      <div className="text-[11px] text-[var(--muted)]">{byPlatform}</div>
+                      <div className="mt-0.5 text-[11px] leading-snug text-[var(--muted)]">
+                        {r.fix}
+                      </div>
+                      {/* A couple of titles, so the count is checkable without
+                          becoming a list nobody reads. */}
+                      <div className="mt-1 text-[11px] italic text-[var(--muted)]">
+                        e.g. {hit.slice(0, 2).map((h) => h.title || "Untitled").join("; ")}
+                        {hit.length > 2 ? ` … and ${hit.length - 2} more` : ""}
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
             </div>
           </details>
         )}
