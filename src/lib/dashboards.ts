@@ -21,7 +21,12 @@ import { one } from "@/lib/types";
 import { selectAll } from "@/lib/selectAll";
 import { cachedContentData } from "@/lib/cachedContentData";
 import { countsTowardPerformance } from "@/lib/excludedItems";
-import { totalsByPlatform, type MetricRow, type PlatformTotals } from "@/lib/rollup";
+import {
+  totalsByPlatform,
+  totalsByPlatformUnique,
+  type MetricRow,
+  type PlatformTotals,
+} from "@/lib/rollup";
 import {
   readLifecycle,
   bestShape,
@@ -40,7 +45,20 @@ export type VideoSummary = {
   clientName: string | null;
   producedAt: string | null;
   lengthSeconds: number | null;
-  platforms: { platform: string; views: number; likes: number; comments: number }[];
+  /**
+   * Deliberately NOT widened to MetricRow. These numbers are always resolved
+   * (missing metrics become 0 where the row is built), and typing them as
+   * nullable pushed `number | null` into every chart and formatter downstream
+   * for no gain. The extra field is additive: postKey identifies the post
+   * behind the row, and only the workspace-level total reads it.
+   */
+  platforms: {
+    platform: string;
+    views: number;
+    likes: number;
+    comments: number;
+    postKey?: string | null;
+  }[];
   /**
    * Poster frame for the tile. First non-null across this video's posts: a
    * video cross-posted to three platforms has three encodes and three frames,
@@ -210,7 +228,10 @@ function deriveContent(
   return {
     videos,
     clients,
-    platformTotals: totalsByPlatform(allRows),
+    // Unique: this is the WORKSPACE row, where the same post reaching us
+    // under two accounts is a double count rather than two pieces of reach.
+    // Per-client totals above deliberately keep totalsByPlatform.
+    platformTotals: totalsByPlatformUnique(allRows),
     platformOptions,
     totals: {
       videos: videos.length,
@@ -398,6 +419,9 @@ export async function loadContentOverview(
       views: m?.views ?? 0,
       likes: m?.likes ?? 0,
       comments: m?.comments ?? 0,
+      // Identity of the underlying post, so the workspace headline can count
+      // an Instagram collab once instead of once per collaborator.
+      postKey: p.external_id ? `${acct.platform_slug}|${p.external_id}` : null,
     });
     postsByItem.set(p.content_item_id, (postsByItem.get(p.content_item_id) ?? 0) + 1);
     if (p.account_id) {

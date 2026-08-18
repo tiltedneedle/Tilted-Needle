@@ -48,6 +48,7 @@
     "test:attachguard": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/attach-guard-test.mjs",
     "test:overlay": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/credit-overlay-test.mjs",
     "test:selectin": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/select-in-test.mjs",
+    "test:rollupunique": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/rollup-unique-test.mjs",
     "test:labels": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/content-labels-test.mjs",
     "test:client-scope": "node scripts/client-scope-test.mjs",
     "test:tz": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/tz-test.mjs",
