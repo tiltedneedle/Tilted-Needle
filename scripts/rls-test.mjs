@@ -66,10 +66,26 @@ async function mkUser(email) {
   return { id: data.user.id, client };
 }
 
+/**
+ * Everything this test creates, tracked outside the try so cleanup can always
+ * reach it.
+ *
+ * These were previously plain consts inside the body, and the teardown sat at
+ * the BOTTOM of that same body -- so it only ran when every assertion passed.
+ * A single throw anywhere above it skipped straight to the .catch() and
+ * process.exit(), stranding two workspaces, three users and all their content
+ * in the live database. Four such workspaces had accumulated from two failed
+ * runs before anyone noticed, which is exactly the failure mode a test
+ * fixture must not have.
+ */
+const made = { users: [], workspaces: [] };
+
 (async () => {
   const stamp = Date.now();
+  try {
   const a = await mkUser(`rls-a-${stamp}@example.com`);
   const b = await mkUser(`rls-b-${stamp}@example.com`);
+  made.users.push(a.id, b.id);
 
   // Each user creates their own workspace via the bootstrap RPC.
   const { data: wsA, error: eA } = await a.client.rpc("create_workspace", {
@@ -81,6 +97,10 @@ async function mkUser(email) {
     ws_name: "Tenant B", ws_slug: `tenant-b-${stamp}`,
   });
   check("user B can create a workspace", !eB && !!wsB, eB?.message);
+  // Registered as soon as they exist, not at the end -- an assertion between
+  // here and the teardown is precisely when this matters.
+  if (wsA?.id) made.workspaces.push(wsA.id);
+  if (wsB?.id) made.workspaces.push(wsB.id);
 
   // Owner membership must exist, or the workspace is unreachable.
   const { data: mA } = await a.client.from("memberships").select("role")
@@ -224,6 +244,7 @@ async function mkUser(email) {
     }).select().single();
 
   const clientUser = await mkUser(`rls-c-${stamp}@example.com`);
+  made.users.push(clientUser.id);
   const { error: linkErr } = await admin.rpc("set_client_membership", {
     ws: wsA.id, target_user: clientUser.id, target_client: clientA.id,
   });
@@ -838,20 +859,43 @@ async function mkUser(email) {
   });
   check("second concurrent timer rejected", !!dupTimer, dupTimer ? "" : "ALLOWED TWO TIMERS");
 
-  // Cleanup. workspaces.owner_id is ON DELETE RESTRICT, so the workspace must
-  // go first -- deleting the user alone fails silently and leaves orphans.
-  await admin.auth.admin.deleteUser(clientUser.id).catch(() => {});
-
-  for (const [user, ws] of [
-    [a, wsA],
-    [b, wsB],
-  ]) {
-    if (ws) {
-      const { error } = await admin.from("workspaces").delete().eq("id", ws.id);
-      if (error) console.log(`  cleanup: workspace ${ws.id} -> ${error.message}`);
+  } finally {
+    /**
+     * Teardown, on every exit path.
+     *
+     * Order is load-bearing: workspaces.owner_id is ON DELETE RESTRICT, so the
+     * workspace must go BEFORE its owner. Deleting the user first fails and
+     * leaves the workspace orphaned with no owner to reach it by.
+     *
+     * Each step swallows its own error so one failure cannot strand the rest --
+     * a half-finished teardown is what produced the leftovers this replaces.
+     */
+    for (const id of made.workspaces) {
+      const { error } = await admin.from("workspaces").delete().eq("id", id);
+      if (error) console.log(`  cleanup: workspace ${id} -> ${error.message}`);
     }
-    const { error } = await admin.auth.admin.deleteUser(user.id);
-    if (error) console.log(`  cleanup: user ${user.id} -> ${error.message}`);
+    for (const id of made.users) {
+      const { error } = await admin.auth.admin.deleteUser(id);
+      if (error) console.log(`  cleanup: user ${id} -> ${error.message}`);
+    }
+
+    /**
+     * A leak is silent by nature, so it is asserted rather than assumed.
+     *
+     * Scoped to THIS run's stamp rather than to the name "Tenant A". Matching
+     * by name makes the check fail on leftovers from some earlier run -- a
+     * different problem, and not one this invocation can fix. A test that
+     * reports someone else's mess as its own failure is a test people learn
+     * to ignore.
+     */
+    const { data: leaked } = await admin
+      .from("workspaces")
+      .select("id, slug")
+      .like("slug", `%-${stamp}`);
+    if ((leaked ?? []).length > 0) {
+      console.log(`\n  LEAK: this run left ${leaked.length} workspace(s) behind`);
+      fail++;
+    }
   }
 
   console.log(`\n${pass} passed, ${fail} failed`);
