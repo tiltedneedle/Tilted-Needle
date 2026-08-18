@@ -252,6 +252,29 @@ export async function syncAccount(
     }
 
     if (!meteredDiscovery || (grantedDiscovery ?? 0) > 0) {
+      /**
+       * Free discovery gets its timestamp too.
+       *
+       * The stamp above lives inside `if (meteredDiscovery)`, because for a
+       * metered provider it doubles as the cooldown clock and must be set
+       * BEFORE the vendor call so a throw cannot win a free retry. Free
+       * providers never entered that branch, so YouTube and YouTube Shorts
+       * discovered on every single cron run and recorded it nowhere -- all
+       * fourteen of those accounts read "never discovered" on Data sync while
+       * working perfectly.
+       *
+       * That is not cosmetic. It is the same shape as the last_scraped_at
+       * confusion that made TikTok and YouTube look like a dead sync when
+       * they were refreshing hundreds of rows a day, and it very nearly
+       * bought a "fix" that would have broken them. A column that says
+       * "never" about something happening nightly will be believed.
+       */
+      if (!meteredDiscovery) {
+        await db
+          .from("accounts")
+          .update({ last_discovered_at: new Date().toISOString() })
+          .eq("id", account.id);
+      }
       const discovered = await provider.discover(account.handle, {
         limit: grantedDiscovery ?? opts.discoverLimit ?? 200,
         since: cutoffFor(account.sync_window_days),

@@ -465,7 +465,23 @@ export async function lookupContentUrl(input: {
   let note: string | null = null;
 
   if (!dupe) {
-    if (platform === "youtube") {
+    /**
+     * Shorts too, not just long-form.
+     *
+     * parseContentUrl returns "youtube_shorts" for a /shorts/ URL, so testing
+     * for "youtube" alone missed every Short -- and because this is an
+     * if/else-if chain ending in an Instagram branch, a pasted Short did not
+     * merely skip the lookup. It fell all the way through and answered
+     * "Instagram details are not fetched here, because reading a post spends
+     * metered credit", which is wrong about the platform, wrong about the
+     * cost, and wrong about why the title box was empty.
+     *
+     * One API call serves both: a Short is an ordinary video to videos.list,
+     * carrying the same 11-character id. The two are separate platforms
+     * because they count a view differently -- immediately versus at 30
+     * seconds -- not because YouTube keeps them in different places.
+     */
+    if (platform === "youtube" || platform === "youtube_shorts") {
       // Free quota, already wired for the sync.
       const res = await fetchVideoDetails([externalId]).catch(() => null);
       const hit = res?.ok ? res.data[0] : undefined;
