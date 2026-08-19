@@ -543,3 +543,120 @@ export function measurePlatform(posts: ReportPost[], period: ReportPeriod): Meas
     bestGain: attributable.length ? Math.max(...attributable.map((t) => t.gained)) : null,
   };
 }
+
+/* ---- What the summary can say that a platform page cannot ---------------- */
+
+export type SummaryFinding = { lead: string; body: string };
+
+/**
+ * Comparative findings for the executive summary.
+ *
+ * The summary used to restate each platform's own sentence, so the first page
+ * a client read was three paragraphs they were about to read again -- and it
+ * offered nothing that required having all the platforms in view at once,
+ * which is the only reason a summary exists.
+ *
+ * Every finding here is a COMPARISON or a SHARE. A platform page cannot make
+ * any of them, because it can only see itself.
+ *
+ * Reported figures and measured ones are never mixed inside one comparison:
+ * a transcribed account total and a floor across tracked videos are different
+ * quantities, and a ratio between them would be arithmetic on two different
+ * things. Comparisons are drawn only within whichever set has two or more
+ * members.
+ */
+export function summaryFindings(
+  sections: {
+    platformLabel: string;
+    views: number | null;
+    likes: number | null;
+    published: number;
+    reported: boolean;
+    deltaPct: number | null;
+    topGain: number | null;
+    topTitle: string | null;
+  }[],
+  limit = 3,
+): SummaryFinding[] {
+  const withViews = sections.filter((s) => s.views != null && s.views > 0);
+  if (withViews.length === 0) return [];
+
+  const N = (n: number) => n.toLocaleString("en-GB");
+  const out: SummaryFinding[] = [];
+
+  // Comparable only within one measurement basis.
+  const basis = (r: boolean) => withViews.filter((s) => s.reported === r);
+  const pool = basis(true).length >= 2 ? basis(true) : basis(false).length >= 2 ? basis(false) : [];
+
+  const ranked = [...withViews].sort((a, b) => (b.views ?? 0) - (a.views ?? 0));
+  const lead = ranked[0];
+  const total = ranked.reduce((s, x) => s + (x.views ?? 0), 0);
+
+  // 1. Which channel carried the month, and by how much.
+  if (pool.length >= 2) {
+    const p = [...pool].sort((a, b) => (b.views ?? 0) - (a.views ?? 0));
+    const ratio = (p[1].views ?? 0) > 0 ? (p[0].views ?? 0) / (p[1].views ?? 1) : null;
+    out.push({
+      lead: `${p[0].platformLabel} carried the month.`,
+      body:
+        `${N(p[0].views!)} views against ${p[1].platformLabel}'s ${N(p[1].views!)}` +
+        (ratio && ratio >= 1.15 ? `, ${ratio.toFixed(1)}x the next channel.` : `.`),
+    });
+  } else if (lead) {
+    out.push({
+      lead: `${lead.platformLabel} led on reach.`,
+      body: `${N(lead.views!)} views this period.`,
+    });
+  }
+
+  // 2. Share of the total, which no single page can state.
+  if (ranked.length >= 2 && total > 0) {
+    const share = Math.round(((lead.views ?? 0) / total) * 100);
+    out.push({
+      lead: `${share}% of reach came from one channel.`,
+      body:
+        `Across ${ranked.length} channels the period totalled ${N(total)} views, ` +
+        `of which ${lead.platformLabel} accounted for ${N(lead.views!)}.`,
+    });
+  }
+
+  // 3. Engagement rate, compared. A page can compute its own; only here can
+  //    they be ranked against each other.
+  const rates = withViews
+    .filter((s) => s.likes != null && (s.views ?? 0) > 0)
+    .map((s) => ({ label: s.platformLabel, rate: (s.likes as number) / (s.views as number) }))
+    .sort((a, b) => b.rate - a.rate);
+  if (rates.length >= 2) {
+    out.push({
+      lead: `${rates[0].label} drew the strongest response.`,
+      body:
+        `${(rates[0].rate * 100).toFixed(1)} likes per hundred views, against ` +
+        `${(rates[rates.length - 1].rate * 100).toFixed(1)} on ${rates[rates.length - 1].label}.`,
+    });
+  }
+
+  // 4. The single best video, named. The platform pages rank within
+  //    themselves and none of them can say which one led overall.
+  const best = [...sections]
+    .filter((s) => s.topGain != null && s.topTitle)
+    .sort((a, b) => (b.topGain ?? 0) - (a.topGain ?? 0))[0];
+  if (best) {
+    out.push({
+      lead: `The month's strongest video ran on ${best.platformLabel}.`,
+      body: `“${best.topTitle}” took ${N(best.topGain!)} views.`,
+    });
+  }
+
+  // 5. Output, which is about the work rather than the result.
+  const published = sections.reduce((s, x) => s + x.published, 0);
+  if (published > 0) {
+    out.push({
+      lead: `${published} video${published === 1 ? "" : "s"} published.`,
+      body:
+        `Across ${sections.filter((s) => s.published > 0).length} channel` +
+        `${sections.filter((s) => s.published > 0).length === 1 ? "" : "s"} this period.`,
+    });
+  }
+
+  return out.slice(0, limit);
+}

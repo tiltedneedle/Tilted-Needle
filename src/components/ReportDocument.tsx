@@ -1,4 +1,5 @@
 import type { ClientReport, ReportPlatformSection } from "@/lib/buildClientReport";
+import { summaryFindings } from "@/lib/clientReport";
 import { templateClass } from "@/lib/reportTemplates";
 
 /**
@@ -245,6 +246,11 @@ function PlatformPage({
    * ends -- below 6px the rows collide, above 28px four videos look marooned
    * rather than generous.
    */
+  // When most of the list shares a caveat it belongs to the list, not to each
+  // line of it.
+  const sinceCount = s.top.filter((t) => t.basis === "since-publication").length;
+  const sinceIsNorm = s.top.length > 0 && sinceCount >= Math.ceil(s.top.length / 2);
+
   const rowCount = s.top.length + [...new Set(s.breakdowns.map((b) => b.kind))].length;
   // A sheet carrying reported figures spends about 60px more on furniture --
   // the tile row and its labels -- so it has that much less to give the rows.
@@ -332,6 +338,18 @@ function PlatformPage({
           <div className="report-eyebrow" style={{ marginTop: 26 }}>
             {spaced(`Top ${s.top.length === 1 ? "video" : `${s.top.length} videos`}`)}
           </div>
+          {/* SAID ONCE WHEN IT IS THE NORM, per row when it is the exception.
+              Three of four rows carrying "SINCE PUBLICATION" is not four
+              caveats, it is one fact about the section -- and repeating it
+              down the column made a legitimate note read as an error stamped
+              on every line. */}
+          {sinceIsNorm && (
+            <p className="report-note">
+              These are totals since each video was published rather than views
+              earned inside the period — measurement for this account began part
+              way through.
+            </p>
+          )}
           {/* A ROW, not a stacked card.
               The figures used to sit UNDER the caption with their own labels,
               which cost about 100px a video -- eight of them ran the sheet
@@ -347,7 +365,7 @@ function PlatformPage({
                 {/* Verbatim, including typos, curly quotes and emoji: the
                     caption is the client's own writing. */}
                 <span className="report-quote">{t.title ? `“${t.title}”` : "Untitled"}</span>
-                {t.basis === "since-publication" && (
+                {t.basis === "since-publication" && !sinceIsNorm && (
                   <span className="report-rank-note">since publication</span>
                 )}
               </div>
@@ -379,6 +397,20 @@ export default function ReportDocument({ report }: { report: ClientReport }) {
   // The summary needs at least two channels to be summarising anything; with
   // one it would restate the page that follows it.
   const showSummary = withViews.length > 1;
+
+  const findings = summaryFindings(
+    sections.map((s) => ({
+      platformLabel: s.platformLabel,
+      views: s.metrics?.views ?? s.measured.viewsGained,
+      likes: s.metrics?.likes ?? s.measured.likes,
+      published: s.measured.published,
+      reported: s.metrics?.views != null,
+      deltaPct: s.viewsDeltaPct,
+      topGain: s.top[0]?.gained ?? null,
+      topTitle: s.top[0]?.title ?? null,
+    })),
+    3,
+  );
 
   let page = 1;
 
@@ -443,27 +475,29 @@ export default function ReportDocument({ report }: { report: ClientReport }) {
               .sort((a, b) => b.value - a.value)}
           />
 
-          <div className="report-eyebrow" style={{ marginTop: 26 }}>
-            {spaced("Top-line findings")}
-          </div>
-          {withViews
-            .slice()
-            .sort((a, b) => (b.metrics?.views ?? 0) - (a.metrics?.views ?? 0))
-            .slice(0, 3)
-            .map((s, i) => (
-              <div key={s.platform} className="report-finding">
-                <div className="report-finding-number">{String(i + 1).padStart(2, "0")}</div>
-                <div>
-                  <div className="report-finding-lead">
-                    {s.platformLabel} delivered {N(s.metrics?.views)} views
-                    {s.viewsDeltaPct != null
-                      ? `, ${s.viewsDeltaPct >= 0 ? "up" : "down"} ${Math.abs(s.viewsDeltaPct).toFixed(1)}% on the previous period.`
-                      : "."}
-                  </div>
-                  <div className="report-finding-body">{s.narrative}</div>
-                </div>
+          {/* COMPARISONS, not a restatement.
+              These were the platform pages' own sentences repeated, so the
+              first page a client read was three paragraphs they were about to
+              read again -- and it offered nothing that needed every platform
+              in view at once, which is the only thing a summary is for. Every
+              line below is a comparison or a share, and no platform page can
+              make any of them. */}
+          {findings.length > 0 && (
+            <>
+              <div className="report-eyebrow" style={{ marginTop: 26 }}>
+                {spaced("Top-line findings")}
               </div>
-            ))}
+              {findings.map((f, i) => (
+                <div key={f.lead} className="report-finding">
+                  <div className="report-finding-number">{String(i + 1).padStart(2, "0")}</div>
+                  <div>
+                    <div className="report-finding-lead">{f.lead}</div>
+                    <div className="report-finding-body">{f.body}</div>
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
 
           <Footer client={report.clientName} page={++page} period={report.periodLabel} />
         </section>

@@ -2890,3 +2890,12 @@ h3 {
     padding: var(--rank-pad, 9px) 0;
   }
 }
+
+/* A note that belongs to a block rather than to one of its rows. */
+.report-note {
+  margin: 0 0 10px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--report-muted);
+  max-width: 68ch;
+}
