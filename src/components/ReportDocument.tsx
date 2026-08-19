@@ -512,14 +512,43 @@ export default function ReportDocument({ report }: { report: ClientReport }) {
       <section className="report-page">
         <div className="report-eyebrow">{spaced("About these figures")}</div>
         <h2 className="report-headline">Where each number came from.</h2>
+
+        {/* THE PAGE'S OWN CONTENT, rather than four paragraphs of boilerplate
+            on a 43%-full sheet. A client asking "where did this come from"
+            wants it per channel, not as prose -- and stating plainly which
+            figures were read off the platform and which this system measured
+            is the difference between a report you can interrogate and one you
+            have to take on trust. */}
+        {sections.length > 0 && (
+          <div style={{ marginBottom: 22 }}>
+            <div className="report-eyebrow">{spaced("By channel")}</div>
+            {sections.map((sec) => (
+              <div key={sec.platform} className="report-bar-row" style={{ gridTemplateColumns: "132px minmax(0,1fr)" }}>
+                <div className="report-bar-label">{sec.platformLabel}</div>
+                <div className="report-finding-body" style={{ fontSize: 10.5 }}>
+                  {sec.metrics?.views != null
+                    ? "Audience figures transcribed from the platform's own dashboard."
+                    : "Measured by this system across the videos it tracks."}
+                  {sec.top.length > 0
+                    ? ` ${sec.top.length} video${sec.top.length === 1 ? "" : "s"} ranked.`
+                    : ""}
+                  {sec.measured.published > 0
+                    ? ` ${sec.measured.published} published this period.`
+                    : ""}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="report-finding-body" style={{ maxWidth: "68ch" }}>
           <p style={{ marginBottom: 12 }}>
             Period: {report.period.start} to {report.period.end}, inclusive.
           </p>
           {sections.some((s) => s.metrics?.views == null && s.measured.viewsGained != null) && (
             <p style={{ marginBottom: 12 }}>
-              Figures marked <em>tracked videos</em> are measured by this system across the videos
-              it follows for you, rather than transcribed from the platform&apos;s own dashboard.
+              Figures marked <em>tracked videos</em>{" "}
+              are measured by this system across the videos it follows for you, rather than
+              transcribed from the platform&apos;s own dashboard.
               They cover posted video only, so they are a floor rather than an account total.
             </p>
           )}
@@ -534,8 +563,11 @@ export default function ReportDocument({ report }: { report: ClientReport }) {
                   about a figure the report does not contain is noise. */}
               {sections.some((s) => s.top.some((t) => t.basis === "since-publication")) && (
                 <p style={{ marginBottom: 12 }}>
-                  Figures marked <em>since publication</em> are the video&apos;s total to date rather
-                  than what it earned inside this period. They appear where measurement began after
+                  {/* The space is explicit. JSX drops the whitespace around a
+                      line break next to an element, so this printed as
+                      "since publicationare the video's total". */}
+                  Figures marked <em>since publication</em>{" "}
+                  are the video&apos;s total to date rather than what it earned inside this period. They appear where measurement began after
                   the period closed, and they run past its end.
                 </p>
               )}
