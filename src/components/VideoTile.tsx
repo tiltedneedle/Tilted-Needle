@@ -282,7 +282,7 @@ export function RoleCredits({
                 )}
                 {/* More than one person can hold a role on the same video. */}
                 {holders.length > 1 && (
-                  <span className="absolute -bottom-0.5 -right-1 rounded-full bg-[var(--panel)] px-1 text-[10px] font-semibold text-[var(--muted)] shadow-[0_0_0_1px_var(--border)]">
+                  <span className="absolute -bottom-0.5 -right-1 rounded-full bg-[var(--panel)] px-1 text-[10.5px] font-semibold text-[var(--muted)] shadow-[0_0_0_1px_var(--border)]">
                     +{holders.length - 1}
                   </span>
                 )}

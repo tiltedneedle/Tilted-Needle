@@ -78,6 +78,7 @@ for (const route of ROUTES) {
     consoleErrors.length = 0;
     const t0 = Date.now();
     let loadError = null;
+    let loadedMs = null;
     try {
       await page.goto(BASE + route, { waitUntil: "domcontentloaded", timeout: 45000 });
       await page.waitForSelector("main", { timeout: 20000 });
@@ -87,15 +88,30 @@ for (const route of ROUTES) {
          0 photographed as voids, and /clients was mis-diagnosed as having a
          230px hole that was actually six cards mid-fade. Screenshots of a
          transition are worse than no screenshots, because they are believed. */
+      loadedMs = Date.now() - t0;
       await page.waitForTimeout(150);
-      await page
-        .evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished)))
-        .catch(() => {});
+      /* FINITE animations only. Spinners and pulses iterate forever, their
+         `finished` promise never settles, and awaiting it hung the whole
+         sweep until the process was killed -- ten minutes of nothing over a
+         progress ring. */
+      await Promise.race([
+        page.evaluate(() =>
+          Promise.all(
+            document.getAnimations()
+              .filter((a) => (a.effect?.getTiming?.()?.iterations ?? 1) !== Infinity)
+              .map((a) => a.finished.catch(() => {})),
+          ),
+        ).catch(() => {}),
+        new Promise((r) => setTimeout(r, 1500)),
+      ]);
       await page.waitForTimeout(120);
     } catch (e) {
       loadError = String(e).split(String.fromCharCode(10))[0].slice(0, 70);
     }
-    const ms = Date.now() - t0;
+    /* Time to usable, not time to photograph: the settle waits above exist
+       so screenshots catch the finished page, and folding them into ms made
+       every route read ~1.8s slower than it is. */
+    const ms = loadedMs ?? Date.now() - t0;
 
     const m = loadError ? null : await page.evaluate(() => {
       const doc = document.documentElement;
@@ -139,6 +155,14 @@ for (const route of ROUTES) {
         if (!el.childNodes.length) continue;
         const hasText = [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim());
         if (!hasText) continue;
+        // A single character is a glyph -- an avatar monogram, a badge dot.
+        // It is recognised by shape, not read, so prose thresholds do not
+        // apply; counting them buried the real findings in false ones.
+        if (el.textContent.trim().length <= 1) continue;
+        // The print document has its own scale: its px are A4 print px, and
+        // its floor (9.5px = 7.1pt on paper) is enforced by report-lab, not
+        // by screen rules.
+        if (el.closest(".report")) continue;
         const fs = parseFloat(getComputedStyle(el).fontSize);
         if (fs && fs < 10.5) tiny++;
       }
