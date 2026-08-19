@@ -33,6 +33,9 @@ const env = Object.fromEntries(
 const SHOTS = process.argv.includes("--shots");
 /** Whichever server is up. A hardcoded port sends the whole sweep at a dead host. */
 const BASE = process.env.UI_BASE || "http://localhost:3000";
+/* Dark is not a filter over light, it is its own token set with its own
+   contrast gate -- so it needs its own sweep. UI_THEME=dark. */
+const THEME = process.env.UI_THEME || "light";
 const OUT = "ui-lab";
 if (SHOTS) mkdirSync(OUT, { recursive: true });
 
@@ -75,6 +78,13 @@ const results = [];
 for (const route of ROUTES) {
   for (const vp of VIEWPORTS) {
     await page.setViewportSize({ width: vp.width, height: vp.height });
+    /* localStorage only. An init script runs before documentElement exists,
+       so touching it there throws on every route -- and the app's own
+       ThemeToggle reads this key on mount and applies the attribute itself,
+       which is the path a real user takes anyway. */
+    await page.addInitScript((t) => {
+      try { localStorage.setItem("theme", t); } catch {}
+    }, THEME);
     consoleErrors.length = 0;
     const t0 = Date.now();
     let loadError = null;
@@ -199,7 +209,7 @@ for (const route of ROUTES) {
     });
 
     if (SHOTS && !loadError) {
-      await page.screenshot({ path: `${OUT}/${route.replace(/\//g, "_") || "root"}-${vp.name}.png`, fullPage: false });
+      await page.screenshot({ path: `${OUT}/${route.replace(/\//g, "_") || "root"}-${vp.name}${THEME === "dark" ? "-dark" : ""}.png`, fullPage: false });
     }
 
     results.push({ route, vp: vp.name, ms, loadError, errors: [...new Set(consoleErrors)].slice(0, 2), ...(m || {}) });

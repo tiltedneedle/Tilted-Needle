@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useCallback, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import {
   BarChart3,
   BookOpen,
@@ -168,6 +168,38 @@ export default function Sidebar({
   // measuring it would render the panel flush to the sidebar edges instead of
   // inset by 12px the way the original left-3/right-3 panel was.
   const switcherRef = useRef<HTMLButtonElement>(null);
+
+  /* The nav is TALLER THAN THE VIEWPORT and nothing said so.
+     Measured on a 1440x900 laptop: 1274px of navigation in a 637px column,
+     so Billing and Manage -- eight destinations -- sat below the fold with
+     no edge, no shadow and no scrollbar until the pointer entered. A menu
+     that hides half of itself and looks complete is worse than a long one.
+     A fade at whichever edge has more behind it is the smallest honest
+     affordance; it disappears at the ends so it never lies about content
+     that is not there. */
+  const navRef = useRef<HTMLElement>(null);
+  const [edges, setEdges] = useState({ top: false, bottom: false });
+  useEffect(() => {
+    const el = navRef.current;
+    if (!el) return;
+    const measure = () => {
+      const more = el.scrollHeight - el.clientHeight;
+      setEdges({
+        top: el.scrollTop > 4,
+        // 4px of slack: sub-pixel layout leaves a fraction of a pixel of
+        // "scrollable" on containers that are actually full.
+        bottom: more > 4 && el.scrollTop < more - 4,
+      });
+    };
+    measure();
+    el.addEventListener("scroll", measure, { passive: true });
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener("scroll", measure);
+      ro.disconnect();
+    };
+  }, []);
   const closeSwitcher = useCallback(() => setOpen(false), []);
 
   return (
@@ -257,7 +289,26 @@ export default function Sidebar({
         </button>
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-3 pb-2">
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        {/* Pointer-transparent, so the fade can never eat a click on the
+            item it is drawing attention to. */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-0 top-0 h-5 transition-opacity duration-200"
+          style={{
+            opacity: edges.top ? 1 : 0,
+            background: "linear-gradient(to bottom, var(--sidebar-bg), transparent)",
+          }}
+        />
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-6 transition-opacity duration-200"
+          style={{
+            opacity: edges.bottom ? 1 : 0,
+            background: "linear-gradient(to top, var(--sidebar-bg), transparent)",
+          }}
+        />
+      <nav ref={navRef} className="flex-1 overflow-y-auto px-3 pb-2">
         {(active.role === "client"
           ? CLIENT_NAV
           : active.role === "member"
@@ -321,6 +372,7 @@ export default function Sidebar({
           </div>
         ))}
       </nav>
+      </div>
 
       <div className="p-3" style={{ borderTop: "1px solid var(--on-dark-active)" }}>
         <div className="mb-2 flex items-center justify-between px-2">
