@@ -2451,3 +2451,256 @@ h3 {
     page-break-inside: avoid;
   }
 }
+
+/* The cover text sits above its plate.
+   z-index orders POSITIONED elements only, and the cover text was static --
+   so the absolutely-positioned plate painted over it and the first sheet came
+   out a solid black rectangle with the client's name nowhere on it. A real
+   wrapper rather than a `> *:not()` rule, because that selector was written
+   once, silently failed to apply, and nothing noticed until the page was
+   looked at. */
+.report-cover-inner {
+  position: relative;
+}
+
+.report-cover-body {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: inherit;
+  justify-content: center;
+  width: 100%;
+}
+
+@media print {
+  /**
+   * UNCLIP THE SHELL, or the PDF is one screen of a seven-page report.
+   *
+   * The app scrolls its <main>, not the document: the shell is `h-dvh
+   * overflow-hidden` and main is `flex-1 overflow-y-auto`. That is right on
+   * screen and fatal on paper -- the print stylesheet reset main's width and
+   * padding but never its HEIGHT or its OVERFLOW, so the printed page kept a
+   * viewport-tall clipping box and everything past the cover was cut off.
+   *
+   * Nobody would have found this by reading the page, because on screen it
+   * scrolls perfectly. It only exists in the PDF the client receives.
+   */
+  .app-shell {
+    display: block !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+
+  #main,
+  main {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    flex: none !important;
+  }
+
+  /* The sheet stack must not inherit a scroll container either. */
+  .report,
+  .report-page {
+    overflow: visible !important;
+  }
+}
+
+@media print {
+  /**
+   * A SECTION MAY RUN ONTO A SECOND SHEET; IT MAY NOT LEAVE A BLANK ONE.
+   *
+   * Every .report-page carried `break-after: page` plus a 246mm min-height.
+   * That is right while a section fits one sheet and wrong the moment it does
+   * not: the Instagram page with eight videos ran 1212px against an A4 column
+   * of about 1016px, so it spilled -- and the forced break then padded the
+   * remainder into a sheet that was 95% white with a single orphaned video row
+   * on it. The report looked broken in exactly the way a client would notice.
+   *
+   * So a platform STARTS a new sheet and is allowed to finish on the next one,
+   * which is what a printed report does. No min-height, because a short
+   * section padded to full page height is the same blank space arriving a
+   * different way.
+   */
+  .report-page {
+    break-before: page;
+    page-break-before: always;
+    break-after: auto;
+    page-break-after: auto;
+    min-height: 0;
+  }
+
+  .report-page:first-child {
+    break-before: auto;
+    page-break-before: auto;
+  }
+
+  /* Nothing that reads as one object may be split down the middle. A video
+     row losing its figures to the next sheet is the specific defect that
+     produced the blank page. */
+  .report-rank,
+  .report-bar-row,
+  .report-finding,
+  .report-figures > div {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  /* A heading with nothing under it is worse than no heading. */
+  .report-eyebrow,
+  .report-headline {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  /**
+   * The footer follows the content instead of hanging off the section box.
+   *
+   * Absolutely positioned, it anchored to the bottom of the SECTION -- so a
+   * section that spilled put its footer on the second sheet, above the row
+   * that had spilled with it. Static, it simply ends each section, which is
+   * both predictable and correct when a section runs long.
+   */
+  .report-footer {
+    position: static;
+    margin-top: 22px;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   The ranked video row, as a ROW.
+
+   It was a stacked card -- caption, then a figure block with its own labels
+   beneath -- costing ~100px per video. Eight of them made the sheet 1212px
+   against an A4 column of about 1016px, so the section spilled and the sheet
+   after it came out 95% white with a single orphaned row. Laid out properly
+   the same eight fit on one page, and a column of view counts becomes
+   scannable instead of something the eye has to hunt for.
+   --------------------------------------------------------------------------- */
+
+.report-rank {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) 92px 76px;
+  align-items: baseline;
+  column-gap: 14px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--report-rule);
+}
+
+.report-rank:last-child {
+  border-bottom: 0;
+}
+
+.report-rank-title {
+  min-width: 0;
+}
+
+.report-quote {
+  font-size: 12.5px;
+  line-height: 1.4;
+  margin: 0;
+  /* Two lines at most. A caption is sometimes a paragraph, and letting one
+     run four lines pushes the rows below it off the sheet. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.report-rank-note {
+  display: block;
+  margin-top: 2px;
+  font-size: 8.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--report-muted);
+}
+
+.report-rank-metric {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.report-rank-value {
+  display: block;
+  font-family: var(--font-sans);
+  font-size: 17px;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--report-accent);
+}
+
+/* Likes sit beside views and must not compete with them. */
+.report-rank-value--soft {
+  color: var(--report-ink);
+}
+
+.report-rank-unit {
+  display: block;
+  margin-top: 1px;
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--report-muted);
+}
+
+.tpl-digest .report-rank {
+  grid-template-columns: 20px minmax(0, 1fr) 80px 66px;
+  padding: 5px 0;
+}
+.tpl-digest .report-rank-value { font-size: 13px; }
+.tpl-digest .report-quote { font-size: 11.5px; -webkit-line-clamp: 1; }
+
+/* The distribution row: label, bar, value.
+   The label lived inside the track until the fill became a solid ink border,
+   at which point it was dark text on a dark bar -- "Instagram", "TikTok" and
+   "YouTube" all unreadable on the executive summary, with only the shortest
+   bar leaving its label visible. */
+.report-bar-row {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr) 74px;
+  align-items: center;
+  column-gap: 12px;
+  margin-bottom: 7px;
+  font-size: 11.5px;
+}
+
+.report-bar-label {
+  position: static;
+  padding: 0;
+  line-height: 1.3;
+  color: var(--report-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.report-bar-track {
+  position: relative;
+  height: 12px;
+  border-bottom: 10px solid #eeebe5;
+  border-radius: 0;
+}
+
+.report-bar-fill {
+  position: absolute;
+  left: 0;
+  bottom: -10px;
+  height: 0;
+  border-bottom: 10px solid var(--report-accent);
+}
+
+.report-bar-value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--report-ink);
+  white-space: nowrap;
+}
+
+.tpl-bold .report-bar-track { border-bottom-width: 12px; height: 14px; }
+.tpl-bold .report-bar-fill { border-bottom-width: 12px; bottom: -12px; }
+.tpl-digest .report-bar-row { grid-template-columns: 110px minmax(0, 1fr) 64px; }

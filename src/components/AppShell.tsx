@@ -48,7 +48,7 @@ export default function AppShell({
   }, [open]);
 
   return (
-    <div className="flex h-dvh overflow-hidden">
+    <div className="app-shell flex h-dvh overflow-hidden">
       {/* Keyboard users skip the whole nav in one Tab; invisible otherwise. */}
       <a
         href="#main"

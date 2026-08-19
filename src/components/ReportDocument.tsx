@@ -125,11 +125,17 @@ function BarList({ rows }: { rows: { label: string; value: number; suffix?: stri
   const max = Math.max(...rows.map((r) => r.value), 1);
   return (
     <div>
+      {/* LABEL, BAR, VALUE -- three columns.
+          The label used to sit inside the track, and once the fill became a
+          solid ink border it was dark text on a dark bar: "Instagram",
+          "TikTok" and "YouTube" were all illegible, and only the shortest bar
+          left its label readable. Outside the track it is always legible, and
+          it matches how the reference reports set a distribution. */}
       {rows.map((r) => (
         <div key={r.label} className="report-bar-row">
+          <div className="report-bar-label">{r.label}</div>
           <div className="report-bar-track">
             <div className="report-bar-fill" style={{ width: `${(r.value / max) * 100}%` }} />
-            <div className="report-bar-label">{r.label}</div>
           </div>
           <div className="report-bar-value">
             {r.value.toLocaleString("en-GB")}
@@ -279,22 +285,32 @@ function PlatformPage({
           <div className="report-eyebrow" style={{ marginTop: 26 }}>
             {spaced(`Top ${s.top.length === 1 ? "video" : `${s.top.length} videos`}`)}
           </div>
+          {/* A ROW, not a stacked card.
+              The figures used to sit UNDER the caption with their own labels,
+              which cost about 100px a video -- eight of them ran the sheet
+              1212px against an A4 column of roughly 1016px, so the section
+              spilled and left a following sheet 95% white with one orphaned
+              row on it. Laid out as a row the same eight fit, read like the
+              table they are, and let the eye run down a column of view counts
+              instead of hunting for each one. */}
           {s.top.map((t, i) => (
             <div key={t.postId} className="report-rank">
               <div className="report-rank-number">{String(i + 1).padStart(2, "0")}</div>
-              <div>
+              <div className="report-rank-title">
                 {/* Verbatim, including typos, curly quotes and emoji: the
                     caption is the client's own writing. */}
-                <div className="report-quote">{t.title ? `“${t.title}”` : "Untitled"}</div>
+                <span className="report-quote">{t.title ? `“${t.title}”` : "Untitled"}</span>
                 {t.basis === "since-publication" && (
-                  <div style={{ fontSize: 9.5, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--report-muted)", marginBottom: 5 }}>
-                    since publication
-                  </div>
+                  <span className="report-rank-note">since publication</span>
                 )}
-                <div className="report-figures" style={{ gap: "0 32px", marginBottom: 0 }}>
-                  <Figure value={t.views} label="Views" size={22} />
-                  <Figure value={t.likes} label="Likes" size={22} />
-                </div>
+              </div>
+              <div className="report-rank-metric">
+                <span className="report-rank-value">{N(t.views)}</span>
+                <span className="report-rank-unit">views</span>
+              </div>
+              <div className="report-rank-metric">
+                <span className="report-rank-value report-rank-value--soft">{N(t.likes)}</span>
+                <span className="report-rank-unit">likes</span>
               </div>
             </div>
           ))}
@@ -326,14 +342,24 @@ export default function ReportDocument({ report }: { report: ClientReport }) {
       <section className="report-page">
         <div className="report-cover-inner">
           <Plate fill={COVER_PLATE[report.template] ?? null} />
-          <div className="report-cover-title">{spaced("Social media performance report")}</div>
-          <div className="report-cover-client">{report.clientName}</div>
-          {platforms.length > 0 && (
-            <div className="report-cover-platforms">
-              {platforms.map((p) => spaced(p)).join("  ·  ")}
-            </div>
-          )}
-          <div className="report-cover-period">{spaced(report.periodLabel)}</div>
+          {/* WRAPPED, and the wrapper is what carries the stacking.
+              z-index only orders POSITIONED elements: the cover text was
+              position:static, so an absolutely-positioned plate at z-index 0
+              painted straight over it and the first sheet rendered as a solid
+              black rectangle with the client's name nowhere on it. A single
+              positioned wrapper is not something a later CSS edit can quietly
+              stop applying, which a `> *:not(.report-plate)` rule already did
+              once. */}
+          <div className="report-cover-body">
+            <div className="report-cover-title">{spaced("Social media performance report")}</div>
+            <div className="report-cover-client">{report.clientName}</div>
+            {platforms.length > 0 && (
+              <div className="report-cover-platforms">
+                {platforms.map((p) => spaced(p)).join("  ·  ")}
+              </div>
+            )}
+            <div className="report-cover-period">{spaced(report.periodLabel)}</div>
+          </div>
         </div>
       </section>
 
