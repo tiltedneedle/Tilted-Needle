@@ -169,7 +169,10 @@ export function sectionHasContent(s: ReportPlatformSection): boolean {
     m != null &&
     [m.views, m.likes, m.followers, m.subscribers, m.netFollowers, m.netSubscribers, m.reach, m.profileViews]
       .some((v) => v != null);
-  return anyFigure || s.top.length > 0 || s.breakdowns.length > 0;
+  // Measurement counts. A platform we tracked all month has plenty to say
+  // even when nobody transcribed the account dashboard.
+  const anyMeasured = s.measured.viewsGained != null || s.measured.published > 0;
+  return anyFigure || anyMeasured || s.top.length > 0 || s.breakdowns.length > 0;
 }
 
 const BREAKDOWN_TITLES: Record<string, string> = {
@@ -220,11 +223,22 @@ function PlatformPage({
       </h2>
 
       {/* Figures render themselves away when absent, so this row shows exactly
-          what is known and never a gap where a tile should be. */}
+          what is known and never a gap where a tile should be.
+
+          REPORTED WINS, MEASURED FILLS IN. A figure transcribed from the
+          platform's own dashboard is the platform's whole account; ours covers
+          the videos we track. Where both exist the reported one is printed;
+          where only ours does, it is printed and labelled, because a floor
+          stated as a floor is worth far more than a blank page. */}
       <div className="report-figures">
-        <Figure value={m?.views} label="Views" delta={s.viewsDeltaPct} />
-        <Figure value={m?.likes} label="Likes" />
+        <Figure
+          value={m?.views ?? s.measured.viewsGained}
+          label={m?.views != null ? "Views" : "Views · tracked videos"}
+          delta={s.viewsDeltaPct}
+        />
+        <Figure value={m?.likes ?? s.measured.likes} label="Likes" />
         <Figure value={m?.comments} label="Comments" />
+        <Figure value={s.measured.published || null} label="Videos published" />
         {isYouTube ? (
           <>
             <Figure value={m?.subscribers} label="Subscribers" />
@@ -395,6 +409,13 @@ export default function ReportDocument({ report }: { report: ClientReport }) {
           <p style={{ marginBottom: 12 }}>
             Period: {report.period.start} to {report.period.end}, inclusive.
           </p>
+          {sections.some((s) => s.metrics?.views == null && s.measured.viewsGained != null) && (
+            <p style={{ marginBottom: 12 }}>
+              Figures marked <em>tracked videos</em> are measured by this system across the videos
+              it follows for you, rather than transcribed from the platform&apos;s own dashboard.
+              They cover posted video only, so they are a floor rather than an account total.
+            </p>
+          )}
           {sections.some((s) => s.top.length > 0) && (
             <>
               <p style={{ marginBottom: 12 }}>

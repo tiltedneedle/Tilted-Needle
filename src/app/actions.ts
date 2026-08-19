@@ -12,6 +12,7 @@ import { logAudit } from "@/lib/audit";
 import { dispatchWebhook } from "@/lib/webhooks";
 import { youtubeIdFrom } from "@/lib/videoEmbed";
 import { parseContentUrl, tiktokPostedAtTs } from "@/lib/contentUrl";
+import { operatingDate } from "@/lib/tz";
 import { attachRefusal } from "@/lib/attachGuards";
 import { fetchVideoDetails } from "@/lib/providers/youtube";
 import { verifyVideo as tiktokVerifyVideo } from "@/lib/providers/tiktok";
@@ -493,6 +494,8 @@ export async function lookupContentUrl(input: {
 
   let title: string | null = null;
   let postedAt: string | null = null;
+  /** The precise publish instant, when the platform will tell us. */
+  let postedAtTs: string | null = null;
   let lengthSeconds: number | null = null;
   let note: string | null = null;
 
@@ -519,7 +522,13 @@ export async function lookupContentUrl(input: {
       const hit = res?.ok ? res.data[0] : undefined;
       if (hit) {
         title = hit.title;
-        postedAt = hit.postedAt;
+        // The platform's own day, resolved in operating time from the instant
+        // it also returns -- not YouTube's UTC slice. A link pasted for a
+        // video published at 00:30 local was landing on the previous day.
+        postedAtTs = hit.enrichment?.postedAtTs ?? null;
+        postedAt = postedAtTs
+          ? operatingDate(new Date(postedAtTs))
+          : hit.postedAt;
         lengthSeconds = hit.lengthSeconds;
       } else {
         note = "YouTube did not return details for that id — check the link, or fill the title in by hand.";

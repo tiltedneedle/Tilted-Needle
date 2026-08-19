@@ -641,6 +641,19 @@ export async function fetchVideoDetails(
         lengthSeconds: v.contentDetails?.duration
           ? parseIsoDuration(v.contentDetails.duration)
           : null,
+        /**
+         * The INSTANT, kept rather than sliced away.
+         *
+         * publishedAt arrives as a full RFC 3339 timestamp and was reduced to
+         * its UTC date here, at the only point that ever sees it. Everything
+         * downstream then had a day and no way back to the hour -- which is
+         * how a video published at 00:30 Karachi ends up filed under the
+         * previous day, and occasionally the previous month.
+         *
+         * It costs nothing: the field is already in the response we paid a
+         * quota unit for.
+         */
+        enrichment: { postedAtTs: v.snippet?.publishedAt ?? null },
       });
     }
   }

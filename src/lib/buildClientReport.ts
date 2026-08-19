@@ -7,11 +7,13 @@ import { operatingDate } from "@/lib/tz";
 import { asTemplate, type ReportTemplate } from "@/lib/reportTemplates";
 import {
   deltaPct,
+  measurePlatform,
   pickTopVideos,
   platformNarrative,
   reportBlockers,
   type ReportPeriod,
   type ReportPost,
+  type MeasuredTotals,
   type TopVideo,
   type UnmeasurableVideo,
   type ReportBlocker,
@@ -51,6 +53,19 @@ export type ReportPlatformSection = {
     profileViews: number | null;
     interactions: number | null;
   } | null;
+  /**
+   * What the system measured itself, with nobody typing anything.
+   *
+   * The report used to have nothing to say about a platform until somebody
+   * transcribed the account's dashboard -- so a client we had been measuring
+   * all month got a document with no numbers in it. Snapshots are the thing
+   * this system does automatically; they should carry the report when a
+   * reported figure is absent.
+   *
+   * Never presented as the platform's own total. It covers the videos we
+   * track, so it is a floor, and the document says so.
+   */
+  measured: MeasuredTotals;
   /** Percentage change in views against the previous period, or null. */
   viewsDeltaPct: number | null;
   narrative: string;
@@ -109,6 +124,16 @@ export type ClientReport = {
   /** Stated on the document, because views and likes have different dates. */
   likesCaveat: string;
 };
+
+/**
+ * How many videos a platform page lists.
+ *
+ * Three came from the two sample documents, which are printed and paginated by
+ * hand. A generated report has no such constraint, and three was leaving most
+ * of what the system knows off the page -- an account with twenty measured
+ * videos in a month showed three of them and said nothing about the rest.
+ */
+const TOP_VIDEOS = 8;
 
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
@@ -319,7 +344,8 @@ export async function buildClientReport(
         snapshots: snapsByPost.get(p.id) ?? [],
       }));
 
-    const { top, unmeasurable } = pickTopVideos(mine, period, 3);
+    const { top, unmeasurable } = pickTopVideos(mine, period, TOP_VIDEOS);
+    const measured = measurePlatform(mine, period);
     const views = num(m, "views");
     const viewsDeltaPct = deltaPct(views, priorByAccount.get(a.id) ?? null);
     const isYouTube = a.platform_slug.startsWith("youtube");
@@ -345,13 +371,16 @@ export async function buildClientReport(
       viewsDeltaPct,
       narrative: platformNarrative({
         platformLabel: PLATFORM_LABEL[a.platform_slug] ?? a.platform_slug,
-        views,
-        likes: num(m, "likes"),
+        // A reported figure wins; measurement carries the sentence otherwise,
+        // so a platform is never silent just because nobody typed anything.
+        views: views ?? measured.viewsGained,
+        likes: num(m, "likes") ?? measured.likes,
         netFollowers: isYouTube ? num(m, "net_subscribers") : num(m, "net_followers"),
         followerNoun: isYouTube ? "subscribers" : "followers",
         viewsDeltaPct,
       }),
       top,
+      measured,
       unmeasurable,
       /**
        * Videos PUBLISHED inside the period, which is what the document says.
@@ -399,8 +428,10 @@ export async function buildClientReport(
     sections,
     blockers,
     combined: {
-      views: sum((s) => s.metrics?.views ?? null),
-      likes: sum((s) => s.metrics?.likes ?? null),
+      // Measurement fills in where nothing was reported, so the summary is not
+      // blank for a client whose figures nobody has transcribed.
+      views: sum((s) => s.metrics?.views ?? s.measured.viewsGained),
+      likes: sum((s) => s.metrics?.likes ?? s.measured.likes),
       caveat:
         "Combined across platforms. Each platform counts a view on its own terms — a Short counts one immediately, YouTube long-form at 30 seconds — so this total adds figures measured on different scales. Per-platform numbers above are the comparable ones.",
     },

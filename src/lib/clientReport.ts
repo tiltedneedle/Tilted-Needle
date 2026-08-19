@@ -475,3 +475,71 @@ export function deltaPct(current: number | null, prior: number | null): number |
   if (current == null || prior == null || prior === 0) return null;
   return ((current - prior) / prior) * 100;
 }
+
+/* ---- Measured from what we track ------------------------------------------ */
+
+export type MeasuredTotals = {
+  /** Views the account's videos gained INSIDE the period. */
+  viewsGained: number | null;
+  /** Likes and comments now, across videos active in the period. */
+  likes: number | null;
+  comments: number | null;
+  /** Videos published inside the period. */
+  published: number;
+  /** Videos with enough readings to contribute a measured gain. */
+  measured: number;
+  /** Best single video's gain, for the narrative. */
+  bestGain: number | null;
+};
+
+/**
+ * What the system can state about a platform WITHOUT anyone typing anything.
+ *
+ * The report was leaning entirely on account_metrics -- figures a person
+ * transcribes from the platform's own dashboard -- so a client with no entry
+ * got a document with no numbers, however many videos we had been measuring
+ * for them all month. That is the wrong default: snapshots are the thing this
+ * system does automatically, and they can answer most of what a monthly report
+ * asks.
+ *
+ * WHAT THIS IS NOT. It is not the platform's own figure and must never be
+ * presented as one. The platform counts views on the whole account, including
+ * posts we do not track and formats we never see -- Stories, lives, images. So
+ * this is "the videos we track, measured", it is a floor rather than a total,
+ * and the document labels it that way. When a real reported figure exists it
+ * wins, every time.
+ *
+ * Views are GAINED-IN-PERIOD, summed across the account's own videos. That is
+ * legitimate addition: same platform, same unit, different videos. It is the
+ * one place summing is honest, and the rule the whole app follows -- never
+ * across platforms -- is untouched.
+ */
+export function measurePlatform(posts: ReportPost[], period: ReportPeriod): MeasuredTotals {
+  const { top } = pickTopVideos(posts, period, Number.MAX_SAFE_INTEGER);
+
+  // Only rows whose gain is attributable to the period. A "since-publication"
+  // figure runs past the period end, so adding it to a period total would
+  // quietly inflate the month with next month's views.
+  const attributable = top.filter((t) => t.basis === "measured");
+
+  const published = posts.filter(
+    (p) =>
+      p.postedAtTs != null &&
+      p.postedAtTs.slice(0, 10) >= period.start &&
+      p.postedAtTs.slice(0, 10) <= period.end,
+  ).length;
+
+  const sum = (pick: (t: TopVideo) => number | null): number | null => {
+    const vals = attributable.map(pick).filter((n): n is number => n != null);
+    return vals.length ? vals.reduce((a, b) => a + b, 0) : null;
+  };
+
+  return {
+    viewsGained: sum((t) => t.gained),
+    likes: sum((t) => t.likes),
+    comments: null,
+    published,
+    measured: attributable.length,
+    bestGain: attributable.length ? Math.max(...attributable.map((t) => t.gained)) : null,
+  };
+}
