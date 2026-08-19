@@ -160,6 +160,42 @@ def main() -> int:
             f"instance(s); expected at most {max_volumes}. Detached volumes bill."
         )
 
+    # --- What Oracle says it has actually charged ---------------------------
+    #
+    # Every other check in this file infers billability from the resource
+    # list, which means it can only catch what it already believes is
+    # chargeable -- and one of those beliefs was wrong for a day (a NAT
+    # gateway was recorded here as $33/month; OCI has no such SKU). A budget
+    # reads the real number and holds no beliefs at all, so it is the one
+    # check that cannot be fooled by a mistake in this file.
+    #
+    # It is also the only guard that survives a resource this audit does not
+    # enumerate, in a region or service nobody thought of.
+    try:
+        budgets = oci.budget.BudgetClient(cfg).list_budgets(
+            compartment_id=tenancy, target_type="ALL"
+        ).data
+        live = [b for b in budgets if b.lifecycle_state == "ACTIVE"]
+        findings["budgets"] = len(live)
+        findings["actualSpend"] = max(
+            (float(b.actual_spend) for b in live if b.actual_spend is not None), default=None
+        )
+        if not live:
+            problems.append(
+                "NO BUDGET ALERT. On Pay As You Go nothing refuses a billable request, "
+                "so a spend alarm is the only guard that does not depend on this file "
+                "guessing Oracle's price list correctly. "
+                "Create one: python deploy/oracle/budget.py --email you@example.com"
+            )
+        elif findings["actualSpend"]:
+            problems.append(
+                f"MONEY HAS BEEN SPENT: ${findings['actualSpend']:.2f} charged this period. "
+                "This tenancy is supposed to cost nothing."
+            )
+    except Exception:  # noqa: BLE001
+        findings["budgets"] = None
+        findings["actualSpend"] = None
+
     # --- Other subscribed regions ------------------------------------------
     #
     # The 200 GB allowance is HOME REGION ONLY: "volumes created outside of
@@ -360,6 +396,10 @@ def main() -> int:
             f"{k} {'?' if findings.get(k) is None else findings.get(k)}"
             for k in ("natGateways", "reservedPublicIps", "loadBalancers", "fileSystems", "vaults")
         ))
+        spend = findings.get("actualSpend")
+        print("  budget alerts    :",
+              f"{findings.get('budgets') if findings.get('budgets') is not None else '?'} active",
+              f"— charged so far ${spend:.2f}" if spend is not None else "— charged so far $0.00")
         print("  billable sweep   :", ", ".join(
             f"{k} {'?' if findings.get(k) is None else findings.get(k)}"
             for k in ("capacityReservations", "volumeBackups", "buckets")

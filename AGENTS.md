@@ -113,7 +113,14 @@ between this project and an invoice.
    sitting inside the 200 GB allowance.
 7. Stay in the home region. The 200 GB is home-region-only; a volume in
    another subscribed region bills from the first GB.
-8. Before and after any provisioning work, run the audit:
+8. There is a **budget alarm** on the tenancy root (`tn-always-free-guard`,
+   $1/month) that emails on the first cent charged and on any forecast to
+   spend. It is the only guard that does not depend on this repo guessing
+   Oracle's price list correctly — every other check infers billability from
+   the resource list, and one of those inferences was already wrong once.
+   Recreate with `python deploy/oracle/budget.py --email …`. **A budget
+   alerts; it does not cap.** Oracle offers no hard spend stop anywhere.
+9. Before and after any provisioning work, run the audit:
 
 ```bash
 python deploy/oracle/audit.py
