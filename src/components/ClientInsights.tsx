@@ -108,7 +108,7 @@ export default function ClientInsights({
                         <td
                           className={`tabular py-1.5 text-right font-medium ${
                             s.ratio >= 1.3
-                              ? "text-emerald-500"
+                              ? "text-[var(--success)]"
                               : s.ratio <= 0.77
                                 ? "text-[var(--muted)]"
                                 : ""

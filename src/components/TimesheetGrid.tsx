@@ -173,7 +173,7 @@ export default function TimesheetGrid({
             in RLS) -- this button and badge are the front end of that,
             not a separate source of truth. */}
         {submission?.status === "approved" ? (
-          <span className="rounded bg-emerald-500/15 px-2 py-1 text-xs text-emerald-500">
+          <span className="rounded bg-[var(--success)]/15 px-2 py-1 text-xs text-[var(--success)]">
             Approved — locked
           </span>
         ) : submission?.status === "submitted" ? (

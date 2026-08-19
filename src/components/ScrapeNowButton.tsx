@@ -83,7 +83,7 @@ export default function ScrapeNowButton({
         </span>
       )}
 
-      {message && <span className="text-xs text-emerald-500">{message}</span>}
+      {message && <span className="text-xs text-[var(--success)]">{message}</span>}
       {error && (
         <span className="text-xs text-[var(--danger)]" role="alert">
           {error}

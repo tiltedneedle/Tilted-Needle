@@ -53,7 +53,7 @@ export default function SyncEnabledToggle({
       disabled={busy}
       className={`rounded-full px-1.5 py-0.5 text-[11px] font-medium transition-colors disabled:opacity-50 ${
         enabled
-          ? "bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20"
+          ? "bg-[var(--success)]/10 text-[var(--success)] hover:bg-[var(--success)]/20"
           : "bg-[var(--bg-subtle)] text-[var(--muted)] hover:bg-[var(--border)]"
       }`}
       title={

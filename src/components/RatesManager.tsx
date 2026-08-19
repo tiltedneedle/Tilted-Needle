@@ -53,7 +53,7 @@ export default function RatesManager({
         </p>
       )}
       {saved && (
-        <p className="animate-rise mb-3 text-sm text-emerald-500" role="status">
+        <p className="animate-rise mb-3 text-sm text-[var(--success)]" role="status">
           {saved}
         </p>
       )}

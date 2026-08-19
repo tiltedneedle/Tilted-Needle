@@ -48,7 +48,7 @@ export default function ClientActiveToggle({
       disabled={busy}
       className={`rounded-full font-medium transition-colors disabled:opacity-50 ${padding} ${
         isActive
-          ? "bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20"
+          ? "bg-[var(--success)]/10 text-[var(--success)] hover:bg-[var(--success)]/20"
           : "bg-[var(--bg-subtle)] text-[var(--muted)] hover:bg-[var(--border)]"
       }`}
       // Says what it DOES, not what it sets. Inactive is not a label -- it

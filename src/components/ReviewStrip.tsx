@@ -82,7 +82,7 @@ export default function ReviewStrip({
   if (pending.length === 0 && rejected.length === 0) {
     return (
       <div className="mb-4 flex items-center gap-2 text-xs text-[var(--muted)]">
-        <Check size={13} className="text-emerald-500" />
+        <Check size={13} className="text-[var(--success)]" />
         <span>
           All {approvedCount.toLocaleString()} videos reviewed — nothing waiting.
         </span>
@@ -193,7 +193,7 @@ export default function ReviewStrip({
                     {canManage && (
                       <span className="flex shrink-0 gap-1">
                         <button
-                          className="rounded p-1 text-[var(--muted)] transition-colors hover:bg-emerald-500/10 hover:text-emerald-500"
+                          className="rounded p-1 text-[var(--muted)] transition-colors hover:bg-[var(--success)]/10 hover:text-[var(--success)]"
                           title="Ours — approve"
                           disabled={busy}
                           onClick={() => review([v.id], "approved")}

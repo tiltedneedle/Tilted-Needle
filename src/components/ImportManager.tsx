@@ -85,7 +85,7 @@ export default function ImportManager({
         </p>
       )}
       {notice && (
-        <p className="animate-rise mb-3 text-sm text-emerald-500" role="status">
+        <p className="animate-rise mb-3 text-sm text-[var(--success)]" role="status">
           {notice}
         </p>
       )}
@@ -112,7 +112,7 @@ export default function ImportManager({
                 <span
                   className={`rounded px-1.5 py-0.5 text-xs ${
                     b.status === "committed"
-                      ? "bg-emerald-500/15 text-emerald-500"
+                      ? "bg-[var(--success)]/15 text-[var(--success)]"
                       : "bg-[var(--bg-subtle)] text-[var(--muted)]"
                   }`}
                 >
@@ -140,7 +140,7 @@ export default function ImportManager({
 
           {activeBatch.status === "committed" ? (
             <div className="card mb-6 p-4 text-sm">
-              <p className="font-medium text-emerald-500">This batch has been committed.</p>
+              <p className="font-medium text-[var(--success)]">This batch has been committed.</p>
               <p className="mt-1 text-[var(--muted)]">
                 Its rows are now real time entries. Approved rows carry a
                 content link; skipped rows do not.
@@ -383,7 +383,7 @@ function ImportRowView({
     confidence == null
       ? "text-[var(--muted)]"
       : confidence >= 70
-        ? "text-emerald-500"
+        ? "text-[var(--success)]"
         : confidence >= 40
           ? "text-amber-500"
           : "text-[var(--muted)]";
@@ -433,7 +433,7 @@ function ImportRowView({
       <span
         className={`rounded px-1.5 py-0.5 text-xs capitalize ${
           row.status === "approved"
-            ? "bg-emerald-500/15 text-emerald-500"
+            ? "bg-[var(--success)]/15 text-[var(--success)]"
             : row.status === "skipped"
               ? "bg-[var(--bg-subtle)] text-[var(--muted)]"
               : row.status === "rejected"

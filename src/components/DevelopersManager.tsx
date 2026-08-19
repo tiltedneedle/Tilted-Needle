@@ -212,7 +212,7 @@ export default function DevelopersManager({
                 <button
                   className={`rounded px-2 py-0.5 text-xs ${
                     w.is_active
-                      ? "bg-emerald-500/15 text-emerald-500"
+                      ? "bg-[var(--success)]/15 text-[var(--success)]"
                       : "bg-[var(--bg-subtle)] text-[var(--muted)]"
                   }`}
                   onClick={async () => {

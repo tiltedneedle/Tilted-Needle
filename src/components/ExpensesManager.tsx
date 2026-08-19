@@ -197,7 +197,7 @@ export default function ExpensesManager({
               {/* Once invoiced an expense is locked, so the same cost cannot
                   reach a client twice. */}
               {r.isInvoiced && (
-                <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-xs text-emerald-500">
+                <span className="rounded bg-[var(--success)]/15 px-1.5 py-0.5 text-xs text-[var(--success)]">
                   Invoiced
                 </span>
               )}

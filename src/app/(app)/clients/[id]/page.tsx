@@ -109,7 +109,7 @@ export default async function ClientChannelsPage({
 
               <div className="mt-1.5 flex items-center justify-between">
                 {ch.recentGain && ch.recentGain.views > 0 ? (
-                  <span className="tabular text-xs text-emerald-500">
+                  <span className="tabular text-xs text-[var(--success)]">
                     +{ch.recentGain.views.toLocaleString()}
                     <span className="ml-0.5 opacity-70">/{ch.recentGain.days.toFixed(0)}d</span>
                   </span>

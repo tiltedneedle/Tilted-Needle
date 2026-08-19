@@ -348,7 +348,7 @@ export default function ContentOverview({
                         </td>
                         <td className="tabular px-3 py-2.5 text-right">
                           {c.recentGain > 0 ? (
-                            <span className="text-emerald-500">
+                            <span className="text-[var(--success)]">
                               +{c.recentGain.toLocaleString()}
                             </span>
                           ) : (

@@ -173,7 +173,7 @@ export default function ReportTable({ report }: { report: Report }) {
                         key={c.key}
                         className={`px-3 py-2.5 ${c.kind === "number" ? "tabular text-right" : ""} ${
                           cell?.tone === "muted" ? "text-[var(--muted)]" : ""
-                        } ${cell?.tone === "up" ? "text-emerald-500" : ""}`}
+                        } ${cell?.tone === "up" ? "text-[var(--success)]" : ""}`}
                       >
                         {isLabel && r.href ? (
                           <Link
@@ -222,7 +222,7 @@ export default function ReportTable({ report }: { report: Report }) {
                         key={c.key}
                         className={`px-3 py-2.5 ${c.kind === "number" ? "tabular text-right" : ""} ${
                           cell?.tone === "muted" ? "text-[var(--muted)]" : ""
-                        } ${cell?.tone === "up" ? "text-emerald-500" : ""}`}
+                        } ${cell?.tone === "up" ? "text-[var(--success)]" : ""}`}
                       >
                         {cell?.text ?? "—"}
                       </td>

@@ -62,7 +62,7 @@ export default function PipelineHealth({ status }: { status: PipelineStatus }) {
             <>
               {live.map((w) => (
                 <span key={w.id} className="flex items-center gap-1.5 text-sm">
-                  <span className="size-2 rounded-full bg-emerald-500" />
+                  <span className="size-2 rounded-full bg-[var(--success)]" />
                   <span className="font-medium">{w.id}</span>
                   <span className="text-xs text-[var(--muted)]">{ago(w.secondsAgo)}</span>
                 </span>
@@ -186,7 +186,7 @@ export default function PipelineHealth({ status }: { status: PipelineStatus }) {
                     key={c.clientName}
                     className={
                       complete
-                        ? "text-emerald-600 dark:text-emerald-400"
+                        ? "text-[var(--success)]"
                         : none
                           ? "text-[var(--muted)]"
                           : ""

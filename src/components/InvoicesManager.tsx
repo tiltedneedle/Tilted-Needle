@@ -23,7 +23,7 @@ const STATUSES = ["draft", "sent", "paid", "void"] as const;
 const STATUS_CLASS: Record<string, string> = {
   draft: "bg-[var(--bg-subtle)] text-[var(--muted)]",
   sent: "bg-blue-500/15 text-blue-400",
-  paid: "bg-emerald-500/15 text-emerald-500",
+  paid: "bg-[var(--success)]/15 text-[var(--success)]",
   void: "bg-[var(--bg-subtle)] text-[var(--muted)] line-through",
 };
 

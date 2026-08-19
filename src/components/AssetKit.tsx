@@ -185,7 +185,7 @@ function AssetCard({ asset, canManage }: { asset: ClientAsset; canManage: boolea
             title="Copy"
             aria-label={`Copy ${asset.label}`}
           >
-            {copied ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
+            {copied ? <Check size={12} className="text-[var(--success)]" /> : <Copy size={12} />}
           </button>
         </div>
       )}

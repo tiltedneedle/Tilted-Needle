@@ -71,7 +71,7 @@ export default async function GuidelinePage({
             <span
               className={`rounded-full px-2 py-0.5 ${
                 complete
-                  ? "bg-emerald-500/10 text-emerald-600"
+                  ? "bg-[var(--success)]/10 text-[var(--success)]"
                   : "bg-[var(--bg-subtle)]"
               }`}
             >

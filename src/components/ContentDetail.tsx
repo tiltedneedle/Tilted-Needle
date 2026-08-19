@@ -1036,7 +1036,7 @@ function SnapshotHistory({ rows }: { rows: SnapshotRow[] }) {
                 </span>
                 <span
                   className={`tabular w-16 shrink-0 text-right ${
-                    delta && delta > 0 ? "text-emerald-500" : "text-[var(--muted)]"
+                    delta && delta > 0 ? "text-[var(--success)]" : "text-[var(--muted)]"
                   }`}
                 >
                   {delta == null ? "—" : delta > 0 ? `+${delta.toLocaleString()}` : delta}

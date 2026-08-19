@@ -737,7 +737,7 @@ export default function VideoTile({
             the badge is gone. */}
         {v.lifecycleShape === "rising" && (
           <span
-            className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-xs font-medium text-emerald-500"
+            className="rounded bg-[var(--success)]/10 px-1.5 py-0.5 text-xs font-medium text-[var(--success)]"
             title={SHAPE_HINT[v.lifecycleShape]}
           >
             {SHAPE_LABEL[v.lifecycleShape]}
@@ -764,7 +764,7 @@ export default function VideoTile({
             (stale ? ` Last read ${Math.round(v.recentGain.staleDays!)} days ago, so this is not current.` : "");
           return (
             <span
-              className={`tabular text-xs ${stale ? "text-[var(--muted)]" : "text-emerald-500"}`}
+              className={`tabular text-xs ${stale ? "text-[var(--muted)]" : "text-[var(--success)]"}`}
               title={title}
             >
               {perDay == null ? (

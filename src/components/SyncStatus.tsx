@@ -80,8 +80,8 @@ export default function SyncStatus({
         <span className="text-sm font-semibold">Automatic refresh</span>
 
         {live.length > 0 ? (
-          <span className="flex items-center gap-1.5 rounded bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-500">
-            <span className="size-1.5 rounded-full bg-emerald-500" />
+          <span className="flex items-center gap-1.5 rounded bg-[var(--success)]/10 px-2 py-0.5 text-xs text-[var(--success)]">
+            <span className="size-1.5 rounded-full bg-[var(--success)]" />
             {live.map((p) => p.displayName).join(", ")} — daily
           </span>
         ) : (
@@ -113,7 +113,7 @@ export default function SyncStatus({
       </div>
 
       {message && (
-        <p className="animate-rise mt-2 text-xs text-emerald-500" role="status">
+        <p className="animate-rise mt-2 text-xs text-[var(--success)]" role="status">
           {message}
         </p>
       )}
@@ -143,7 +143,7 @@ export default function SyncStatus({
           {live.map((p) => (
             <div key={p.slug} className="text-xs">
               <span className="font-medium">{p.displayName}</span>{" "}
-              <span className="text-emerald-500">syncing</span>
+              <span className="text-[var(--success)]">syncing</span>
               <span className="text-[var(--muted)]">
                 {" "}
                 — {p.accountCount} account{p.accountCount === 1 ? "" : "s"}

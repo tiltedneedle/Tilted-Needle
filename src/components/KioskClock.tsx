@@ -75,7 +75,7 @@ export default function KioskClock({
         </p>
       )}
       {result && (
-        <p className="animate-rise mb-3 text-sm font-medium text-emerald-500" role="status">
+        <p className="animate-rise mb-3 text-sm font-medium text-[var(--success)]" role="status">
           {result.action === "clock_in" ? "Clocked in" : "Clocked out"}
         </p>
       )}

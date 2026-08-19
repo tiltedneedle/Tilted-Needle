@@ -363,7 +363,7 @@ export default async function HomePage() {
                         <span className="text-[var(--muted)]">quiet this week — nothing gained</span>
                       ) : (
                         <>
-                          <span className={wow >= 0 ? "text-emerald-500" : "text-[var(--muted)]"}>
+                          <span className={wow >= 0 ? "text-[var(--success)]" : "text-[var(--muted)]"}>
                             {wow >= 0 ? "▲" : "▼"} {Math.abs(wow)}%
                           </span>
                           <span className="text-[var(--muted)]">vs prior week</span>
