@@ -112,7 +112,9 @@ export default function KiosksManager({
                 <button
                   className="btn px-2 py-1 text-xs"
                   onClick={async () => {
-                    await toggleKiosk(k.id, !k.isActive);
+                    const res = await toggleKiosk(k.id, !k.isActive);
+                    if (res?.error) return setError(res.error);
+                    setError(null);
                     refresh();
                   }}
                 >

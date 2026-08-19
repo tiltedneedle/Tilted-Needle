@@ -219,7 +219,13 @@ export default function ImportManager({
                   className="rounded px-2 py-1 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--danger)]"
                   onClick={async () => {
                     if (!confirm("Discard this entire batch? Nothing has been committed yet.")) return;
-                    await discardImportBatch(activeBatch.id);
+                    /* The push happened unconditionally, so a refused discard
+                       left the batch alive with the user already on another
+                       page -- and the next visit shows it still sitting
+                       there with no explanation. Navigate only on success. */
+                    const res = await discardImportBatch(activeBatch.id);
+                    if (res?.error) return setError(res.error);
+                    setError(null);
                     router.push("/import");
                   }}
                 >

@@ -119,7 +119,14 @@ export default function DevelopersManager({
                   <button
                     className="rounded px-2 py-1 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--danger)]"
                     onClick={async () => {
-                      await revokeApiKey(k.id);
+                      /* A revoke reported success whatever happened. The row
+                         redrew from the server, so a REFUSED revoke left the
+                         key visibly un-revoked -- but nothing said why, and
+                         the operator has already moved on believing the
+                         credential is dead. It is not. */
+                      const res = await revokeApiKey(k.id);
+                      if (res?.error) return setError(res.error);
+                      setError(null);
                       refresh();
                     }}
                   >
