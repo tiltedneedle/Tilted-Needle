@@ -72,24 +72,48 @@ LLM API.
 | Block storage | 200 GB total, 2 volumes |
 | Outbound transfer | 10 TB / month |
 
+The formal limit is **1,500 OCPU-hours and 9,000 GB-hours per month** — the
+2 OCPU / 12 GB above is that run continuously, with about 12 OCPU-hours of
+slack in a 31-day month. Two instances overlapping for a day can therefore
+exceed the monthly allowance while never breaching the point-in-time shape
+check. Halved from 4 OCPU / 24 GB on **2026-06-15**.
+
 **The trap that makes this easy to get wrong.** The console and the limits API
-report far more than the ceiling — this tenancy shows **41 A1 OCPUs and 277 GB**
-because the 30-day trial quota is still in force. That headroom is not yours.
-Anything above the ceiling is reclaimed or **billed** when the trial converts.
-Never provision to what the quota says; provision to the table above.
+report far more than the ceiling — this tenancy showed **41 A1 OCPUs and
+277 GB** under trial quota. That headroom was never yours.
+
+**And the trap changed shape on 2026-08-19, when this tenancy converted to Pay
+As You Go.** On the trial, anything past the allowance was refused or
+reclaimed: the account could not really overspend. Now the same request
+succeeds and is **billed**, silently, with no hard stop. Oracle charges
+nothing for Always Free resources on a paid account — but nothing prevents
+provisioning past them either. Every guard in `deploy/oracle/` stopped being a
+belt-and-braces duplicate of Oracle's own refusal and became the only thing
+between this project and an invoice.
 
 **Rules:**
 
 1. Only create shapes the console labels **"Always Free Eligible"**.
-2. Never upgrade to Pay As You Go. Upgrading is what makes ARM capacity
-   reliably available — and what makes an unexpected bill possible.
-3. Never raise the ceiling constants in `deploy/oracle/provision.py`. The
-   script refuses anything above 2 OCPU / 12 GB by design, with exit code 2.
-   That refusal is a feature; do not "fix" it.
+2. The account is already Pay As You Go and **cannot be downgraded** — Oracle
+   offers no path back. So the old rule ("never upgrade") is spent; the rule
+   now is that overage bills silently and only our own guards stop it.
+3. Never raise the ceiling constants. They live in **three** files —
+   `provision.py`, `audit.py` and `probe_capacity.py` — and that duplication
+   has already failed once: the audit sat at 4 OCPU / 24 GB, double the real
+   ceiling, while the other two were correct. Change all three or none.
 4. Never provision Autonomous Databases, Load Balancers, or anything else
    "because it is also free" — free tiers change, and the only resources this
    project needs are one compute instance and its boot volume.
-5. Before and after any provisioning work, run the audit:
+5. **Never create a compute capacity reservation.** It looks like the
+   PAY-AS-YOU-GO-native answer to Singapore's chronic "out of host capacity",
+   and it bills from creation at ~85% of on-demand whether or not anything
+   runs in it. `audit.py` looks for one.
+6. Keep block volumes at **Balanced (10 VPU/GB)**. Performance is billed
+   separately from capacity, so a faster volume costs money while still
+   sitting inside the 200 GB allowance.
+7. Stay in the home region. The 200 GB is home-region-only; a volume in
+   another subscribed region bills from the first GB.
+8. Before and after any provisioning work, run the audit:
 
 ```bash
 python deploy/oracle/audit.py
@@ -98,7 +122,12 @@ python deploy/oracle/audit.py
 It fails loudly if anything in the tenancy sits outside Always Free.
 
 **Capacity is not a reason to break this.** `ap-singapore-1` has a single
-availability domain and A1 capacity is frequently exhausted. The answer is
-`provision.py --watch`, which waits for capacity — never a paid shape, and
-never a bigger one.
+availability domain and A1 capacity is frequently exhausted — still true on
+Pay As You Go, which buys queue priority, not inventory. Verified 2026-08-19:
+every size and every fault domain reported `OUT_OF_HOST_CAPACITY`.
+
+The answer is `provision.py --watch` — never a paid shape, never a bigger one,
+never a reservation. It now asks `CreateComputeCapacityReport` first, which
+answers the capacity question for free and outside the launch rate limit, and
+only spends a launch attempt when the report says there is room.
 <!-- END:oracle-always-free -->

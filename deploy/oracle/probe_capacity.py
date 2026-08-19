@@ -17,6 +17,14 @@ Two things had never been varied before this script:
 Every attempt stays inside the Always Free ceiling (2 OCPU / 12 GB since
 2026-06-15). Nothing here can provision a billable shape.
 
+NOTE (2026-08-19): most of what this file does by LAUNCHING is now answered
+for free by CreateComputeCapacityReport -- see capacity.py, which provision.py
+--watch uses to gate its attempts. Six size/fault-domain combinations came
+back in one burst with no throttling, where the launch-based sweep below
+returns roughly one real answer per burst and throttles the rest. Prefer
+capacity.py for asking; keep this for the definitive test, since only a launch
+proves a launch.
+
     python deploy/oracle/probe_capacity.py            # report only
     python deploy/oracle/probe_capacity.py --launch --ssh-key ~/.ssh/key.pub
 """

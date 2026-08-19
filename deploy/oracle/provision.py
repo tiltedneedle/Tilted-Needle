@@ -12,10 +12,22 @@ instance disposable -- if Oracle reclaims it, this script rebuilds it.
 Requires the `oci` Python SDK and a working ~/.oci/config. The CLI is NOT
 required (and does not install on Windows without long-path support, §14.11).
 
-THE ALWAYS FREE CEILING IS ENFORCED HERE, not left to the operator. The
-console will happily offer 41 A1 cores because trial quota is still in
-effect; anything above 4 OCPU / 24 GB gets reclaimed or billed when the trial
-converts (§14.5). This script refuses to exceed it.
+THE ALWAYS FREE CEILING IS ENFORCED HERE, not left to the operator: 2 OCPU
+and 12 GB, the constants below, which this script refuses to exceed.
+
+Two things about that number, both learned the hard way:
+
+  IT IS 2/12, NOT 4/24. Oracle halved the Always Free A1 allowance on
+  2026-06-15 (1,500 OCPU-hours and 9,000 GB-hours per month, which is 2 OCPU
+  and 12 GB run continuously). This docstring claimed 4/24 for months while
+  the constants eleven lines below said 2/12 -- and audit.py believed the
+  docstring, sitting at double the real ceiling until it was caught.
+
+  THE TENANCY IS NOW PAY AS YOU GO. On the trial, over-ceiling resources were
+  refused or reclaimed and the account could not really overspend. Since
+  2026-08-19 the same request simply succeeds and bills, with no hard stop.
+  The refusal below is no longer a formality that duplicates Oracle's own
+  guard rail; it IS the guard rail.
 """
 import argparse
 import random
@@ -23,6 +35,8 @@ import time
 import sys
 
 import oci
+
+from capacity import any_capacity
 
 # --- Always Free ceilings. Do not raise these. ------------------------------
 MAX_A1_OCPUS = 2
@@ -34,6 +48,20 @@ SUBNET_CIDR = "10.0.0.0/24"
 
 A1_SHAPE = "VM.Standard.A1.Flex"
 MICRO_SHAPE = "VM.Standard.E2.1.Micro"
+
+
+_CTX = {}
+
+
+def _ctx():
+    """compute client, tenancy OCID and AD name -- built once, reused."""
+    if not _CTX:
+        cfg = oci.config.from_file()
+        tenancy = cfg["tenancy"]
+        _CTX["compute"] = oci.core.ComputeClient(cfg)
+        _CTX["tenancy"] = tenancy
+        _CTX["ad"] = oci.identity.IdentityClient(cfg).list_availability_domains(tenancy).data[0].name
+    return _CTX
 
 
 def log(msg: str) -> None:
@@ -76,10 +104,42 @@ def main() -> int:
         asked = 0        # attempts that got a real capacity answer
         throttled = 0    # attempts Oracle refused before answering
 
+        # Sizes worth landing, smallest first. A 1 OCPU / 6 GB instance is a
+        # materially easier ask than 2/12 and A1.Flex resizes IN PLACE
+        # (UpdateInstance, reboot only) -- so taking the small one when it is
+        # the only one going is strictly better than waiting for the big one.
+        sizes = [(1, 6), (args.ocpus, args.memory)]
+
         while time.time() < deadline:
             attempt += 1
             log(f"--- attempt {attempt} ---")
             outcome = "error"
+
+            # ASK BEFORE SPENDING. CreateComputeCapacityReport answers the
+            # capacity question for free and, crucially, outside the
+            # launch_instance rate budget -- six combinations came back in one
+            # burst with no throttling where six launches would have returned
+            # one fact and five 429s. Fault domain is left unset, which is
+            # Oracle's own out-of-capacity guidance: naming one samples that
+            # one, leaving it unset samples all three.
+            try:
+                free, lines = any_capacity(_ctx()["compute"], _ctx()["tenancy"], _ctx()["ad"], sizes)
+                log("capacity report: " + ", ".join(lines))
+                if not free:
+                    # No launch attempt at all: nothing to throttle, so the
+                    # next poll can be soon rather than backing off.
+                    wait = 300 + random.random() * 300  # 5-10 min
+                    remaining = deadline - time.time()
+                    if remaining <= 0:
+                        break
+                    log(f"no room anywhere; re-checking in {wait / 60:.1f} min "
+                        f"({remaining / 3600:.1f}h left)")
+                    time.sleep(min(wait, remaining))
+                    continue
+                log("capacity reported AVAILABLE -- attempting launch")
+            except Exception as e:  # noqa: BLE001 -- probing must never end the watch
+                log(f"capacity report unavailable ({type(e).__name__}); launching blind")
+
             try:
                 rc, outcome = launch_once(args, report=True)
                 if rc == 0:

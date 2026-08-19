@@ -122,7 +122,16 @@ def main() -> int:
             volume_count += 1
             findings["volumes"].append({
                 "name": bv.display_name, "type": "boot", "sizeGb": bv.size_in_gbs,
+                "vpus": bv.vpus_per_gb,
             })
+            # Performance is billed SEPARATELY from capacity. Balanced (10) is
+            # the launch default and the floor for a boot volume; anything
+            # above it is a charge that the GB total here cannot show.
+            if (bv.vpus_per_gb or 0) > 10:
+                problems.append(
+                    f"BOOT VOLUME PERFORMANCE: {bv.display_name} is at {bv.vpus_per_gb} VPU/GB. "
+                    "Above Balanced (10) is billed even inside the 200 GB allowance."
+                )
         for v in block.list_volumes(availability_domain=ad.name, compartment_id=tenancy).data:
             if v.lifecycle_state != "AVAILABLE":
                 continue
@@ -130,12 +139,48 @@ def main() -> int:
             volume_count += 1
             findings["volumes"].append({
                 "name": v.display_name, "type": "block", "sizeGb": v.size_in_gbs,
+                "vpus": v.vpus_per_gb,
             })
+            if (v.vpus_per_gb or 0) > 10:
+                problems.append(
+                    f"VOLUME PERFORMANCE: {v.display_name} is at {v.vpus_per_gb} VPU/GB. "
+                    "Above Balanced (10) is billed even inside the 200 GB allowance."
+                )
 
     if total_gb > MAX_BLOCK_GB:
         problems.append(f"STORAGE OVER CEILING: {total_gb} GB, limit is {MAX_BLOCK_GB}.")
-    if volume_count > MAX_BLOCK_VOLUMES + MAX_MICRO_INSTANCES:
-        problems.append(f"UNEXPECTED VOLUME COUNT: {volume_count}.")
+    # One boot volume per instance, plus the 2 block volumes the allowance
+    # covers. The old tolerance only alarmed at 5+, so three or four volumes
+    # passed silently against a declared ceiling of two -- slack that the
+    # trial covered by refusing to provision and Pay As You Go simply bills.
+    max_volumes = MAX_BLOCK_VOLUMES + len(instances)
+    if volume_count > max_volumes:
+        problems.append(
+            f"UNEXPECTED VOLUME COUNT: {volume_count} volumes for {len(instances)} "
+            f"instance(s); expected at most {max_volumes}. Detached volumes bill."
+        )
+
+    # --- Other subscribed regions ------------------------------------------
+    #
+    # The 200 GB allowance is HOME REGION ONLY: "volumes created outside of
+    # the home region incur regular block volume costs", from the first GB.
+    # Everything above this point inspects one region, so a volume in a
+    # second subscribed region is invisible to it -- free on the trial
+    # because provisioning there was refused, billable now.
+    try:
+        subs = identity.list_region_subscriptions(tenancy).data
+        home = [r.region_name for r in subs if r.is_home_region]
+        others = [r.region_name for r in subs if not r.is_home_region]
+        findings["homeRegion"] = home[0] if home else None
+        findings["otherRegions"] = others
+        if others:
+            problems.append(
+                f"SUBSCRIBED TO {len(others)} NON-HOME REGION(S): {', '.join(others)}. "
+                "This audit only inspects "
+                f"{cfg['region']}; storage outside the home region bills from the first GB."
+            )
+    except Exception:  # noqa: BLE001
+        findings["otherRegions"] = None
 
     # --- What Pay As You Go unlocks ----------------------------------------
     #
@@ -146,9 +191,15 @@ def main() -> int:
     # and every one of them is a standing monthly charge rather than a
     # one-off.
     #
-    # The NAT gateway is the one that matters most here, because this project
-    # BUILDS A VCN. Attaching one is two clicks in the console and about $33 a
-    # month forever, and nothing else in this audit would have said a word.
+    # CORRECTION, and it was mine. This block shipped claiming a NAT gateway
+    # is "about $33 a month forever" and the largest standing charge here.
+    # That is AWS's price. OCI publishes NO SKU for NAT, service or internet
+    # gateways, and states there is no charge for data movement within a
+    # region -- likewise no SKU for public IPs, reserved or ephemeral. The
+    # sweeps below stay, because a gateway or reserved IP appearing in this
+    # tenancy is still drift worth seeing, but they are drift detection and
+    # not the bill guard I said they were. The real standing charges are
+    # further down: capacity reservations, backups, out-of-region volumes.
     net = oci.core.VirtualNetworkClient(cfg)
     billable: list[str] = []
 
@@ -177,9 +228,9 @@ def main() -> int:
         g for vid in vcns
         for g in net.list_nat_gateways(compartment_id=tenancy, vcn_id=vid).data
     ])
-    # Ephemeral IPs come free with an instance; a RESERVED one is a standing
-    # charge that outlives whatever it was attached to -- which is precisely
-    # how it gets forgotten.
+    # A reserved IP outlives whatever it was attached to, which is how it
+    # gets forgotten -- worth surfacing as drift even though, contrary to
+    # what this file used to say, OCI lists no charge for it.
     sweep("reservedPublicIps",
           lambda: net.list_public_ips(scope="REGION", compartment_id=tenancy).data,
           is_free=lambda r: getattr(r, "lifetime", "") != "RESERVED")
@@ -195,9 +246,69 @@ def main() -> int:
 
     if billable:
         problems.append(
-            "BILLABLE ON PAY AS YOU GO: " + "; ".join(billable) + ". "
-            "These are not covered by Always Free and are charged monthly."
+            "UNEXPECTED NETWORK RESOURCES: " + "; ".join(billable) + ". "
+            "Not necessarily billable, but nothing in this project creates "
+            "them -- confirm what they are for."
         )
+
+    # ---- What ACTUALLY bills on Pay As You Go ------------------------------
+    #
+    # Researched against Oracle's own docs and price list rather than
+    # assumed. Each of these is free-tier-shaped enough to look safe and is
+    # charged the moment it crosses a line the resource inventory above
+    # cannot see.
+    charges: list[str] = []
+
+    # Capacity reservations bill from CREATION at ~85% of on-demand while
+    # idle, 100% when used, with no minimum commitment -- and they are
+    # unavailable on free tier, so they only became possible at conversion.
+    # This is the single most expensive mistake available in this tenancy,
+    # and it is exactly what somebody reaches for when Singapore says "out of
+    # host capacity" for the tenth time.
+    try:
+        res = oci.core.ComputeClient(cfg).list_compute_capacity_reservations(
+            compartment_id=tenancy
+        ).data
+        live_res = [r for r in res if r.lifecycle_state not in ("DELETED", "DELETING")]
+        findings["capacityReservations"] = len(live_res)
+        if live_res:
+            charges.append(
+                f"{len(live_res)} compute capacity reservation(s) — billed from creation "
+                "at ~85% of on-demand even while unused, NOT Always Free"
+            )
+    except Exception:  # noqa: BLE001
+        findings["capacityReservations"] = None
+
+    # Only 5 volume backups are free. On the trial the sixth failed; on Pay
+    # As You Go it succeeds and bills, and a Bronze/Silver/Gold policy
+    # accumulates them on a schedule nobody is watching.
+    try:
+        backups = block.list_boot_volume_backups(compartment_id=tenancy).data
+        backups += block.list_volume_backups(compartment_id=tenancy).data
+        live_backups = [b for b in backups if b.lifecycle_state == "AVAILABLE"]
+        findings["volumeBackups"] = len(live_backups)
+        if len(live_backups) > 5:
+            charges.append(f"{len(live_backups)} volume backups — only the first 5 are free")
+    except Exception:  # noqa: BLE001
+        findings["volumeBackups"] = None
+
+    # Object Storage: 20 GB COMBINED on the free tier becomes 10/10/10 GB PER
+    # TIER at conversion, so Standard holdings over 10 GB start billing.
+    try:
+        os_client = oci.object_storage.ObjectStorageClient(cfg)
+        ns = os_client.get_namespace().data
+        buckets = os_client.list_buckets(namespace_name=ns, compartment_id=tenancy).data
+        findings["buckets"] = len(buckets)
+        if buckets:
+            charges.append(
+                f"{len(buckets)} object storage bucket(s) — free allowance is 10 GB per "
+                "tier after conversion; check size if these are not empty"
+            )
+    except Exception:  # noqa: BLE001
+        findings["buckets"] = None
+
+    if charges:
+        problems.append("BILLABLE ON PAY AS YOU GO: " + "; ".join(charges) + ".")
 
     # --- Things that are free today and may not be tomorrow ----------------
     # Not errors, but worth surfacing: this project needs exactly one compute
@@ -239,9 +350,19 @@ def main() -> int:
         # Printed even when every count is zero. A check that reports nothing
         # is indistinguishable from a check that never ran -- which is how
         # this file came to be trusted while enforcing the wrong ceiling.
-        print("  billable on PAYG :", ", ".join(
+        vpus = sorted({v.get("vpus") for v in findings["volumes"] if v.get("vpus") is not None})
+        print("  volume perf      :", ", ".join(f"{v} VPU/GB" for v in vpus) or "n/a",
+              "(10 = Balanced, the free default; above bills)")
+        print("  regions          :",
+              f"home {findings.get('homeRegion') or '?'}",
+              ("+ " + ", ".join(findings["otherRegions"])) if findings.get("otherRegions") else "(no others)")
+        print("  drift sweep      :", ", ".join(
             f"{k} {'?' if findings.get(k) is None else findings.get(k)}"
             for k in ("natGateways", "reservedPublicIps", "loadBalancers", "fileSystems", "vaults")
+        ))
+        print("  billable sweep   :", ", ".join(
+            f"{k} {'?' if findings.get(k) is None else findings.get(k)}"
+            for k in ("capacityReservations", "volumeBackups", "buckets")
         ))
         print()
         if problems:
