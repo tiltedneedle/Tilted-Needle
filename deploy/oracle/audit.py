@@ -12,7 +12,7 @@ Run it before and after any provisioning work (AGENTS.md).
 
 The reason this exists at all: the console and the limits API report FAR more
 than the ceiling while the 30-day trial is in force -- this tenancy shows 41 A1
-OCPUs against a real allowance of 4. Anything above the ceiling is reclaimed or
+OCPUs against a real allowance of 2. Anything above the ceiling is reclaimed or
 billed at conversion, and by then it is someone's invoice rather than someone's
 mistake.
 """
@@ -23,8 +23,16 @@ import sys
 import oci
 
 # The ceilings. These are the rule; do not raise them (AGENTS.md).
-MAX_A1_OCPUS = 4
-MAX_A1_MEMORY_GB = 24
+#
+# 2 OCPU / 12 GB, not the 4 / 24 this file shipped with. Oracle tightened the
+# Always Free A1 allowance on 2026-06-15 and provision.py and
+# probe_capacity.py were both moved to the new number; this file was not, so
+# the one component whose entire job is to fail loudly when the tenancy sits
+# outside Always Free would have stayed silent all the way to DOUBLE the
+# allowance. An audit that passes a billable tenancy is worse than no audit,
+# because it is trusted.
+MAX_A1_OCPUS = 2
+MAX_A1_MEMORY_GB = 12
 MAX_MICRO_INSTANCES = 2
 MAX_BLOCK_GB = 200
 MAX_BLOCK_VOLUMES = 2
