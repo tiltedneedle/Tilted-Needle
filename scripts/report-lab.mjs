@@ -30,13 +30,15 @@ const OUT = "report-lab";
 mkdirSync(OUT, { recursive: true });
 
 const CLIENTS = JSON.parse(process.env.LAB_CLIENTS || "[]");
+/** Whichever server is up. A hardcoded port sends the whole sweep at a dead host. */
+const BASE = process.env.UI_BASE || "http://localhost:3000";
 const TEMPLATES = ["editorial", "bold", "luxury", "digest"];
 
 const b = await chromium.launch();
 const ctx = await b.newContext({ viewport: { width: 1200, height: 900 } });
 const page = await ctx.newPage();
 
-await page.goto("http://localhost:3000/login");
+await page.goto(BASE + "/login");
 await page.evaluate(async ([url, key]) => {
   const r = await fetch(url + "/auth/v1/token?grant_type=password", {
     method: "POST", headers: { apikey: key, "Content-Type": "application/json" },
@@ -67,7 +69,7 @@ const results = [];
 
 for (const c of CLIENTS) {
   for (const tpl of TEMPLATES) {
-    const url = `http://localhost:3000/reports/client?client=${c.id}&year=${c.year}&month=${c.month}&tpl=${tpl}`;
+    const url = `${BASE}/reports/client?client=${c.id}&year=${c.year}&month=${c.month}&tpl=${tpl}`;
     // A slow client must not take the whole sweep down with it -- and how long
     // a report takes to render IS a result, so it is recorded rather than
     // thrown.

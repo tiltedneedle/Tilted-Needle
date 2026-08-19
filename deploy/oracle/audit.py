@@ -137,6 +137,68 @@ def main() -> int:
     if volume_count > MAX_BLOCK_VOLUMES + MAX_MICRO_INSTANCES:
         problems.append(f"UNEXPECTED VOLUME COUNT: {volume_count}.")
 
+    # --- What Pay As You Go unlocks ----------------------------------------
+    #
+    # On the trial, anything past the free allowance was REFUSED or reclaimed;
+    # the account could not really overspend. On Pay As You Go it is simply
+    # billed, so the surfaces below went from impossible to merely
+    # unattended. None of them is compute, none is caught by an OCPU ceiling,
+    # and every one of them is a standing monthly charge rather than a
+    # one-off.
+    #
+    # The NAT gateway is the one that matters most here, because this project
+    # BUILDS A VCN. Attaching one is two clicks in the console and about $33 a
+    # month forever, and nothing else in this audit would have said a word.
+    net = oci.core.VirtualNetworkClient(cfg)
+    billable: list[str] = []
+
+    def sweep(label: str, fn, is_free=lambda r: False):
+        """Count live resources of a kind, minus any that are genuinely free."""
+        try:
+            rows = [
+                r for r in fn()
+                if getattr(r, "lifecycle_state", "AVAILABLE") not in ("TERMINATED", "TERMINATING", "DELETED", "DELETING")
+            ]
+        except Exception:  # noqa: BLE001 -- service unreachable is not a finding
+            findings[label] = None
+            return
+        paid = [r for r in rows if not is_free(r)]
+        findings[label] = len(rows)
+        if paid:
+            names = ", ".join(getattr(r, "display_name", "?") or "?" for r in paid[:3])
+            billable.append(f"{len(paid)} {label} ({names})")
+
+    # Every VCN in one sweep, not one sweep per VCN -- the per-VCN loop this
+    # replaced overwrote its own count each pass, so with two VCNs only the
+    # last one's gateways were ever reported. Silently, and in the single
+    # check with the largest standing charge behind it.
+    vcns = [v.id for v in net.list_vcns(compartment_id=tenancy).data]
+    sweep("natGateways", lambda: [
+        g for vid in vcns
+        for g in net.list_nat_gateways(compartment_id=tenancy, vcn_id=vid).data
+    ])
+    # Ephemeral IPs come free with an instance; a RESERVED one is a standing
+    # charge that outlives whatever it was attached to -- which is precisely
+    # how it gets forgotten.
+    sweep("reservedPublicIps",
+          lambda: net.list_public_ips(scope="REGION", compartment_id=tenancy).data,
+          is_free=lambda r: getattr(r, "lifetime", "") != "RESERVED")
+    sweep("loadBalancers",
+          lambda: oci.load_balancer.LoadBalancerClient(cfg).list_load_balancers(compartment_id=tenancy).data)
+    sweep("fileSystems",
+          lambda: oci.file_storage.FileStorageClient(cfg).list_file_systems(
+              compartment_id=tenancy, availability_domain=ads[0].name).data)
+    # A vault bills per key version per month whether or not anything uses it,
+    # and deleting one takes a mandatory waiting period.
+    sweep("vaults",
+          lambda: oci.key_management.KmsVaultClient(cfg).list_vaults(compartment_id=tenancy).data)
+
+    if billable:
+        problems.append(
+            "BILLABLE ON PAY AS YOU GO: " + "; ".join(billable) + ". "
+            "These are not covered by Always Free and are charged monthly."
+        )
+
     # --- Things that are free today and may not be tomorrow ----------------
     # Not errors, but worth surfacing: this project needs exactly one compute
     # instance, so anything else is drift.
@@ -174,13 +236,20 @@ def main() -> int:
         print(f"  block storage    : {total_gb}/{MAX_BLOCK_GB} GB across {volume_count} volume(s)")
         if findings["autonomousDatabases"] is not None:
             print(f"  autonomous DBs   : {findings['autonomousDatabases']} (expected 0)")
+        # Printed even when every count is zero. A check that reports nothing
+        # is indistinguishable from a check that never ran -- which is how
+        # this file came to be trusted while enforcing the wrong ceiling.
+        print("  billable on PAYG :", ", ".join(
+            f"{k} {'?' if findings.get(k) is None else findings.get(k)}"
+            for k in ("natGateways", "reservedPublicIps", "loadBalancers", "fileSystems", "vaults")
+        ))
         print()
         if problems:
             print("WITHIN ALWAYS FREE: NO")
             for p in problems:
                 print(f"  ! {p}")
         else:
-            print("WITHIN ALWAYS FREE: yes — nothing in this tenancy can generate a bill.")
+            print("WITHIN ALWAYS FREE: yes — nothing found in this tenancy can generate a bill.")
 
     return 1 if problems else 0
 

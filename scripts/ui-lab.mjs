@@ -31,6 +31,8 @@ const env = Object.fromEntries(
 );
 
 const SHOTS = process.argv.includes("--shots");
+/** Whichever server is up. A hardcoded port sends the whole sweep at a dead host. */
+const BASE = process.env.UI_BASE || "http://localhost:3000";
 const OUT = "ui-lab";
 if (SHOTS) mkdirSync(OUT, { recursive: true });
 
@@ -55,7 +57,7 @@ const consoleErrors = [];
 page.on("console", (m) => { if (m.type() === "error") consoleErrors.push(m.text().slice(0, 120)); });
 page.on("pageerror", (e) => consoleErrors.push("throw: " + String(e).slice(0, 120)));
 
-await page.goto("http://localhost:3103/login");
+await page.goto(BASE + "/login");
 await page.evaluate(async ([url, key]) => {
   const r = await fetch(url + "/auth/v1/token?grant_type=password", {
     method: "POST", headers: { apikey: key, "Content-Type": "application/json" },
@@ -77,7 +79,7 @@ for (const route of ROUTES) {
     const t0 = Date.now();
     let loadError = null;
     try {
-      await page.goto("http://localhost:3103" + route, { waitUntil: "domcontentloaded", timeout: 45000 });
+      await page.goto(BASE + route, { waitUntil: "domcontentloaded", timeout: 45000 });
       await page.waitForSelector("main", { timeout: 20000 });
       await page.waitForTimeout(400);
     } catch (e) {
