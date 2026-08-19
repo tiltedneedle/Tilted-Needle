@@ -318,7 +318,19 @@ export default async function HomePage() {
             <Empty>No snapshot history yet — momentum appears after a few daily syncs.</Empty>
           ) : (
             <div className="stagger grid grid-cols-[repeat(auto-fit,minmax(260px,1fr))] gap-3 [&>*]:min-w-0">
-              {momentum.map((m) => (
+              {momentum.map((m) => {
+                /* Week over week, from points the card already holds.
+                   A raw "+996k" is a number without a verdict -- every
+                   serious stats card ships the comparison that turns a
+                   figure into a direction (the 21st.dev Stats & KPIs
+                   catalogue is 153 variations on exactly this). Sum the
+                   last seven daily gains against the seven before; no new
+                   query, and it inherits the long-gap exclusion because
+                   the points already have it. */
+                const last7 = m.points.slice(-7).reduce((a, p) => a + p.y, 0);
+                const prev7 = m.points.slice(-14, -7).reduce((a, p) => a + p.y, 0);
+                const wow = prev7 > 0 ? Math.round(((last7 - prev7) / prev7) * 100) : null;
+                return (
                 /* flex column so the chart, not a gap, absorbs the slack.
                    The caption below is conditional, and grid rows stretch to
                    equal height -- so a platform with nothing caught up left a
@@ -337,6 +349,28 @@ export default async function HomePage() {
                       +<CountUp value={m.total} kind="count" />
                     </span>
                   </div>
+                  {/* null when last week had nothing to compare against --
+                      a chip reading "+Infinity%" answers a question nobody
+                      asked. Emerald up; muted down, because the accent red
+                      is reserved for actions and a soft week is context,
+                      not an alarm. */}
+                  {wow != null && (
+                    <div className="mt-0.5 flex items-center gap-1 text-[11px]">
+                      {/* "▼ 100%" is arithmetic where a sentence is wanted:
+                          a week at zero is not a percentage story, it is the
+                          account going quiet, and that is the actual news. */}
+                      {last7 === 0 ? (
+                        <span className="text-[var(--muted)]">quiet this week — nothing gained</span>
+                      ) : (
+                        <>
+                          <span className={wow >= 0 ? "text-emerald-500" : "text-[var(--muted)]"}>
+                            {wow >= 0 ? "▲" : "▼"} {Math.abs(wow)}%
+                          </span>
+                          <span className="text-[var(--muted)]">vs prior week</span>
+                        </>
+                      )}
+                    </div>
+                  )}
                   {/* flex-1 and centred: this is the element that takes up the
                       slack when a card has no caption, so the chart sits in
                       the middle of whatever height the row settles on rather
@@ -373,7 +407,8 @@ export default async function HomePage() {
                     </p>
                   )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
           {momentum.some((m) => m.caughtUp > 0) && (
