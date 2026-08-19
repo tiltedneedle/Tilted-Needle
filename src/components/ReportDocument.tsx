@@ -163,9 +163,26 @@ function BarList({ rows }: { rows: { label: string; value: number; suffix?: stri
  *   "full"    -- figures, distributions and videos.
  */
 function density(s: ReportPlatformSection): "sparse" | "medium" | "full" {
-  const blocks =
-    (s.metrics ? 1 : 0) + (s.breakdowns.length > 0 ? 1 : 0) + (s.top.length > 0 ? 1 : 0);
-  return blocks >= 3 ? "full" : blocks === 2 ? "medium" : "sparse";
+  /**
+   * Counted by VOLUME, not by how many kinds of block are present.
+   *
+   * It used to count blocks -- figures, distributions, videos -- so a section
+   * with eight videos and nothing else scored 1 and was called "sparse". That
+   * put the most generous type sizing on the fullest sheet, and Entree and The
+   * Jet Business both blew past the A4 column: 1050 and 1047 against 1016.
+   * Meanwhile a genuinely thin sheet and a packed one were styled identically.
+   *
+   * The rows are what fill a page, so the rows are what decide -- and the
+   * thresholds are MEASURED against the A4 column rather than guessed. Eight
+   * rows land at 941-994px under medium sizing and four land at 977-1008px
+   * under sparse, against a column of 1016. Both fill the sheet without
+   * crossing it, which is the whole target: a page that is 60% full reads as
+   * something missing, and one at 103% spills a row onto a blank sheet.
+   */
+  const rows = s.top.length + s.breakdowns.length;
+  if (rows >= 10) return "full";
+  if (rows >= 5) return "medium";
+  return "sparse";
 }
 
 /** Does this platform have anything at all worth a sheet? */
@@ -212,8 +229,38 @@ function PlatformPage({
   // Grouped in the order a reader wants them: how far it went, then who saw it.
   const kinds = [...new Set(s.breakdowns.map((b) => b.kind))];
 
+  /**
+   * Row padding computed to FILL the sheet, not chosen from a bucket.
+   *
+   * Density buckets set the type size well but could never land the page near
+   * full: the same three sizes had to serve two rows and ten, so a sheet came
+   * out at 68% or at 103% and nothing in between. The rows are the elastic
+   * part, so they absorb the difference.
+   *
+   * The arithmetic is the A4 column (about 1016px at 96dpi) less the fixed
+   * furniture -- eyebrow, headline, figure row, footer -- divided by however
+   * many rows this sheet carries. The budget is tuned to the TALLEST template
+   * rather than the average: Bold and Luxury set larger type, so a figure that
+   * lands Editorial at 995 puts Bold at 1048 and spills it. Clamped at both
+   * ends -- below 6px the rows collide, above 28px four videos look marooned
+   * rather than generous.
+   */
+  const rowCount = s.top.length + [...new Set(s.breakdowns.map((b) => b.kind))].length;
+  // A sheet carrying reported figures spends about 60px more on furniture --
+  // the tile row and its labels -- so it has that much less to give the rows.
+  // Ameerh has both eight videos and a full figure row, and was the only
+  // combination still spilling.
+  const budget = 668 - (s.metrics ? 58 : 0);
+  const rankPad = rowCount
+    ? Math.max(6, Math.min(28, Math.round((budget / rowCount - 38) / 2)))
+    : 9;
+
   return (
-    <section className="report-page" data-density={density(s)}>
+    <section
+      className="report-page"
+      data-density={density(s)}
+      style={{ ["--rank-pad" as string]: `${rankPad}px` }}
+    >
       <div className="report-eyebrow">
         {spaced(s.platformLabel)} &nbsp;·&nbsp; {spaced(report.periodLabel)}
       </div>

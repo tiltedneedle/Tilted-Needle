@@ -2704,3 +2704,189 @@ h3 {
 .tpl-bold .report-bar-track { border-bottom-width: 12px; height: 14px; }
 .tpl-bold .report-bar-fill { border-bottom-width: 12px; bottom: -12px; }
 .tpl-digest .report-bar-row { grid-template-columns: 110px minmax(0, 1fr) 64px; }
+
+@media print {
+  /**
+   * The full-bleed cover bleeds to the PAGE, not past it.
+   *
+   * On screen the dark cover uses a negative margin to escape the sheet's
+   * 34px padding and reach its edge. In print that padding is already gone,
+   * so the same negative margin pushed the cover 34px outside the page box on
+   * both sides -- a horizontal overflow on every bold and luxury render, which
+   * the PDF resolves by shifting or clipping the cover.
+   *
+   * The @page margin is the bleed here; there is nothing to escape.
+   */
+  .report-cover-inner {
+    margin: 0 !important;
+    padding: 70px 34px !important;
+  }
+
+  /**
+   * Keep a platform section inside one A4 column.
+   *
+   * The column is about 1016px at 96dpi (297mm less 28mm of margin). Entree's
+   * bold sheets measured 1054 and 1090, and the Jet Business 1054 -- so each
+   * spilled 40-70px onto a following sheet that then carried nothing else.
+   * A page that exists to hold two lines is the blank-page defect again,
+   * smaller.
+   *
+   * Tightened rather than truncated: the rows lose a few px of padding and
+   * the caption is held to one line at print size, which buys back more than
+   * the overflow without dropping a single video.
+   */
+  /* ONLY the sheets that were overflowing. Applied to every density it did
+     the opposite of its job on a thin sheet: a four-video section already
+     using two thirds of the page got squeezed to half, and the blank space
+     that produced is exactly the complaint this was meant to fix. A sparse
+     sheet has room and should use it. */
+  .report-page[data-density="full"] .report-rank,
+  .report-page[data-density="medium"] .report-rank {
+    padding: 7px 0;
+  }
+
+  .report-page[data-density="full"] .report-quote,
+  .report-page[data-density="medium"] .report-quote {
+    -webkit-line-clamp: 1;
+    font-size: 11.5px;
+  }
+
+  .report-page[data-density="full"] .report-headline,
+  .report-page[data-density="medium"] .report-headline {
+    font-size: 19px;
+    margin-bottom: 16px;
+  }
+
+  .report-page[data-density="full"] .report-figures,
+  .report-page[data-density="medium"] .report-figures {
+    gap: 18px 34px;
+    margin-bottom: 16px;
+  }
+
+  /**
+   * A THIN SHEET SPREADS OUT.
+   *
+   * Most clients have a handful of videos on a platform and nothing else, so
+   * this is the common sheet, not the exception. Left at dense sizing it used
+   * about 60% of the page and the rest read as something missing. Larger type
+   * and more generous rows make the same four videos occupy the sheet they
+   * were given.
+   */
+  .report-page[data-density="sparse"] .report-rank {
+    padding: 20px 0;
+  }
+
+  .report-page[data-density="sparse"] .report-quote {
+    font-size: 15px;
+    -webkit-line-clamp: 2;
+  }
+
+  .report-page[data-density="sparse"] .report-rank-value {
+    font-size: 23px;
+  }
+
+  .report-page[data-density="sparse"] .report-headline {
+    font-size: 30px;
+    margin-bottom: 30px;
+  }
+
+  .report-page[data-density="sparse"] .report-figures {
+    gap: 30px 52px;
+    margin-bottom: 30px;
+  }
+
+  .report-page[data-density="sparse"] .report-figure-value {
+    font-size: 44px;
+  }
+}
+
+@media print {
+  /**
+   * Editorial's spine inset is a SCREEN measurement.
+   *
+   * On screen the sheet has 34px of its own padding and the 88px left inset
+   * carves room for the hairline spine. In print the sheet's padding is gone
+   * and @page already supplies 14mm on both sides -- so the 88px landed
+   * entirely on the left, giving a content box inset 88px on one side and 0 on
+   * the other. Measured: padL 88px, padR 0px, rows touching the right edge
+   * exactly. It reads as a page printed off-centre.
+   *
+   * Halved, with the spine moved in to match. The rule still runs the full
+   * height and the column sits square on the sheet.
+   */
+  .tpl-editorial .report-page {
+    padding-left: 44px;
+  }
+
+  .tpl-editorial .report-page::after {
+    left: 22px;
+    top: 6px;
+    bottom: 30px;
+  }
+
+  .tpl-luxury .report-page::before {
+    left: 18px;
+    top: 6px;
+    bottom: 30px;
+  }
+
+  .tpl-luxury .report-page {
+    padding-left: 40px;
+  }
+}
+
+@media print {
+  /**
+   * DIGEST PACKS. It is the only template whose whole point is brevity.
+   *
+   * The global `break-before: page` above gives every section its own sheet,
+   * which is right for the three full-dress templates and destroys this one:
+   * Digest came out at seven pages with roughly 40% of each blank, which is
+   * the opposite of the two-sheet brief it exists to be. Sections flow here
+   * and only avoid splitting themselves.
+   *
+   * The cover is the exception -- it still ends its sheet, because a summary
+   * running up against the client's name reads as a mistake rather than as
+   * economy.
+   */
+  .tpl-digest .report-page {
+    break-before: auto;
+    page-break-before: auto;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    margin-bottom: 18px;
+  }
+
+  .tpl-digest .report-page:first-child {
+    break-after: page;
+    page-break-after: always;
+    margin-bottom: 0;
+  }
+
+  /* Every sheet carrying a footer is right when each sheet is a page. When
+     several sections share one, it repeats the same line three times down the
+     paper -- so only the last one keeps it. */
+  .tpl-digest .report-footer {
+    display: none;
+  }
+
+  .tpl-digest .report-page:last-child .report-footer {
+    display: flex;
+  }
+}
+
+/* The row breathes by however much the sheet has spare. See PlatformPage:
+   the value is computed per sheet from its own row count, because one fixed
+   padding cannot serve a two-row page and a ten-row page without leaving one
+   of them wrong. */
+.report-rank {
+  padding: var(--rank-pad, 9px) 0;
+}
+
+@media print {
+  .report-page[data-density="full"] .report-rank,
+  .report-page[data-density="medium"] .report-rank,
+  .report-page[data-density="sparse"] .report-rank {
+    padding: var(--rank-pad, 9px) 0;
+  }
+}

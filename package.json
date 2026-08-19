@@ -49,6 +49,7 @@
     "test:overlay": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/credit-overlay-test.mjs",
     "test:selectin": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/select-in-test.mjs",
     "test:rollupunique": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/rollup-unique-test.mjs",
+    "report:lab": "node scripts/report-lab.mjs",
     "test:clientreport": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/client-report-test.mjs",
     "test:periodfields": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/period-fields-test.mjs",
     "test:publishdate": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/publish-date-test.mjs",
