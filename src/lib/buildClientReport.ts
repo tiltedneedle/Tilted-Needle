@@ -280,7 +280,7 @@ export async function buildClientReport(
     supabase
       .from("platform_posts")
       .select(
-        "id, content_item_id, account_id, posted_at, posted_at_ts, content:content_items(title), metrics:post_current_metrics(likes)",
+        "id, content_item_id, account_id, posted_at, posted_at_ts, thumbnail_url, content:content_items(title), metrics:post_current_metrics(likes)",
       )
       .in("account_id", accounts.length ? accounts.map((a) => a.id) : ["none"])
       .order("id"),
@@ -291,6 +291,7 @@ export async function buildClientReport(
     account_id: string;
     posted_at: string | null;
     posted_at_ts: string | null;
+    thumbnail_url: string | null;
     content: { title: string } | { title: string }[] | null;
     metrics: { likes: number | null } | { likes: number | null }[] | null;
   }[];
@@ -341,6 +342,7 @@ export async function buildClientReport(
           ? operatingDate(new Date(p.posted_at_ts))
           : (p.posted_at ? p.posted_at.slice(0, 10) : null),
         likes: one(p.metrics)?.likes ?? 0,
+        thumbnailUrl: p.thumbnail_url,
         snapshots: snapsByPost.get(p.id) ?? [],
       }));
 

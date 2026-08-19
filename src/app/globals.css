@@ -2899,3 +2899,42 @@ h3 {
   color: var(--report-muted);
   max-width: 68ch;
 }
+
+/* The poster frame column.
+   Fixed width whether or not an image arrives, so a platform with patchy
+   coverage (Instagram sits at 13%) does not print with its captions on a
+   different left edge from row to row. */
+.report-rank {
+  grid-template-columns: 26px 46px minmax(0, 1fr) 92px 76px;
+}
+
+.report-rank-thumb {
+  width: 46px;
+  height: 34px;
+  overflow: hidden;
+  border-radius: 2px;
+  align-self: center;
+  /* A border rather than a fill: an empty cell must still print as a quiet
+     placeholder when "Background graphics" is off. */
+  border: 1px solid var(--report-rule);
+}
+
+.report-rank-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.tpl-digest .report-rank {
+  grid-template-columns: 20px 38px minmax(0, 1fr) 80px 66px;
+}
+.tpl-digest .report-rank-thumb { width: 38px; height: 26px; }
+
+@media print {
+  /* Images must actually be fetched for the PDF. */
+  .report-rank-thumb img {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

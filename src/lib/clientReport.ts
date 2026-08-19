@@ -50,6 +50,8 @@ export type ReportPost = {
    */
   postedAtTs: string | null;
   likes: number | null;
+  /** Poster frame, when the platform gave us one. */
+  thumbnailUrl?: string | null;
   snapshots: ReportSnapshot[];
 };
 
@@ -95,6 +97,7 @@ export type TopVideo = {
    *                        report says so rather than implying one.
    */
   basis: "measured" | "lifetime" | "since-publication";
+  thumbnailUrl: string | null;
 };
 
 /** A post that exists but cannot be placed in the ranking, and why. */
@@ -105,7 +108,30 @@ export type UnmeasurableVideo = {
   reason:
     | "no-reading-by-period-end"
     | "no-readings-at-all"
-    | "published-before-history";
+    | "published-before-history"
+    /**
+     * Published BEFORE this period entirely, with no reading inside it.
+     *
+     * Split out of no-reading-by-period-end because the two are not the same
+     * fact and do not have the same answer. A video published on the 30th and
+     * read on the 2nd is this month's work that we measured a day late; a
+     * video published in March is not this month's work at all.
+     *
+     * Conflating them made a June report announce "48 videos could not be
+     * measured" when 48 of the account's 53 videos simply predated June and
+     * all five of June's own videos had been ranked perfectly. It read as a
+     * broken report and was a complete one.
+     */
+    | "older-than-period"
+    /**
+     * Published AFTER this period closed.
+     *
+     * On a report for an earlier month most of an account's library is this:
+     * for Euro Eyes London's June report, 42 of 53 videos had not been posted
+     * yet. Calling them unmeasurable is true and useless -- they are not
+     * missing from June, they are simply not June's.
+     */
+    | "newer-than-period";
 };
 
 /**
@@ -233,16 +259,33 @@ export function pickTopVideos(
           likes: p.likes ?? 0,
           gained: first.views ?? 0,
           basis: "since-publication",
+          thumbnailUrl: p.thumbnailUrl ?? null,
         });
         continue;
       }
-      // Published before the period and first measured after it: nothing here
-      // is attributable, and there is no honest number to print.
+      /**
+       * THREE situations here, and only one is a gap in this report.
+       *
+       * Before the period: not this month's work. After it: not posted yet
+       * when the month closed. Inside it, unread: the only one that is
+       * actually missing. Reporting all three as "could not be measured" is
+       * how a June report announced 48 failures for a month whose five videos
+       * had every one of them ranked.
+       */
+      const day = p.postedAtTs?.slice(0, 10) ?? null;
+      const reason =
+        day == null
+          ? "no-reading-by-period-end"
+          : day < period.start
+            ? "older-than-period"
+            : day > period.end
+              ? "newer-than-period"
+              : "no-reading-by-period-end";
       unmeasurable.push({
         postId: p.postId,
         platform: p.platform,
         title: p.title,
-        reason: "no-reading-by-period-end",
+        reason,
       });
       continue;
     }
@@ -303,6 +346,7 @@ export function pickTopVideos(
       likes: p.likes ?? 0,
       gained,
       basis,
+      thumbnailUrl: p.thumbnailUrl ?? null,
     });
   }
 

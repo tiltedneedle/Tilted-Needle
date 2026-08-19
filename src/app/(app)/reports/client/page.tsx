@@ -192,10 +192,29 @@ export default async function ClientReportPage({
             are the same three, and each has a different answer. */}
         {report && report.sections.some((s) => s.unmeasurable.length > 0) && (
           <details className="card mb-5 p-4">
+            {/* THE HEADLINE COUNTS THE GAP, not the library.
+                It counted every unmeasurable row, so a June report announced
+                "48 videos could not be measured" when 48 of that account's 53
+                videos simply predated June and all five of June's own videos
+                had been ranked. It read as a broken report and was a complete
+                one. Videos older than the period are context, not a problem,
+                and they are listed below rather than counted here. */}
             <summary className="cursor-pointer text-sm font-medium">
-              {report.sections.reduce((n, s) => n + s.unmeasurable.length, 0)} video
-              {report.sections.reduce((n, s) => n + s.unmeasurable.length, 0) === 1 ? "" : "s"} could
-              not be measured for this period
+              {(() => {
+                const OUTSIDE = ["older-than-period", "newer-than-period"];
+                const gap = report.sections.reduce(
+                  (n, s) => n + s.unmeasurable.filter((u) => !OUTSIDE.includes(u.reason)).length,
+                  0,
+                );
+                const older = report.sections.reduce(
+                  (n, s) => n + s.unmeasurable.filter((u) => OUTSIDE.includes(u.reason)).length,
+                  0,
+                );
+                if (gap === 0) {
+                  return `Every video published in this period was measured — ${older} other video${older === 1 ? "" : "s"} on the account sit outside it`;
+                }
+                return `${gap} video${gap === 1 ? "" : "s"} published in this period could not be measured`;
+              })()}
             </summary>
             <div className="mt-2.5 space-y-2.5">
               {(() => {
@@ -217,6 +236,16 @@ export default async function ClientReportPage({
                     key: "no-readings-at-all",
                     label: "Never measured",
                     fix: "No reading has ever been taken. Run a sync for the account, then generate again.",
+                  },
+                  {
+                    key: "older-than-period",
+                    label: "Published before this period",
+                    fix: "Not this period's work. They are on the account but were posted earlier, and nothing they earned belongs to this report.",
+                  },
+                  {
+                    key: "newer-than-period",
+                    label: "Published after this period closed",
+                    fix: "Posted later than the month being reported. They will appear in the report for the month they went out.",
                   },
                 ];
                 return REASONS.map((r) => {

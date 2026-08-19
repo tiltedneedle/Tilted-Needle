@@ -154,7 +154,23 @@ const post = (o) => ({
     JULY,
   );
   eq("a post published before the period is still not ranked", top.length, 0);
-  eq("and says why", unmeasurable[0].reason, "no-reading-by-period-end");
+  // NOT the same fact as "we measured this month's video a day late", and it
+  // must not be reported as one. An account holding 48 older videos was
+  // announcing "48 videos could not be measured" for a month in which all
+  // five of its actual videos had been ranked.
+  eq("an older video is named as older, not as a measurement failure",
+    unmeasurable[0].reason, "older-than-period");
+}
+
+{
+  // Published INSIDE the period but first read afterwards, with no publish
+  // instant to place it -- this one really is a gap in the month.
+  const { unmeasurable } = C.pickTopVideos(
+    [post({ postId: "nodate", postedAtTs: null, snapshots: [snap("2026-08-09", 500)] })],
+    JULY,
+  );
+  eq("a post we cannot place is still a measurement gap",
+    unmeasurable[0].reason, "no-reading-by-period-end");
 }
 
 {

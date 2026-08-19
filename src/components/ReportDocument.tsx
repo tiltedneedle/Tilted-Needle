@@ -368,6 +368,18 @@ function PlatformPage({
           {s.top.map((t, i) => (
             <div key={t.postId} className="report-rank">
               <div className="report-rank-number">{String(i + 1).padStart(2, "0")}</div>
+              {/* The poster frame, where the platform gave us one.
+                  A ranked list of captions is a spreadsheet; the client
+                  recognises their own work by the picture. TikTok, YouTube and
+                  Shorts are at 100% coverage, Instagram at 13% -- so the cell
+                  holds its width either way and simply stays empty rather than
+                  letting one missing image shift a whole column. */}
+              <div className="report-rank-thumb">
+                {t.thumbnailUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={t.thumbnailUrl} alt="" aria-hidden="true" loading="eager" />
+                ) : null}
+              </div>
               <div className="report-rank-title">
                 {/* Verbatim, including typos, curly quotes and emoji: the
                     caption is the client's own writing. */}
