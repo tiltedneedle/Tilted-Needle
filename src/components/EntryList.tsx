@@ -160,7 +160,12 @@ export default function EntryList({
                             value: c.id,
                             label: c.title,
                           }))}
-                          placeholder="— no content —"
+                          // An invitation, not a dash. "— no content —"
+                          // described the state; the control exists so
+                          // somebody CHANGES the state, and with one on
+                          // every row the dashes were most of what the
+                          // page said.
+                          placeholder="Link a video…"
                           ariaLabel="Link to content"
                         />
                       )}
