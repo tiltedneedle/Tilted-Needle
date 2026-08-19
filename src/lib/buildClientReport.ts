@@ -353,7 +353,20 @@ export async function buildClientReport(
       }),
       top,
       unmeasurable,
-      candidateCount: mine.length,
+      /**
+       * Videos PUBLISHED inside the period, which is what the document says.
+       *
+       * It was `mine.length` -- every post the account has ever had -- printed
+       * on a sparse sheet as "N videos published on Instagram this period".
+       * For an account with four years of history and two posts this month
+       * that is not a rounding error, it is a different claim.
+       */
+      candidateCount: mine.filter(
+        (p) =>
+          p.postedAtTs != null &&
+          p.postedAtTs.slice(0, 10) >= period.start &&
+          p.postedAtTs.slice(0, 10) <= period.end,
+      ).length,
       publishedCount: mine.filter(
         (v) => v.postedAtTs != null && v.postedAtTs >= period.start && v.postedAtTs <= period.end,
       ).length,

@@ -17,7 +17,12 @@
  * Reach travels as per-platform chips, including in the totals row, and the
  * CSV flattens one row per entity PER PLATFORM rather than pooling.
  */
-import { engagementRate, totalsByPlatform, type PlatformTotals } from "@/lib/rollup";
+import {
+  engagementRate,
+  totalsByPlatform,
+  totalsByPlatformUnique,
+  type PlatformTotals,
+} from "@/lib/rollup";
 import { formatDurationShort } from "@/lib/format";
 import type { VideoSummary, ClientSummary } from "@/lib/dashboards";
 
@@ -305,7 +310,13 @@ export function buildEmployeeReport(
         hours: dur(stats.reduce((s, p) => s + p.seconds, 0)),
         roles: dash(""),
       },
-      platforms: totalsByPlatform(videos.flatMap((v) => v.platforms)),
+      // UNIQUE, because this line is the workspace total. Three Instagram
+      // collab posts exist twice -- one row per account that carries them --
+      // and summing both copies overstated Instagram reach by 1.37M views,
+      // 14.5%. The per-person rows above still use the plain rollup: a collab
+      // genuinely does appear on both accounts, and each person's own figure
+      // is right.
+      platforms: totalsByPlatformUnique(videos.flatMap((v) => v.platforms)),
     },
     defaultSort: { key: "videos", dir: "desc" },
     csvPrefix: "report-employees",
@@ -389,12 +400,14 @@ export function buildClientReport(clients: ClientSummary[], videos: VideoSummary
       cells: {
         videos: num(rowsFor.reduce((s, c) => s + c.videoCount, 0)),
         posts: num(rowsFor.reduce((s, c) => s + c.postCount, 0)),
-        engagement: avgEngagement(totalsByPlatform(rowsFor.flatMap((c) => c.totals))),
+        engagement: avgEngagement(totalsByPlatformUnique(rowsFor.flatMap((c) => c.totals))),
         gained: gain(rowsFor.reduce((s, c) => s + c.recentGain, 0)),
         hours: dur(rowsFor.reduce((s, c) => s + c.trackedSeconds, 0)),
         perVideo: dash(),
       },
-      platforms: totalsByPlatform(rowsFor.flatMap((c) => c.totals)),
+      // See the employees total: workspace-wide lines dedupe, per-client rows
+      // do not.
+      platforms: totalsByPlatformUnique(rowsFor.flatMap((c) => c.totals)),
     },
     defaultSort: { key: "videos", dir: "desc" },
     csvPrefix: "report-clients",
@@ -409,7 +422,16 @@ export function buildPlatformReport(
   /** slug -> display name, so a row reads "YouTube" not "youtube". */
   platformNames: Map<string, string>,
 ): Report {
-  const totals = totalsByPlatform(videos.flatMap((v) => v.platforms));
+  /**
+   * THE PLATFORM REPORT IS THE WORKSPACE TOTAL, so it dedupes.
+   *
+   * This table answers "how much reach did Instagram give us", and a collab
+   * post carried by two of our accounts is one post that Instagram served
+   * once. Counting both copies overstated Instagram by 1.37M views (14.5%)
+   * against a deduped 9.44M, and the row nobody could reconcile against
+   * Instagram own figure was this one.
+   */
+  const totals = totalsByPlatformUnique(videos.flatMap((v) => v.platforms));
   const gainBy = new Map<string, number>();
   const videoCount = new Map<string, number>();
   const top = new Map<string, { id: string; title: string; views: number }>();
