@@ -407,7 +407,7 @@ function MasterCredit({
               type="button"
               disabled={busy || pending}
               onClick={() => setOpenRole(isOpen ? null : role.slug)}
-              className={`flex w-[42px] flex-col items-center gap-0.5 rounded-[8px] px-0.5 py-1 transition-colors hover:bg-[var(--bg-subtle)] disabled:opacity-50 ${
+              className={`flex w-[46px] flex-col items-center gap-0.5 rounded-[8px] px-0.5 py-1 transition-colors hover:bg-[var(--bg-subtle)] disabled:opacity-50 ${
                 isOpen ? "bg-[var(--bg-subtle)]" : ""
               }`}
               title={
@@ -436,7 +436,7 @@ function MasterCredit({
                   <span className="absolute -bottom-0.5 -right-0.5 size-[8px] rounded-full bg-[var(--warn)] shadow-[0_0_0_1.5px_var(--panel)]" />
                 )}
               </span>
-              <span className="w-full truncate text-center text-[9px] leading-tight text-[var(--muted)]">
+              <span className="w-full truncate text-center text-[10.5px] leading-tight text-[var(--muted)]">
                 {SHORT_ROLE[role.slug] ?? role.name}
               </span>
             </button>

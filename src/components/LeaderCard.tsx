@@ -60,7 +60,7 @@ export default function LeaderCard({
               key={w.key}
               onClick={() => setWin(w.key)}
               aria-pressed={win === w.key}
-              className="rounded-full px-1.5 py-0.5 text-[10px] font-medium transition-colors"
+              className="rounded-full px-1.5 py-0.5 text-[11px] font-medium transition-colors"
               style={{
                 background: win === w.key ? "var(--accent)" : "transparent",
                 color: win === w.key ? "var(--accent-fg)" : "var(--muted)",

@@ -25,10 +25,9 @@ import { requireSession } from "@/lib/workspace";
 import { startOfWeek } from "@/lib/dashboards";
 import {
   loadArchivedClientItemIds,
-  loadPlatformMomentum,
-  loadWeekMovers,
   loadWeekHoursByDay,
 } from "@/lib/homeData";
+import { loadReachCards } from "@/lib/reachCards";
 import { cachedRankings } from "@/lib/cachedRankings";
 // asMultiplier is deliberately no longer imported. /home was the last surface
 // rendering exp(score) as a "1.02x" verdict on a person; the function stays in
@@ -106,8 +105,7 @@ export default async function HomePage() {
       videosRes,
       todosRes,
       accountsRes,
-      momentum,
-      movers,
+      reach,
       weekHours,
       rankings,
       trainingModulesRes,
@@ -143,8 +141,7 @@ export default async function HomePage() {
         .eq("workspace_id", ws)
         .eq("is_archived", false)
         .eq("sync_enabled", true),
-      loadPlatformMomentum(supabase, ws, 30, archivedItemIds),
-      loadWeekMovers(supabase, ws, 5, archivedItemIds),
+      loadReachCards(ws, archivedItemIds),
       loadWeekHoursByDay(supabase, ws, startOfWeek()),
       cachedRankings(ws),
       supabase
@@ -161,6 +158,7 @@ export default async function HomePage() {
     // these ids"), so the exclusion is applied here -- exact, and one query
     // cheaper than asking the database to do it.
     const activeVideoCount = Math.max(0, (videosRes.count ?? 0) - archivedItemIds.size);
+    const { momentum, movers } = reach;
 
     const todos = (todosRes.data ?? []) as unknown as Todo[];
     const done = todos.filter((t) => t.is_done).length;

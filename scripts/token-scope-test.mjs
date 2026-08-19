@@ -27,6 +27,12 @@ const ALLOW = [
   ["src/components/Avatar.tsx", "deterministic per-person avatar hues, generated not themed"],
   ["src/components/ClientImage.tsx", "same monogram hue generator as Avatar"],
   ["src/components/ProjectsManager.tsx", "user-chosen project colours stored per row"],
+  // The dark covers are an <img> whose src is an SVG data URI, because
+  // Chrome prints with "Background graphics" unticked by default and strips
+  // CSS backgrounds -- replaced content survives. A var(--token) cannot
+  // resolve inside a data URI, so these two grounds are the one place in the
+  // app where a literal is the only thing that works.
+  ["src/components/ReportDocument.tsx", "cover plate grounds live inside an SVG data URI, where var() cannot resolve"],
 ];
 
 // rgb(...) or #rrggbb / #rgb, but not inside a comment line.

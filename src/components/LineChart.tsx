@@ -94,7 +94,7 @@ export default function LineChart({
               stroke="var(--border)"
               strokeWidth={1}
             />
-            <text x={PAD_L - 8} y={yAt(v)} dy={4} textAnchor="end" className="fill-[var(--muted)] text-[10px]">
+            <text x={PAD_L - 8} y={yAt(v)} dy={4} textAnchor="end" className="fill-[var(--muted)] text-[11px]">
               {formatValue(v)}
             </text>
           </g>

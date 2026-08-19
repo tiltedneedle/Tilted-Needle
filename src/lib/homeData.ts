@@ -17,8 +17,26 @@ type Db = any;
 
 const DAY_MS = 86400000;
 
+/* ---- The rows the two reach cards run on -------------------------------- */
+
+export type PostRow = {
+  id: string;
+  content_item_id: string;
+  account: { platform_slug: string } | { platform_slug: string }[] | null;
+};
+export type SnapRow = {
+  platform_post_id: string;
+  captured_at: string;
+  views: number | null;
+};
+export type ItemRow = {
+  id: string;
+  title: string;
+  client: { name: string } | { name: string }[] | null;
+};
+
 /** YYYY-MM-DD of an instant, in the company's operating timezone. */
-const dubaiDate = (d: Date): string => operatingDate(d);
+const opDate = (d: Date): string => operatingDate(d);
 
 /** Short axis label ("28 Jul") for a Dubai date string. */
 function shortLabel(iso: string): string {
@@ -84,40 +102,18 @@ export type PlatformMomentum = {
  * "gains" -- the chart answers "how much did reach move", not "what did
  * the API do".
  */
-export async function loadPlatformMomentum(
-  db: Db,
-  ws: string,
+export function loadPlatformMomentum(
+  posts: PostRow[],
+  snaps: SnapRow[],
   days = 30,
   /** Content ids to leave out entirely -- archived clients' work. */
   excludeItemIds: Set<string> = new Set(),
-): Promise<PlatformMomentum[]> {
-  const sinceIso = new Date(Date.now() - days * DAY_MS).toISOString();
-
-  const [postsRes, snapsRes] = await Promise.all([
-    db
-      .from("platform_posts")
-      .select("id, content_item_id, account:accounts(platform_slug)")
-      .eq("workspace_id", ws),
-    // Windowed but still paged: 30 days of daily syncing across every post
-    // clears 1000 rows on its own.
-    selectAll<{ id: string; platform_post_id: string; captured_at: string; views: number | null }>(
-      () =>
-        db
-          .from("post_snapshots")
-          .select("id, platform_post_id, captured_at, views")
-          .eq("workspace_id", ws)
-          .gte("captured_at", sinceIso)
-          .order("captured_at")
-          .order("id"),
-    ),
-  ]);
+): PlatformMomentum[] {
+  const sinceMs = Date.now() - days * DAY_MS;
+  const snapsRes = { data: snaps.filter((s) => new Date(s.captured_at).getTime() >= sinceMs) };
 
   const platformOfPost = new Map<string, string>();
-  for (const p of (postsRes.data ?? []) as {
-    id: string;
-    content_item_id: string;
-    account: { platform_slug: string } | { platform_slug: string }[] | null;
-  }[]) {
+  for (const p of posts) {
     if (excludeItemIds.has(p.content_item_id)) continue;
     const acct = Array.isArray(p.account) ? p.account[0] : p.account;
     if (acct) platformOfPost.set(p.id, acct.platform_slug);
@@ -126,7 +122,7 @@ export async function loadPlatformMomentum(
   // Day buckets, oldest first, zero-filled so quiet days stay visible.
   const dayKeys: string[] = [];
   for (let i = days - 1; i >= 0; i--) {
-    dayKeys.push(dubaiDate(new Date(Date.now() - i * DAY_MS)));
+    dayKeys.push(opDate(new Date(Date.now() - i * DAY_MS)));
   }
 
   const gains = new Map<string, Map<string, number>>(); // platform -> day -> views
@@ -166,7 +162,7 @@ export async function loadPlatformMomentum(
       continue;
     }
 
-    const day = dubaiDate(new Date(s.captured_at));
+    const day = opDate(new Date(s.captured_at));
     if (!gains.has(platform)) gains.set(platform, new Map());
     const byDay = gains.get(platform)!;
     byDay.set(day, (byDay.get(day) ?? 0) + delta);
@@ -208,37 +204,18 @@ export type MoverVideo = {
  * Content page's "recent gain" exactly (a video's growth is one number
  * there too); platform identity rides the dot chips beside each row.
  */
-export async function loadWeekMovers(
-  db: Db,
-  ws: string,
+export function loadWeekMovers(
+  postRows: PostRow[],
+  snaps: SnapRow[],
+  items: ItemRow[],
   limit = 5,
   /** Content ids to leave out entirely -- archived clients' work. */
   excludeItemIds: Set<string> = new Set(),
-): Promise<MoverVideo[]> {
-  const sinceIso = new Date(Date.now() - 7 * DAY_MS).toISOString();
-  const [postsRes, snapsRes] = await Promise.all([
-    db
-      .from("platform_posts")
-      .select("id, content_item_id, account:accounts(platform_slug)")
-      .eq("workspace_id", ws),
-    selectAll<{ id: string; platform_post_id: string; captured_at: string; views: number | null }>(
-      () =>
-        db
-          .from("post_snapshots")
-          .select("id, platform_post_id, captured_at, views")
-          .eq("workspace_id", ws)
-          .gte("captured_at", sinceIso)
-          .order("captured_at")
-          .order("id"),
-    ),
-  ]);
+): MoverVideo[] {
+  const sinceMs = Date.now() - 7 * DAY_MS;
+  const snapsRes = { data: snaps.filter((s) => new Date(s.captured_at).getTime() >= sinceMs) };
 
-  type PostRow = {
-    id: string;
-    content_item_id: string;
-    account: { platform_slug: string } | { platform_slug: string }[] | null;
-  };
-  const posts = new Map(((postsRes.data ?? []) as PostRow[]).map((p) => [p.id, p]));
+  const posts = new Map(postRows.map((p) => [p.id, p]));
 
   const gainByPost = new Map<string, number>();
   const lastSeen = new Map<string, number>();
@@ -269,16 +246,9 @@ export async function loadWeekMovers(
     .slice(0, limit);
   if (top.length === 0) return [];
 
-  const { data: items } = await db
-    .from("content_items")
-    .select("id, title, client:clients(name)")
-    .in("id", top.map(([id]) => id));
+  const wanted = new Set(top.map(([id]) => id));
   const titleOf = new Map(
-    ((items ?? []) as {
-      id: string;
-      title: string;
-      client: { name: string } | { name: string }[] | null;
-    }[]).map((i) => [
+    items.filter((i) => wanted.has(i.id)).map((i) => [
       i.id,
       { title: i.title, clientName: (Array.isArray(i.client) ? i.client[0] : i.client)?.name ?? null },
     ]),
@@ -334,3 +304,4 @@ export async function loadWeekHoursByDay(
   }
   return days;
 }
+

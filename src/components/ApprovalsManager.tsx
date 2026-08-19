@@ -2,6 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { CheckCircle2, Inbox } from "lucide-react";
+import { EmptyScreen } from "@/components/Stat";
 import { reviewTimesheet } from "@/app/actions";
 
 type Row = {
@@ -66,9 +68,28 @@ export default function ApprovalsManager({ rows }: { rows: Row[] }) {
       )}
 
       {visible.length === 0 ? (
-        <div className="empty">
-          {filter === "pending" ? "Nothing waiting for review." : "No submissions yet."}
-        </div>
+        /* "Nothing waiting for review" is GOOD NEWS on a queue, and it read
+           like a broken page: a one-line strip on an otherwise blank screen.
+           An inbox at zero should look finished, not unfinished -- and when
+           the queue is empty only because a filter is on, it should say which
+           filter rather than implying nothing exists. */
+        <EmptyScreen
+          icon={filter === "pending" ? CheckCircle2 : Inbox}
+          title={
+            filter === "pending"
+              ? "Nothing waiting for review"
+              : rows.length > 0
+                ? `Nothing ${filter}`
+                : "No submissions yet"
+          }
+          hint={
+            filter === "pending"
+              ? "Every timesheet submitted so far has been dealt with. New submissions land here as soon as somebody sends a week for approval."
+              : rows.length > 0
+                ? `There are ${rows.length} submission${rows.length === 1 ? "" : "s"} in total — none of them are ${filter}.`
+                : "When somebody submits a week of hours it arrives here for review, with the entries and totals attached."
+          }
+        />
       ) : (
         <div className="space-y-2">
           {visible.map((r) => (

@@ -2,6 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { Receipt } from "lucide-react";
+import { EmptyScreen } from "@/components/Stat";
 import Select from "@/components/ui/Select";
 import { createExpense, deleteExpense } from "@/app/actions";
 import { formatMoney } from "@/lib/billing";
@@ -163,9 +165,11 @@ export default function ExpensesManager({
       )}
 
       {rows.length === 0 ? (
-        <div className="empty">
-          No expenses recorded.
-        </div>
+        <EmptyScreen
+          icon={Receipt}
+          title="No expenses recorded"
+          hint="Costs you want billed back to a client — software, travel, a shoot day's kit hire. Add one against a client and it appears on their next invoice alongside tracked hours, rather than being remembered separately."
+        />
       ) : (
         <div className="card divide-y divide-[var(--border)] overflow-hidden">
           {rows.map((r) => (

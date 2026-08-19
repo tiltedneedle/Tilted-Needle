@@ -71,7 +71,7 @@ export default function MiniBars({
         {data.map((d, i) => (
           <span
             key={d.label + i}
-            className={`flex-1 text-center text-[10px] ${
+            className={`flex-1 text-center text-[11px] ${
               hover === i ? "text-[var(--fg)]" : "text-[var(--muted)]"
             }`}
           >

@@ -248,8 +248,8 @@ export function RoleCredits({
               type="button"
               disabled={!canManage || pending}
               onClick={() => setOpenRole(isOpen ? null : role.slug)}
-              className={`flex w-[30px] flex-col items-center gap-0.5 rounded-[8px] px-0.5 py-0.5 transition-[width,background-color] duration-200 group-focus-within/stack:w-[38px] group-hover/stack:w-[38px] ${
-                expanded ? "w-[38px]" : ""
+              className={`flex w-[30px] flex-col items-center gap-0.5 rounded-[8px] px-0.5 py-0.5 transition-[width,background-color] duration-200 group-focus-within/stack:w-[44px] group-hover/stack:w-[44px] ${
+                expanded ? "w-[44px]" : ""
               } ${canManage ? "hover:bg-[var(--bg-subtle)]" : "cursor-default"} ${
                 isOpen ? "bg-[var(--bg-subtle)]" : ""
               }`}
@@ -282,7 +282,7 @@ export function RoleCredits({
                 )}
                 {/* More than one person can hold a role on the same video. */}
                 {holders.length > 1 && (
-                  <span className="absolute -bottom-0.5 -right-1 rounded-full bg-[var(--panel)] px-1 text-[9px] font-semibold text-[var(--muted)] shadow-[0_0_0_1px_var(--border)]">
+                  <span className="absolute -bottom-0.5 -right-1 rounded-full bg-[var(--panel)] px-1 text-[10px] font-semibold text-[var(--muted)] shadow-[0_0_0_1px_var(--border)]">
                     +{holders.length - 1}
                   </span>
                 )}
@@ -290,7 +290,7 @@ export function RoleCredits({
               {/* Labels exist only in the fanned-out state; collapsed, the
                   stack is identification-by-avatar with tooltips. */}
               <span
-                className={`w-full truncate text-center text-[9px] leading-tight transition-[max-height,opacity] duration-200 group-focus-within/stack:max-h-4 group-focus-within/stack:opacity-100 group-hover/stack:max-h-4 group-hover/stack:opacity-100 ${
+                className={`w-full truncate text-center text-[10.5px] leading-tight transition-[max-height,opacity] duration-200 group-focus-within/stack:max-h-4 group-focus-within/stack:opacity-100 group-hover/stack:max-h-4 group-hover/stack:opacity-100 ${
                   expanded ? "max-h-4 opacity-100" : "max-h-0 overflow-hidden opacity-0"
                 } text-[var(--muted)]`}
               >

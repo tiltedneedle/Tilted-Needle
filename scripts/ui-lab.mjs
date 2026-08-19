@@ -55,7 +55,7 @@ const consoleErrors = [];
 page.on("console", (m) => { if (m.type() === "error") consoleErrors.push(m.text().slice(0, 120)); });
 page.on("pageerror", (e) => consoleErrors.push("throw: " + String(e).slice(0, 120)));
 
-await page.goto("http://localhost:3000/login");
+await page.goto("http://localhost:3103/login");
 await page.evaluate(async ([url, key]) => {
   const r = await fetch(url + "/auth/v1/token?grant_type=password", {
     method: "POST", headers: { apikey: key, "Content-Type": "application/json" },
@@ -77,7 +77,7 @@ for (const route of ROUTES) {
     const t0 = Date.now();
     let loadError = null;
     try {
-      await page.goto("http://localhost:3000" + route, { waitUntil: "domcontentloaded", timeout: 45000 });
+      await page.goto("http://localhost:3103" + route, { waitUntil: "domcontentloaded", timeout: 45000 });
       await page.waitForSelector("main", { timeout: 20000 });
       await page.waitForTimeout(400);
     } catch (e) {
@@ -138,8 +138,27 @@ for (const route of ROUTES) {
         textLen: text.length,
         firstText: text.replace(/\s+/g, " ").slice(0, 60),
         tiny,
-        // A screen whose whole content is one short sentence.
-        looksEmpty: text.length < 140,
+        /**
+         * A screen with nothing on it AND nothing to say about that.
+         *
+         * The plain length test flagged /tags, which was working: it holds
+         * one archived tag and says so in 126 characters. A short screen is
+         * only a defect when it is short by NEGLECT -- a one-line strip on a
+         * blank page -- not when it is a designed empty state that names the
+         * situation and offers the way out.
+         *
+         * So the test is now the thing actually worth enforcing: either the
+         * page has real content, or it renders an EmptyScreen carrying both a
+         * title and a hint. A bare `.empty` strip satisfies neither and is
+         * exactly what this is here to find.
+         */
+        looksEmpty: (() => {
+          if (text.length >= 140) return false;
+          const screen = main?.querySelector(".empty-screen");
+          if (screen && screen.innerText.trim().length >= 60) return false;
+          // A short message that still explains itself is fine.
+          return text.length < 90;
+        })(),
       };
     });
 

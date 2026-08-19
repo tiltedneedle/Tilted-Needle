@@ -48,7 +48,7 @@ function parseIdList(raw: string | undefined): string[] {
   return [...new Set(raw.split(",").map((s) => s.trim()).filter(Boolean))].sort();
 }
 
-const dubaiDate = (d: Date): string => operatingDate(d);
+const opDate = (d: Date): string => operatingDate(d);
 
 /**
  * Every URL param that NARROWS the page, in one list.
@@ -85,7 +85,7 @@ export function parseFilters(
   if (!from && !to && sp.period) {
     const days = Number(sp.period);
     if (Number.isFinite(days) && days > 0 && days <= 3650) {
-      from = dubaiDate(new Date(now.getTime() - days * DAY_MS));
+      from = opDate(new Date(now.getTime() - days * DAY_MS));
     }
   }
 
@@ -125,8 +125,8 @@ export function rangeForPreset(
   preset: RangePreset,
   now: Date = new Date(),
 ): { from: string | null; to: string | null } {
-  const today = dubaiDate(now);
-  const back = (days: number) => dubaiDate(new Date(now.getTime() - days * DAY_MS));
+  const today = opDate(now);
+  const back = (days: number) => opDate(new Date(now.getTime() - days * DAY_MS));
 
   switch (preset) {
     case "today":
