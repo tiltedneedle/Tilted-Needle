@@ -15,10 +15,13 @@ export default function MiniBars({
   height = 96,
   color = "var(--accent)",
   valueSuffix = "",
+  emptyLabel = "Nothing logged yet",
 }: {
   data: Bar[];
   height?: number;
   color?: string;
+  /** Shown INSTEAD of the chart when every value is zero. */
+  emptyLabel?: string;
   /** Serializable formatting -- this renders from Server Components, and a
       format-function prop would crash at the client boundary at runtime. */
   valueSuffix?: string;
@@ -27,6 +30,27 @@ export default function MiniBars({
   const [hover, setHover] = useState<number | null>(null);
   const max = Math.max(...data.map((d) => d.value), 1);
   const active = hover != null ? data[hover] : null;
+
+  /* A chart of nothing is not a chart.
+     With every value at zero the max falls back to 1 and all seven bars
+     render as a 1px sliver, so the card kept its full height and filled it
+     with an axis and a void -- the single largest empty rectangle on the
+     dashboard, and one that looks like a chart that failed to load rather
+     than a week nobody has logged hours in yet. Say the true thing and give
+     the space back. */
+  if (data.length > 0 && data.every((d) => d.value <= 0)) {
+    return (
+      <div
+        className="flex h-full flex-col items-center justify-center gap-1 rounded-[10px] border border-dashed border-[var(--border)] px-4 text-center"
+        style={{ minHeight: Math.round(height * 0.72) }}
+      >
+        <span className="text-[13px] text-[var(--muted)]">{emptyLabel}</span>
+        <span className="text-[11px] text-[var(--muted)] opacity-70">
+          {data[0].label}–{data[data.length - 1].label}
+        </span>
+      </div>
+    );
+  }
 
   return (
     <div className="relative">

@@ -341,9 +341,9 @@
      against the darkest point the field can produce. Binary search put that
      ceiling at 1.61x once --muted moved (see below); 1.50x sits a step inside
      it so a future token nudge cannot tip the gate. */
-  --field-a-alpha: 0.24;
+  --field-a-alpha: 0.2;
   --field-b-alpha: 0.18;
-  --field-c-alpha: 0.165;
+  --field-c-alpha: 0.175;
   --field-blur: 90px;
 
   /* ---- Material tiers ---------------------------------------------------
@@ -1395,9 +1395,23 @@ h3 {
   display: block;
   border-radius: 50%;
 }
+/* WHERE a blob sits decides how much of it anyone sees, and that had never
+   been balanced against WHAT it is for. Measured on a 1440x900 viewport, the
+   garnet's dense centre landed at (84, 161) -- directly behind the page
+   headline -- while the teal that the note above calls load-bearing, "what
+   stops the entire app reading as one red wash", centred at (674, 812), at
+   the floor. So the top two thirds of every screen, the part anyone actually
+   looks at, was garnet plus plum with its counterweight parked below the
+   fold. The field was doing the opposite of what it was designed to do, and
+   the alphas were innocent: it was geometry.
+
+   The garnet's core now sits outside the corner rather than behind the
+   first thing read, and the teal has come up into view. Total field energy
+   is unchanged or lower, so the composite contrast gate can only get easier
+   to pass -- it is checked, not assumed. */
 .field .fa {
-  top: 8%;
-  left: 2%;
+  top: -6%;
+  left: -6%;
   width: 46vmax;
   height: 46vmax;
   background: rgb(var(--field-a));
@@ -1412,8 +1426,8 @@ h3 {
   opacity: var(--field-b-alpha);
 }
 .field .fc {
-  bottom: 4%;
-  left: 32%;
+  bottom: 16%;
+  left: 42%;
   width: 44vmax;
   height: 44vmax;
   background: rgb(var(--field-c));

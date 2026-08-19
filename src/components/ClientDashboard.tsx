@@ -52,7 +52,7 @@ export default function ClientDashboard({
         {!readOnly && (
           <Stat
             label="Time invested"
-            value={trackedSeconds ? formatDurationShort(trackedSeconds) : "—"}
+            value={trackedSeconds ? formatDurationShort(trackedSeconds) : null}
           />
         )}
       </div>
@@ -193,13 +193,19 @@ export default function ClientDashboard({
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value }: { label: string; value: string | null }) {
   return (
     <div className="card p-4">
       <div className="text-[11px] font-medium uppercase tracking-wide text-[var(--muted)]">
         {label}
       </div>
-      <div className="numeral mt-2 text-[30px] leading-[1.05]">{value}</div>
+      {/* No figure is a state, not a character -- see Stat.tsx. An em dash at
+          30px in the display serif reads as redacted rather than as absent. */}
+      {value == null ? (
+        <div className="mt-2 text-[15px] leading-snug text-[var(--muted)]">Nothing tracked yet</div>
+      ) : (
+        <div className="numeral mt-2 text-[30px] leading-[1.05]">{value}</div>
+      )}
     </div>
   );
 }

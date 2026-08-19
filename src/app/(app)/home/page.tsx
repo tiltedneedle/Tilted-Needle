@@ -262,9 +262,7 @@ export default async function HomePage() {
                     <CountUp value={done} />
                     <span style={{ color: "var(--on-dark-muted)" }}>/{todos.length}</span>
                   </>
-                ) : (
-                  "—"
-                )}
+) : null}
               </div>
               <div className="relative mt-1.5 text-xs" style={{ color: "var(--on-dark-muted)" }}>
                 {todos.length ? "tasks done across the team" : "nothing assigned yet"}
@@ -355,42 +353,66 @@ export default async function HomePage() {
                       coming back. Stated separately rather than drawn as a
                       spike, because on the chart it would be indistinguishable
                       from a viral day and would get acted on as one. */}
+                  {/* THE FIGURE IS PER PLATFORM. THE EXPLANATION IS NOT.
+                      Both used to live on the card, so the same 24-word
+                      sentence printed on three of the four cards in this row
+                      -- three lines each, nine lines of identical prose, and
+                      it crowded the sparklines it was meant to annotate.
+                      Nobody reads the third copy. The number stays where it
+                      belongs and the reasoning moves below the row, said
+                      once. */}
                   {m.caughtUp > 0 && (
                     <p className="mt-1.5 text-[11px] text-[var(--muted)]">
                       {/* Explicit {" "} rather than a literal space: the space
                           between an expression and the text after it was being
-                          dropped, rendering "+346,031more from a resumed
-                          page". The source had the space; it did not survive.
-                          This form cannot be lost to whitespace handling. */}
+                          dropped, rendering "+346,031not counted". The source
+                          had the space; it did not survive. This form cannot
+                          be lost to whitespace handling. */}
                       +{m.caughtUp.toLocaleString()}{" "}
-                      more from a resumed page — not shown above, the gap makes
-                      it no single day&apos;s gain
+                      not counted above
                     </p>
                   )}
                 </div>
               ))}
             </div>
           )}
+          {momentum.some((m) => m.caughtUp > 0) && (
+            <p className="mt-2.5 text-[11px] leading-snug text-[var(--muted)]">
+              Figures marked <em>not counted above</em> arrived in readings too far
+              apart to belong to any one day — a paused account resuming, or a
+              client coming back. They are real views, kept out of the daily
+              series because on the chart they are indistinguishable from a
+              viral day.
+            </p>
+          )}
         </section>
 
         {/* ---- Hours + what's moving -------------------------------------- */}
         <div className="mb-7 grid gap-3 [&>*]:min-w-0 lg:grid-cols-2">
-          <div className="card animate-rise p-4">
+          {/* flex column, so whatever this card holds takes the slack rather
+              than leaving it at the bottom. Grid items stretch to the tallest
+              in the row, and with no hours logged the chart collapsed to its
+              own small height and left a third of the card empty underneath
+              -- trading one void for a smaller one. */}
+          <div className="card animate-rise flex flex-col p-4">
             <div className="mb-3 flex items-baseline gap-2">
               <Clock size={15} className="text-[var(--muted)]" />
               <span className="text-sm font-semibold">Team hours this week</span>
               <span className="tabular ml-auto text-lg font-semibold">
-                {weekTotalSeconds ? formatDurationShort(weekTotalSeconds) : "—"}
+                {weekTotalSeconds ? formatDurationShort(weekTotalSeconds) : "0h"}
               </span>
             </div>
-            <MiniBars
-              data={weekHours.map((d) => ({
-                label: d.label,
-                hint: d.hint,
-                value: Math.round((d.seconds / 3600) * 10) / 10,
-              }))}
-              valueSuffix="h"
-            />
+            <div className="flex flex-1 flex-col justify-center">
+              <MiniBars
+                data={weekHours.map((d) => ({
+                  label: d.label,
+                  hint: d.hint,
+                  value: Math.round((d.seconds / 3600) * 10) / 10,
+                }))}
+                valueSuffix="h"
+                emptyLabel="No hours logged this week"
+              />
+            </div>
           </div>
 
           <div className="card animate-rise p-4">
@@ -475,7 +497,7 @@ export default async function HomePage() {
             <div className="min-w-0">
               <div className="text-sm font-semibold">Training</div>
               <div className="tabular mt-0.5 text-lg font-semibold">
-                {unitsTotal ? `${Math.round((unitsDone / unitsTotal) * 100)}%` : "—"}
+                {unitsTotal ? `${Math.round((unitsDone / unitsTotal) * 100)}%` : null}
               </div>
               <div className="text-xs text-[var(--muted)]">
                 {unitsTotal
@@ -659,9 +681,7 @@ export default async function HomePage() {
                   <CountUp value={doneCount} />
                   <span style={{ color: "var(--on-dark-muted)" }}>/{todos.length}</span>
                 </>
-              ) : (
-                "—"
-              )}
+              ) : null}
             </div>
             <div className="relative mt-1.5 text-xs" style={{ color: "var(--on-dark-muted)" }}>
               {todos.length ? "tasks done" : "nothing assigned yet"}
@@ -674,7 +694,7 @@ export default async function HomePage() {
         <Stat
           icon={Clock}
           label="This week"
-          value={weekSeconds ? formatDurationShort(weekSeconds) : "—"}
+          value={weekSeconds ? formatDurationShort(weekSeconds) : null}
           hint={capacity > 0 ? `of ${capacity}h capacity` : "tracked so far"}
           accent={capacity > 0 && weekSeconds / 3600 > capacity}
         />
@@ -687,16 +707,14 @@ export default async function HomePage() {
                 <CountUp value={trainingTotals.done} />
                 <span className="text-[var(--muted)]">/{trainingTotals.total}</span>
               </>
-            ) : (
-              "—"
-            )
+            ) : null
           }
           hint={trainingTotals.total ? "videos completed" : "nothing assigned"}
         />
         <Stat
           icon={TrendingUp}
           label="My videos"
-          value={myVideos ? <CountUp value={myVideos} /> : "—"}
+          value={myVideos ? <CountUp value={myVideos} /> : null}
           hint={myVideos ? "credited to you" : "nothing credited yet"}
         />
       </StatGrid>

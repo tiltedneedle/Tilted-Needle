@@ -24,7 +24,8 @@ export function Stat({
   hero = false,
 }: {
   label: string;
-  /** Usually a string; a node lets tiles animate (CountUp) without markup drift. */
+  /** Usually a string; a node lets tiles animate (CountUp) without markup drift.
+   *  null means THERE IS NO FIGURE YET -- see the render below. */
   value: ReactNode;
   hint?: string;
   /** Makes the hint a link, for hints that name a subset worth acting on. */
@@ -62,13 +63,30 @@ export function Stat({
           (30px, up from 24) because a serif carries scale better than a bold
           sans does, and because the figure is the reason this card exists --
           everything else on it is a label for the number. */}
-      <div
-        className="numeral relative mt-2 text-[30px] leading-[1.05]"
-        style={{ color: hero ? "var(--white)" : "var(--fg)" }}
-      >
-        {value}
-      </div>
-      {hint && (
+      {/* No figure is a STATE, not a character.
+          These cards used to print an em dash when there was nothing to
+          count, and at 30px in the display serif that is a heavy black bar
+          sitting exactly where the number goes -- it reads as redacted, or
+          as a value that failed to load, which is the opposite of the truth.
+          A card with nothing to report should say so in words and give the
+          space back, so the eye passes over it instead of stopping on a
+          glyph it has to decode. */}
+      {value == null ? (
+        <div
+          className="relative mt-2 text-[15px] leading-snug"
+          style={{ color: hero ? "var(--on-dark-muted)" : "var(--muted)" }}
+        >
+          {hint ?? "Nothing yet"}
+        </div>
+      ) : (
+        <div
+          className="numeral relative mt-2 text-[30px] leading-[1.05]"
+          style={{ color: hero ? "var(--white)" : "var(--fg)" }}
+        >
+          {value}
+        </div>
+      )}
+      {hint && value != null && (
         <div
           className="relative mt-1.5 text-xs"
           style={{ color: hero ? "var(--on-dark-muted)" : "var(--muted)" }}
