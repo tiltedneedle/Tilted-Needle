@@ -48,7 +48,7 @@ export default function TimeOffManager({
   currentUserId: string;
 }) {
   const router = useRouter();
-  const [, startTransition] = useTransition();
+  const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [showNewPolicy, setShowNewPolicy] = useState(false);
   const [policyName, setPolicyName] = useState("");
@@ -253,8 +253,16 @@ export default function TimeOffManager({
                 <div className="flex-1" />
                 <button
                   className="rounded bg-[var(--success)] px-2 py-1 text-xs text-[var(--accent-fg)] transition-opacity hover:opacity-90"
+                  disabled={pending}
                   onClick={async () => {
-                    await reviewTimeOffRequest(r.id, "approved");
+                    /* The Result was being thrown away. A rejected approval
+                       -- no permission, a row somebody else already acted on
+                       -- refreshed a list that looked exactly the same, so
+                       the manager walked away believing they had approved
+                       leave that is still pending. */
+                    const res = await reviewTimeOffRequest(r.id, "approved");
+                    if (res?.error) return setError(res.error);
+                    setError(null);
                     refresh();
                   }}
                 >
@@ -262,8 +270,11 @@ export default function TimeOffManager({
                 </button>
                 <button
                   className="rounded bg-[var(--danger)] px-2 py-1 text-xs text-[var(--accent-fg)]"
+                  disabled={pending}
                   onClick={async () => {
-                    await reviewTimeOffRequest(r.id, "rejected");
+                    const res = await reviewTimeOffRequest(r.id, "rejected");
+                    if (res?.error) return setError(res.error);
+                    setError(null);
                     refresh();
                   }}
                 >
@@ -296,8 +307,11 @@ export default function TimeOffManager({
             {r.status === "pending" && r.userId === currentUserId && (
               <button
                 className="rounded px-2 py-1 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--border)] hover:text-[var(--danger)]"
+                disabled={pending}
                 onClick={async () => {
-                  await cancelTimeOffRequest(r.id);
+                  const res = await cancelTimeOffRequest(r.id);
+                  if (res?.error) return setError(res.error);
+                  setError(null);
                   refresh();
                 }}
               >

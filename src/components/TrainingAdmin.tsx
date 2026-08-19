@@ -360,7 +360,13 @@ export default function TrainingAdmin({
         <button
           className="btn py-1.5 text-xs"
           onClick={async () => {
-            await updateTrainingModule(mod.id, { isArchived: !mod.is_archived });
+            // Archiving is the one module action that ignored its Result:
+            // a refused toggle looked identical to a successful one.
+            const res = await updateTrainingModule(mod.id, {
+              isArchived: !mod.is_archived,
+            });
+            if (res?.error) return setError(res.error);
+            setError(null);
             refresh();
           }}
         >
