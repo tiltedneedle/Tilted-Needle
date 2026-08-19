@@ -55,6 +55,9 @@ export default function CommandPalette({ role = "owner" }: { role?: string }) {
   const [remote, setRemote] = useState<{ clients: Item[]; videos: Item[] } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  /** Where focus was before the dialog opened, so it can be given back. */
+  const returnTo = useRef<HTMLElement | null>(null);
 
   /* Open on ⌘K/Ctrl+K anywhere, and on the custom event the sidebar's
      search affordance fires -- one component, two doors in. */
@@ -109,11 +112,21 @@ export default function CommandPalette({ role = "owner" }: { role?: string }) {
 
   useEffect(() => {
     if (open) {
+      // Remembered BEFORE the input steals focus.
+      returnTo.current = document.activeElement as HTMLElement | null;
       setQ("");
       setCursor(0);
       // After the portal paints.
       requestAnimationFrame(() => inputRef.current?.focus());
+      return;
     }
+    /* Give focus back to whatever opened this.
+       Closing used to drop it on the document, so the next Tab restarted at
+       "Skip to content" -- a keyboard user who opened the palette, changed
+       their mind and pressed Escape was thrown to the top of the page. */
+    const el = returnTo.current;
+    returnTo.current = null;
+    if (el && document.contains(el)) el.focus();
   }, [open]);
 
   const results = useMemo(() => {
@@ -142,7 +155,27 @@ export default function CommandPalette({ role = "owner" }: { role?: string }) {
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Escape") setOpen(false);
-    else if (e.key === "ArrowDown") {
+    else if (e.key === "Tab") {
+      /* Keep Tab inside the dialog.
+         Measured: focus left the panel after 13 tabs and landed on the page
+         behind the scrim -- still visually dimmed, still inert to the mouse,
+         and now holding the keyboard. A modal that can be tabbed out of is
+         only a modal for people using a pointer. */
+      const focusables = panelRef.current?.querySelectorAll<HTMLElement>(
+        'input, button, [href], [tabindex]:not([tabindex="-1"])',
+      );
+      if (!focusables?.length) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      const active = document.activeElement;
+      if (e.shiftKey && (active === first || !panelRef.current?.contains(active))) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    } else if (e.key === "ArrowDown") {
       e.preventDefault();
       setCursor((c) => Math.min(c + 1, results.length - 1));
     } else if (e.key === "ArrowUp") {
@@ -185,6 +218,8 @@ export default function CommandPalette({ role = "owner" }: { role?: string }) {
         onClick={() => setOpen(false)}
       />
       <div
+        ref={panelRef}
+        onKeyDown={onKeyDown}
         className="animate-pop relative w-full max-w-lg overflow-hidden rounded-[var(--radius)] border border-[var(--border)] shadow-[var(--shadow-overlay)]"
         style={{ background: "var(--bg-elevated)" }}
       >
