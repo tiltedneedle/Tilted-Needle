@@ -30,6 +30,7 @@ import {
   Tag,
   Upload,
   Users,
+  Search as SearchIcon,
 } from "lucide-react";
 import Popover from "@/components/ui/Popover";
 import type { ComponentType } from "react";
@@ -45,7 +46,7 @@ type IconType = ComponentType<{ size?: number; strokeWidth?: number; className?:
  * route would 404 or come back empty under the Phase 5 policies anyway, and
  * showing links to pages they cannot open reads as broken.
  */
-const CLIENT_NAV = [
+export const CLIENT_NAV = [
   {
     group: "Your account",
     items: [{ href: "/portal", label: "Overview", icon: BarChart3 as IconType }],
@@ -57,7 +58,7 @@ const CLIENT_NAV = [
  * open -- their own day-to-day surface. Showing the manager dashboards
  * here would just bounce them back to Home.
  */
-const MEMBER_NAV = [
+export const MEMBER_NAV = [
   {
     group: "My work",
     items: [
@@ -85,7 +86,8 @@ const MEMBER_NAV = [
  * from one client down to one channel's own chart. Everything below them is
  * the supporting machinery that feeds them.
  */
-const NAV = [
+/** Exported for the command palette, which is the same map with a keyboard. */
+export const NAV = [
   {
     group: "Dashboards",
     items: [
@@ -236,6 +238,23 @@ export default function Sidebar({
               </Link>
           </Popover>
         )}
+      </div>
+
+      {/* The palette's visible door. The shortcut is the fast path, but a
+          shortcut nobody can discover is a secret, not a feature -- this row
+          is how anyone learns ⌘K exists. */}
+      <div className="px-3 pb-1">
+        <button
+          onClick={() => window.dispatchEvent(new Event("tn:palette"))}
+          className="flex w-full items-center gap-2 rounded-[var(--radius-sm)] px-2.5 py-1.5 text-left text-[13px] transition-colors hover:bg-white/5"
+          style={{ color: "var(--sidebar-muted)" }}
+        >
+          <SearchIcon size={14} className="shrink-0" />
+          <span className="flex-1">Search</span>
+          <kbd className="rounded border border-white/15 px-1.5 py-0.5 text-[10.5px]">
+            ⌘K
+          </kbd>
+        </button>
       </div>
 
       <nav className="flex-1 overflow-y-auto px-3 pb-2">

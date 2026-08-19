@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Menu } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
+import CommandPalette from "@/components/CommandPalette";
 import type { WorkspaceSummary } from "@/lib/workspace";
 
 /**
@@ -49,6 +50,7 @@ export default function AppShell({
 
   return (
     <div className="app-shell flex h-dvh overflow-hidden">
+      <CommandPalette role={active.role} />
       {/* Keyboard users skip the whole nav in one Tab; invisible otherwise. */}
       <a
         href="#main"
