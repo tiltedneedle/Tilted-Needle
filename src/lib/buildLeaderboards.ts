@@ -1,4 +1,5 @@
 import "server-only";
+import { operatingDate, startOfOperatingDay } from "@/lib/tz";
 import { cachedContentData } from "@/lib/cachedContentData";
 import { LEADER_WINDOWS, type LeaderRow, type Leaderboards } from "@/lib/leaderboards";
 
@@ -48,7 +49,22 @@ export async function buildLeaderboards(
   const out = {} as Leaderboards;
 
   for (const w of LEADER_WINDOWS) {
-    const cutoff = w.days == null ? null : now - w.days * 86400000;
+    /**
+   * The window opens at a LOCAL midnight, not at this moment minus N days.
+   *
+   * A rolling instant put the boundary at whatever time of day the page
+   * happened to be loaded, so "last 7 days" covered a different span every
+   * time somebody refreshed, and a video published in the small hours drifted
+   * in and out of it. Anchoring to the start of an operating day makes the
+   * window mean the same thing all day -- and match the dates it is compared
+   * against, which are operating-day strings.
+   */
+    const cutoff =
+      w.days == null
+        ? null
+        : startOfOperatingDay(
+            operatingDate(new Date(now - w.days * 86_400_000)),
+          ).getTime();
 
     // Per user: the distinct videos they are credited on inside this window.
     // A Set because someone credited as both editor AND videographer on one

@@ -11,6 +11,7 @@
  */
 import { one } from "@/lib/types";
 import { selectAll } from "@/lib/selectAll";
+import { OPERATING_TZ } from "@/lib/tz";
 import { selectIn } from "@/lib/selectIn";
 import type { LineChartPoint } from "@/components/LineChart";
 
@@ -298,9 +299,15 @@ export async function loadChannelDashboard(
   for (const e of events) {
     latestByPost.set(e.platform_post_id, e.views!);
     const total = [...latestByPost.values()].reduce((s, v) => s + v, 0);
-    const label = new Date(e.captured_at).toLocaleDateString(undefined, {
+    // Explicit zone and locale. `undefined` takes the SERVER's, so the same
+    // chart was labelled in whatever region the function happened to run in
+    // -- and disagreed with the home page, which formats in operating time.
+    // Two charts of the same data with different day labels is the kind of
+    // thing nobody reports and everybody quietly distrusts.
+    const label = new Date(e.captured_at).toLocaleDateString("en-GB", {
       month: "short",
       day: "numeric",
+      timeZone: OPERATING_TZ,
     });
     // Multiple posts can be captured the same day; only the day's final
     // total is worth a point on the curve, not one per contributing post.

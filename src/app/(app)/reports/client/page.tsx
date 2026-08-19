@@ -8,6 +8,7 @@ import ReportDocument from "@/components/ReportDocument";
 import PrintReportButton from "@/components/PrintReportButton";
 import TemplatePicker from "@/components/TemplatePicker";
 import { Empty } from "@/components/Stat";
+import { operatingDate } from "@/lib/tz";
 import { AlertTriangle } from "lucide-react";
 
 /**
@@ -62,10 +63,29 @@ export default async function ClientReportPage({
     ISO.test(sp.to) &&
     sp.to >= sp.from;
 
-  // Defaults to the month just gone, which is what a report is written for.
-  const fallback = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
-  const year = Number(sp.year) || fallback.getUTCFullYear();
-  const month = Number(sp.month) || fallback.getUTCMonth() + 1;
+  /**
+   * Defaults to the month just gone, in OPERATING time.
+   *
+   * Derived from the UTC calendar, the default skipped a month for the first
+   * few hours of every 1st: at 02:00 local on 1 September it is still 31
+   * August in UTC, so "the month just gone" resolved to July and the page
+   * opened on a report nobody wanted.
+   */
+  const [ty, tm] = operatingDate(now).split("-").map(Number);
+  const fallback = new Date(Date.UTC(ty, tm - 2, 1));
+  const rawYear = Number(sp.year) || fallback.getUTCFullYear();
+  const rawMonth = Number(sp.month) || fallback.getUTCMonth() + 1;
+
+  /**
+   * Clamped, because a URL is a thing people edit and share.
+   *
+   * month=13 built a period no row could match and a cover reading
+   * "undefined 2026"; a mangled year did the same. Degrade to the default the
+   * way the from/to branch above already does -- a bad link should open the
+   * page, not break it.
+   */
+  const month = rawMonth >= 1 && rawMonth <= 12 ? rawMonth : fallback.getUTCMonth() + 1;
+  const year = rawYear >= 2000 && rawYear <= 2100 ? rawYear : fallback.getUTCFullYear();
 
   const period = rangeOk
     ? { start: sp.from as string, end: sp.to as string }
