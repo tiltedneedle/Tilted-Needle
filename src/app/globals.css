@@ -2938,3 +2938,69 @@ h3 {
     print-color-adjust: exact;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   A screen with nothing on it yet.
+
+   The one-line `.empty` strip is right inside a populated page and wrong as
+   the whole of a screen: /tags showed "No tags yet." in a thin bar with 570px
+   of a 900px viewport blank beneath it. It also answered a question nobody
+   asked -- somebody looking at an empty screen can see that it is empty. What
+   they cannot see is what the thing is for.
+   --------------------------------------------------------------------------- */
+
+.empty-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  /* Enough of the viewport to read as a considered state rather than as a
+     gap where content failed to arrive. */
+  min-height: 46vh;
+  padding: 40px 24px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--panel) 55%, transparent);
+}
+
+.empty-screen-icon {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  margin-bottom: 14px;
+  border-radius: 50%;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.empty-screen-title {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.empty-screen-hint {
+  margin: 7px 0 0;
+  max-width: 46ch;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.empty-screen-action {
+  margin-top: 18px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
+@media (max-width: 640px) {
+  .empty-screen {
+    min-height: 38vh;
+    padding: 30px 18px;
+  }
+}

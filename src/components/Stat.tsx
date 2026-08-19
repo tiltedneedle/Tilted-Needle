@@ -111,6 +111,49 @@ export function Empty({ children }: { children: ReactNode }) {
   return <div className="empty">{children}</div>;
 }
 
+/**
+ * A screen with nothing on it yet, told properly.
+ *
+ * `Empty` is a one-line strip and is right inside a populated page -- a filter
+ * that matched nothing, a section with no rows. It is wrong as the WHOLE of a
+ * screen: /tags rendered "No tags yet." in a thin bar and left 570px of a
+ * 900px viewport blank, which is the "empty spaces with no design" complaint
+ * exactly. Worse, it answered a question nobody asked. Somebody landing on an
+ * empty Tags screen does not need to be told it is empty -- they can see that.
+ * They need to know what a tag DOES here and why they would make one.
+ *
+ * So this states the thing, explains what it is for, and offers the action.
+ * The `hint` is not decoration: a first-run screen is the only place a product
+ * gets to explain itself, and the alternative is a person guessing.
+ */
+export function EmptyScreen({
+  icon: Icon,
+  title,
+  hint,
+  children,
+}: {
+  /** A lucide icon component, drawn quietly behind the title. */
+  icon?: ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
+  title: string;
+  /** What this is for, in a sentence someone can act on. */
+  hint?: ReactNode;
+  /** The action, when there is one worth offering. */
+  children?: ReactNode;
+}) {
+  return (
+    <div className="empty-screen">
+      {Icon && (
+        <span className="empty-screen-icon" aria-hidden="true">
+          <Icon size={22} strokeWidth={1.5} />
+        </span>
+      )}
+      <h3 className="empty-screen-title">{title}</h3>
+      {hint && <p className="empty-screen-hint">{hint}</p>}
+      {children && <div className="empty-screen-action">{children}</div>}
+    </div>
+  );
+}
+
 export function SectionHeading({
   title,
   note,

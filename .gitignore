@@ -63,3 +63,7 @@ scripts/_tmp-*
 
 # Rendered report PDFs from scripts/report-lab.mjs. Generated on demand.
 /report-lab/
+
+# Screenshots and measurements from scripts/ui-lab.mjs. Generated on demand.
+/ui-lab/
+/ui-lab.json

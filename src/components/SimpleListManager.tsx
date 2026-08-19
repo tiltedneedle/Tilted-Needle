@@ -4,6 +4,8 @@ import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { setArchived } from "@/app/actions";
+import { EmptyScreen } from "@/components/Stat";
+import { Tag } from "lucide-react";
 
 type Row = { id: string; name: string; is_archived: boolean };
 
@@ -13,6 +15,7 @@ export default function SimpleListManager({
   addLabel,
   placeholder,
   emptyText,
+  emptyHint,
   canManage,
   onCreate,
   detailHref,
@@ -22,6 +25,14 @@ export default function SimpleListManager({
   addLabel: string;
   placeholder: string;
   emptyText: string;
+  /**
+   * What this list is FOR, shown on a genuinely empty screen.
+   *
+   * A first-run screen is the only place the product gets to explain itself,
+   * and without this /tags said "No tags yet." to somebody who could already
+   * see that, in a thin bar with 570px of blank beneath it.
+   */
+  emptyHint?: string;
   canManage: boolean;
   onCreate: (name: string) => Promise<{ error?: string }>;
   /**
@@ -102,10 +113,44 @@ export default function SimpleListManager({
         </p>
       )}
 
+      {/* NOTHING AT ALL is a different state from NOTHING MATCHED, and they
+          need different answers: one explains the feature, the other tells you
+          your search is too narrow. Collapsing them into one line is how a
+          first-run screen ends up saying only that it is empty. */}
+      {rows.length === 0 ? (
+        <EmptyScreen icon={Tag} title={emptyText} hint={emptyHint}>
+          {canManage && (
+            <span className="text-[11px] text-[var(--muted)]">
+              Use the field above to add the first one.
+            </span>
+          )}
+        </EmptyScreen>
+      ) : (
       <div className="card divide-y divide-[var(--border)] overflow-hidden">
+        {/* THREE reasons a populated list can show nothing, and each has a
+            different answer. Saying "no tags yet" to somebody whose only tag
+            is archived sends them to create a duplicate; saying "nothing
+            matches that search" when no search is typed is simply false. The
+            live workspace has exactly one tag and it is archived, which is how
+            both wordings got caught. */}
         {visible.length === 0 && (
           <div className="p-10 text-center text-sm text-[var(--muted)]">
-            {emptyText}
+            {query.trim() ? (
+              <>Nothing matches “{query.trim()}”.</>
+            ) : (
+              <>
+                {rows.length === 1 ? "The only entry here is" : `All ${rows.length} entries here are`}{" "}
+                archived.{" "}
+                <button
+                  type="button"
+                  className="underline underline-offset-2 transition-colors hover:text-[var(--fg)]"
+                  onClick={() => setShowArchived(true)}
+                >
+                  Show archived
+                </button>{" "}
+                to see {rows.length === 1 ? "it" : "them"}.
+              </>
+            )}
           </div>
         )}
         {visible.map((r) => (
@@ -140,6 +185,7 @@ export default function SimpleListManager({
           </div>
         ))}
       </div>
+      )}
     </>
   );
 }

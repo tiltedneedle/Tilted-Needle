@@ -32,7 +32,8 @@ export default async function TagsPage() {
         table="tags"
         addLabel="Add tag"
         placeholder="Tag name"
-        emptyText="No tags yet."
+        emptyText="No tags yet"
+        emptyHint="A tag cuts across projects, so you can report on a theme rather than on a client — “paid social”, “launch”, “evergreen”. Add one and it becomes available on every project and time entry."
         canManage={canManage(session.active.role)}
         onCreate={create}
       />
