@@ -20,13 +20,18 @@ import { FileDown } from "lucide-react";
  * systems the destination has to be set to "Save as PDF" once. It is a dialog,
  * not a download. Said plainly on the button's tooltip rather than discovered.
  */
-export default function PrintReportButton() {
+export default function PrintReportButton({ disabled = false }: { disabled?: boolean }) {
   return (
     <button
       type="button"
-      className="btn flex items-center gap-1.5 px-2.5 py-1 text-xs"
+      className="btn flex items-center gap-1.5 px-2.5 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-45"
       onClick={() => window.print()}
-      title="Opens your browser's print dialog — choose 'Save as PDF' as the destination"
+      disabled={disabled}
+      title={
+        disabled
+          ? "There is no document to save — this client has nothing to report for this period"
+          : "Opens your browser's print dialog — choose 'Save as PDF' as the destination"
+      }
     >
       <FileDown size={13} />
       Save as PDF

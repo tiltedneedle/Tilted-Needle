@@ -243,8 +243,15 @@ function PlatformPage({
    * many rows this sheet carries. The budget is tuned to the TALLEST template
    * rather than the average: Bold and Luxury set larger type, so a figure that
    * lands Editorial at 995 puts Bold at 1048 and spills it. Clamped at both
-   * ends -- below 6px the rows collide, above 28px four videos look marooned
-   * rather than generous.
+   * ends -- below 6px the rows collide, above 24px four videos look marooned
+   * rather than generous. The ceiling matters more than it looks: the one
+   * sheet in the workspace still spilling had SEVEN rows and had hit the cap,
+   * so the formula was not what put it over -- the clamp was.
+   *
+   * 652 rather than 668 because a full sweep of every client found one sheet
+   * still 9px over: Tilted Needle Team on Bold, eight rows and a figure row.
+   * The budget is set by the worst combination in the workspace, not the
+   * typical one -- a single spilled row costs a whole extra sheet.
    */
   // When most of the list shares a caveat it belongs to the list, not to each
   // line of it.
@@ -256,9 +263,9 @@ function PlatformPage({
   // the tile row and its labels -- so it has that much less to give the rows.
   // Ameerh has both eight videos and a full figure row, and was the only
   // combination still spilling.
-  const budget = 668 - (s.metrics ? 58 : 0);
+  const budget = 652 - (s.metrics ? 58 : 0);
   const rankPad = rowCount
-    ? Math.max(6, Math.min(28, Math.round((budget / rowCount - 38) / 2)))
+    ? Math.max(6, Math.min(24, Math.round((budget / rowCount - 38) / 2)))
     : 9;
 
   return (

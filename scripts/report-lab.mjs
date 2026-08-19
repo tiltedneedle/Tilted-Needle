@@ -54,10 +54,24 @@ const results = [];
 for (const c of CLIENTS) {
   for (const tpl of TEMPLATES) {
     const url = `http://localhost:3000/reports/client?client=${c.id}&year=${c.year}&month=${c.month}&tpl=${tpl}`;
-    await page.goto(url, { waitUntil: "networkidle" });
-    // Wait for the document itself, not just the network. A measurement taken
-    // before the sheets exist reports zero and reads as a broken template.
-    await page.waitForSelector(".report-page", { timeout: 15000 }).catch(() => {});
+    // A slow client must not take the whole sweep down with it -- and how long
+    // a report takes to render IS a result, so it is recorded rather than
+    // thrown.
+    const t0 = Date.now();
+    let loadError = null;
+    try {
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
+      // A client with no accounts renders an explanation and no document,
+      // which is correct. Race the sheets against that empty state rather than
+      // waiting 45s to call a working page a failure.
+      await Promise.race([
+        page.waitForSelector(".report-page", { timeout: 20000 }),
+        page.waitForSelector("text=nothing to report on", { timeout: 20000 }),
+      ]);
+    } catch (e) {
+      loadError = String(e).split(String.fromCharCode(10))[0].slice(0, 60);
+    }
+    const ms = Date.now() - t0;
 
     // Force the template regardless of what the client has stored, so one
     // pass covers all four without writing to the database.
@@ -68,7 +82,9 @@ for (const c of CLIENTS) {
 
     await page.emulateMedia({ media: "print" });
 
-    const layout = await page.evaluate(() => {
+    const layout = loadError
+      ? { sheets: 0, tall: 0, heights: [], overflowing: 0 }
+      : await page.evaluate(() => {
       const sheets = [...document.querySelectorAll(".report-page")];
       const A4_CONTENT_PX = 1016; // 297mm - 28mm margins, at 96dpi
       return {
@@ -81,19 +97,23 @@ for (const c of CLIENTS) {
     });
 
     const file = `${OUT}/${c.slug}-${tpl}.pdf`;
-    await page.pdf({ path: file, format: "A4", printBackground: true, margin: { top: "14mm", bottom: "14mm", left: "14mm", right: "14mm" } });
+    if (!loadError) await page.pdf({ path: file, format: "A4", printBackground: true, margin: { top: "14mm", bottom: "14mm", left: "14mm", right: "14mm" } });
     await page.emulateMedia({ media: "screen" });
 
-    results.push({ client: c.name, slug: c.slug, tpl, ...layout, file });
+    results.push({ client: c.name, slug: c.slug, tpl, ms, loadError, ...layout, file });
   }
 }
 
 await b.close();
 writeFileSync(`${OUT}/results.json`, JSON.stringify(results, null, 1));
 
-console.log("client                    tpl        sheets  tall  overflow  heights");
+console.log("client                    tpl        sheets  tall  over   ms  heights");
 for (const r of results) {
   console.log(
-    `${r.client.slice(0, 24).padEnd(25)} ${r.tpl.padEnd(10)} ${String(r.sheets).padStart(6)} ${String(r.tall).padStart(5)} ${String(r.overflowing).padStart(9)}  ${r.heights.join(",")}`,
+    `${r.client.slice(0, 24).padEnd(25)} ${r.tpl.padEnd(10)} ${String(r.sheets).padStart(6)} ${String(r.tall).padStart(5)} ${String(r.overflowing).padStart(5)} ${String(r.ms).padStart(5)}  ${r.loadError ?? r.heights.join(",")}`,
   );
 }
+const bad = results.filter((r) => r.loadError || r.tall || r.overflowing);
+console.log("");
+console.log(`${results.length - bad.length}/${results.length} clean`);
+for (const r of bad) console.log(`  PROBLEM ${r.client} / ${r.tpl}: ${r.loadError ?? `tall=${r.tall} overflow=${r.overflowing}`}`);

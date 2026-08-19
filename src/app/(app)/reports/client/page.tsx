@@ -129,7 +129,12 @@ export default async function ClientReportPage({
             ))}
           </div>
           <div className="ml-auto">
-            <PrintReportButton />
+            {/* Nothing to print is a real state: a client with no accounts
+                renders an explanation and no document, and the button was
+                still live -- pressing it produced a PDF of the CONTROLS with
+                an apology on it, which is the worst possible thing to hand
+                someone by accident. */}
+            <PrintReportButton disabled={!report || report.sections.length === 0} />
           </div>
         </div>
 
