@@ -805,7 +805,20 @@ export async function runSync(
             posts_seen: result?.postsSeen ?? 0,
             posts_created: result?.postsCreated ?? 0,
             snapshots_written: result?.snapshotsWritten ?? 0,
-            error: result?.error ?? "Run ended without a result.",
+            /**
+             * A successful run leaves this NULL.
+             *
+             * It was `result?.error ?? "Run ended without a result."`, and
+             * `??` fires whenever the left side is nullish -- which is exactly
+             * what a clean run produces. So 87 rows carried status='ok'
+             * alongside an error message saying the run had not finished, and
+             * anyone reading the sync log for real failures had to know to
+             * ignore that sentence.
+             *
+             * The fallback belongs to the case it was written for: no result
+             * object at all, meaning the loop threw before producing one.
+             */
+            error: result ? (result.error ?? null) : "Run ended without a result.",
           })
           .eq("id", run.id);
       }
