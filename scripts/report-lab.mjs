@@ -49,6 +49,20 @@ await page.evaluate(async ([url, key]) => {
     expires_at: j.expires_at, refresh_token: j.refresh_token, user: j.user })) + "; path=/; max-age=3600";
 }, [env.NEXT_PUBLIC_SUPABASE_URL, env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY]);
 
+/** Pages in a PDF, straight off the page tree -- no parser dependency. */
+function pdfPageCount(file) {
+  try {
+    const buf = readFileSync(file);
+    const m = buf.toString("latin1").match(/\/Type\s*\/Pages[\s\S]{0,400}?\/Count\s+(\d+)/);
+    if (m) return Number(m[1]);
+    // Linearised output can omit the root /Pages before the objects, so fall
+    // back to counting the page objects themselves.
+    return (buf.toString("latin1").match(/\/Type\s*\/Page[^s]/g) || []).length;
+  } catch {
+    return 0;
+  }
+}
+
 const results = [];
 
 for (const c of CLIENTS) {
@@ -73,12 +87,32 @@ for (const c of CLIENTS) {
     }
     const ms = Date.now() - t0;
 
-    // Force the template regardless of what the client has stored, so one
-    // pass covers all four without writing to the database.
-    await page.evaluate((t) => {
-      const el = document.querySelector(".report");
-      if (el) el.className = "report tpl-" + t;
-    }, tpl);
+    /* Force the template regardless of what the client has stored, so one
+       pass covers all four without writing to the database.
+
+       Guarded, because `domcontentloaded` is not the end of navigation here:
+       the page can still be settling when this runs, and evaluating into a
+       context that is being torn down throws "Execution context was
+       destroyed" -- which took the whole sweep down with it, turning a
+       transient into a total failure. Settle first, then retry once, and
+       record it as a per-row error rather than an exception if it still
+       will not take. */
+    let tplError = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        await page.waitForLoadState("load", { timeout: 15000 }).catch(() => {});
+        await page.evaluate((t) => {
+          const el = document.querySelector(".report");
+          if (el) el.className = "report tpl-" + t;
+        }, tpl);
+        tplError = null;
+        break;
+      } catch (e) {
+        tplError = String(e).split(String.fromCharCode(10))[0].slice(0, 60);
+        await page.waitForTimeout(500);
+      }
+    }
+    if (tplError) loadError = loadError || tplError;
 
     await page.emulateMedia({ media: "print" });
 
@@ -100,17 +134,28 @@ for (const c of CLIENTS) {
     if (!loadError) await page.pdf({ path: file, format: "A4", printBackground: true, margin: { top: "14mm", bottom: "14mm", left: "14mm", right: "14mm" } });
     await page.emulateMedia({ media: "screen" });
 
-    results.push({ client: c.name, slug: c.slug, tpl, ms, loadError, ...layout, file });
+    /* How many pages the client actually receives.
+     *
+     * `sheets` counts `.report-page` ELEMENTS, which is not the same thing
+     * and reads as though it were. Editorial forces a break per section, so
+     * there the two numbers agree. Digest deliberately does not -- it sets
+     * min-height:auto and lets several platforms share a sheet, which is its
+     * entire reason to exist -- so its element heights come out at a third
+     * of the column and look like half-empty pages when they are nothing of
+     * the sort. Reading the count back out of the PDF is the only number
+     * that cannot be misread that way.
+     */
+    results.push({ client: c.name, slug: c.slug, tpl, ms, loadError, ...layout, file, pages: loadError ? 0 : pdfPageCount(file) });
   }
 }
 
 await b.close();
 writeFileSync(`${OUT}/results.json`, JSON.stringify(results, null, 1));
 
-console.log("client                    tpl        sheets  tall  over   ms  heights");
+console.log("client                    tpl        pages  sheets  tall  over   ms  heights");
 for (const r of results) {
   console.log(
-    `${r.client.slice(0, 24).padEnd(25)} ${r.tpl.padEnd(10)} ${String(r.sheets).padStart(6)} ${String(r.tall).padStart(5)} ${String(r.overflowing).padStart(5)} ${String(r.ms).padStart(5)}  ${r.loadError ?? r.heights.join(",")}`,
+    `${r.client.slice(0, 24).padEnd(25)} ${r.tpl.padEnd(10)} ${String(r.pages).padStart(5)} ${String(r.sheets).padStart(7)} ${String(r.tall).padStart(5)} ${String(r.overflowing).padStart(5)} ${String(r.ms).padStart(5)}  ${r.loadError ?? r.heights.join(",")}`,
   );
 }
 const bad = results.filter((r) => r.loadError || r.tall || r.overflowing);

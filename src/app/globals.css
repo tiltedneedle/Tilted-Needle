@@ -1653,7 +1653,7 @@ h3 {
 
 .report-figure-label {
   margin-top: 5px;
-  font-size: 9px;
+  font-size: 9.5px;
   font-weight: 600;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -1779,7 +1779,7 @@ h3 {
   justify-content: space-between;
   padding-top: 9px;
   border-top: 1px solid var(--report-rule);
-  font-size: 9px;
+  font-size: 9.5px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--report-muted);
@@ -1915,7 +1915,7 @@ h3 {
 
 .tpl-editorial .report-eyebrow {
   font-family: var(--f-grot);
-  font-size: 9px;
+  font-size: 9.5px;
   letter-spacing: 0.24em;
   color: var(--report-muted);
   border-bottom: 0;
@@ -2134,7 +2134,7 @@ h3 {
 }
 
 .tpl-luxury .report-eyebrow {
-  font-size: 8.5px;
+  font-size: 9.5px;
   letter-spacing: 0.4em;
   color: var(--report-accent);
   border-bottom: 1px solid var(--report-rule);
@@ -2157,7 +2157,7 @@ h3 {
 }
 .tpl-luxury .report-figure-label {
   letter-spacing: 0.22em;
-  font-size: 8px;
+  font-size: 9.5px;
   color: var(--report-muted);
 }
 
@@ -2321,7 +2321,7 @@ h3 {
 }
 
 .tpl-digest .report-eyebrow {
-  font-size: 8.5px;
+  font-size: 9.5px;
   letter-spacing: 0.16em;
   color: var(--report-ink);
   font-weight: 700;
@@ -2349,7 +2349,7 @@ h3 {
   font-weight: 600;
 }
 .tpl-digest .report-figure-label {
-  font-size: 7.5px;
+  font-size: 9.5px;
   letter-spacing: 0.1em;
   margin-top: 2px;
 }
@@ -2402,7 +2402,7 @@ h3 {
   text-align: left;
 }
 .tpl-digest .report-cover-title {
-  font-size: 8.5px;
+  font-size: 9.5px;
   letter-spacing: 0.2em;
   color: var(--report-accent);
 }
@@ -2414,7 +2414,7 @@ h3 {
 }
 .tpl-digest .report-cover-platforms,
 .tpl-digest .report-cover-period {
-  font-size: 9px;
+  font-size: 10px;
   letter-spacing: 0.16em;
 }
 .tpl-digest .report-footer {
@@ -2612,7 +2612,7 @@ h3 {
 .report-rank-note {
   display: block;
   margin-top: 2px;
-  font-size: 8.5px;
+  font-size: 9.5px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--report-muted);
@@ -2641,7 +2641,7 @@ h3 {
 .report-rank-unit {
   display: block;
   margin-top: 1px;
-  font-size: 8px;
+  font-size: 9.5px;
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
