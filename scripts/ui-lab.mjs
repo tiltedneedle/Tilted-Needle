@@ -81,7 +81,17 @@ for (const route of ROUTES) {
     try {
       await page.goto(BASE + route, { waitUntil: "domcontentloaded", timeout: 45000 });
       await page.waitForSelector("main", { timeout: 20000 });
-      await page.waitForTimeout(400);
+      /* Wait for the entrance choreography to FINISH, not a fixed beat.
+         The stagger runs 550ms end to end (350ms max delay + 200ms rise), so
+         a 400ms pause captured the middle of the animation: cards at opacity
+         0 photographed as voids, and /clients was mis-diagnosed as having a
+         230px hole that was actually six cards mid-fade. Screenshots of a
+         transition are worse than no screenshots, because they are believed. */
+      await page.waitForTimeout(150);
+      await page
+        .evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished)))
+        .catch(() => {});
+      await page.waitForTimeout(120);
     } catch (e) {
       loadError = String(e).split(String.fromCharCode(10))[0].slice(0, 70);
     }

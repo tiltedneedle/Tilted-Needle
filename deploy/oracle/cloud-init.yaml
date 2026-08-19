@@ -40,7 +40,16 @@ write_files:
       # nowhere else: not in the repo, not in Vercel's environment, not in any
       # client bundle (§4.7).
       EnvironmentFile=/etc/tn-worker.env
-      ExecStart=/usr/bin/node --experimental-strip-types --import /opt/tn-worker/scripts/register-alias.mjs /opt/tn-worker/worker/index.mjs
+      # --kinds EXCLUDES transcript, and the exclusion was proved the hard
+      # way: this box's first 90 seconds settled five videos as "no caption
+      # tracks published" that had simply refused its datacenter IP -- the
+      # same silent poisoning the GitHub runner produced before p_kinds was
+      # honoured. YouTube's timedtext turns an untrusted address into an
+      # EMPTY track list, not an error, so the code cannot tell "blocked"
+      # from "has no captions". Transcripts belong to a host whose IP
+      # YouTube trusts (the desktop runner); everything else is IP-blind
+      # and runs here.
+      ExecStart=/usr/bin/node --experimental-strip-types --import /opt/tn-worker/scripts/register-alias.mjs /opt/tn-worker/worker/index.mjs --kinds=comments,analyse,vision_extract,weekly_read
       # A crash must not take the pipeline down until someone notices.
       Restart=always
       RestartSec=10

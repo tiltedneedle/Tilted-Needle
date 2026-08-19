@@ -586,8 +586,9 @@ export default async function ContentPage({
         <Stat
           icon={Timer}
           label="Time invested"
-          value={t.trackedSeconds ? formatDurationShort(t.trackedSeconds) : "—"}
+          value={t.trackedSeconds ? formatDurationShort(t.trackedSeconds) : null}
           hint="tracked against content"
+          emptyText="No time tracked against content yet"
         />
         {/* The last figure the deleted client view had that this one did not.
             Peak single-platform views, never a sum across platforms -- and

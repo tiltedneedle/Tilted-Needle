@@ -18,6 +18,7 @@ export function Stat({
   label,
   value,
   hint,
+  emptyText,
   hintHref,
   accent = false,
   icon: Icon,
@@ -28,6 +29,10 @@ export function Stat({
    *  null means THERE IS NO FIGURE YET -- see the render below. */
   value: ReactNode;
   hint?: string;
+  /** Shown INSTEAD of the figure when value is null. Distinct from `hint`,
+   *  which annotates a figure that exists and would read as nonsense in the
+   *  empty case ("of 40h capacity" under nothing at all). */
+  emptyText?: string;
   /** Makes the hint a link, for hints that name a subset worth acting on. */
   hintHref?: string;
   accent?: boolean;
@@ -76,7 +81,7 @@ export function Stat({
           className="relative mt-2 text-[15px] leading-snug"
           style={{ color: hero ? "var(--on-dark-muted)" : "var(--muted)" }}
         >
-          {hint ?? "Nothing yet"}
+          {emptyText ?? hint ?? "Nothing yet"}
         </div>
       ) : (
         <div

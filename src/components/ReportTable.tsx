@@ -142,6 +142,14 @@ export default function ReportTable({ report }: { report: Report }) {
                   }`}
                 >
                   {report.columns.map((c) => {
+                    /* A blank ROW drops its dashes; a blank CELL keeps one.
+                       In a row that has data, a dash marks the one figure
+                       that is missing, which is exactly what a dash is for.
+                       In a row with nothing at all, six dashes just restate
+                       "nothing published" six more times -- with ten
+                       inactive people that was a sixty-dash wall under the
+                       table, and the eye reads walls, not rows. The name and
+                       the chip say everything the row has to say. */
                     if (c.kind === "platforms") {
                       return (
                         <td key={c.key} className="px-3 py-2.5">
@@ -156,6 +164,9 @@ export default function ReportTable({ report }: { report: Report }) {
                       );
                     }
                     const cell = r.cells[c.key];
+                    if (isBlank(r) && c.key !== "label") {
+                      return <td key={c.key} className="px-3 py-2.5" />;
+                    }
                     const isLabel = c.key === "label";
                     return (
                       <td
