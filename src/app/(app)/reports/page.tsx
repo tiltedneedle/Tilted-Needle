@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { FileText } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import ReportView from "@/components/ReportView";
 import ReportTable from "@/components/ReportTable";
@@ -55,7 +56,16 @@ export default async function ReportsPage({
       <PageHeader
         title="Reports"
         subtitle="Employees, clients, platforms and hours — over any stretch of time."
-      />
+      >
+        {/* The client-facing document belongs WITH the internal analysis, not
+            beside it in the nav. Both answer "how did this go"; the only
+            difference is who reads the answer, and a top-level entry made
+            them look like separate tools. */}
+        <Link href="/reports/client" className="btn">
+          <FileText size={14} />
+          Client report
+        </Link>
+      </PageHeader>
 
       <div className="mb-5 flex flex-wrap gap-1 border-b border-[var(--border)]">
         {TABS.map((t) => {

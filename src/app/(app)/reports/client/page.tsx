@@ -9,7 +9,7 @@ import PrintReportButton from "@/components/PrintReportButton";
 import TemplatePicker from "@/components/TemplatePicker";
 import { Empty } from "@/components/Stat";
 import { operatingDate } from "@/lib/tz";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, ChevronLeft } from "lucide-react";
 
 /**
  * The monthly client report, for any client and any month.
@@ -104,6 +104,16 @@ export default async function ClientReportPage({
   return (
     <div className="mx-auto max-w-4xl px-6 py-6">
       <div className="no-print">
+        {/* A sub-section needs a way back, or it is just a page you fell
+            into. The crumb is the only thing on screen saying this belongs
+            to Reports now that the nav no longer does. */}
+        <Link
+          href="/reports"
+          className="mb-3 inline-flex items-center gap-1.5 text-xs text-[var(--muted)] transition-colors hover:text-[var(--fg)]"
+        >
+          <ChevronLeft size={13} />
+          Reports
+        </Link>
         <PageHeader
           title="Client report"
           subtitle="Every figure is measured or declared missing. Nothing is estimated."
