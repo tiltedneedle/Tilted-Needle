@@ -506,6 +506,38 @@ export default async function ContentPage({
   );
   const gained = stillGrowing.reduce((s, v) => s + (v.recentGain?.views ?? 0), 0);
 
+  /* How many platforms the filtered population actually spans. Derived from
+     the same platformTotals the reach section renders, so the card and the
+     table below it can never disagree. */
+  const platformsInView = overview.platformTotals.filter((p) => p.posts > 0).length;
+
+  /* The reference the growth figure was missing.
+     A span rather than a mean: these gains are measured over each video's own
+     gap between readings, and pooling them into one average would present a
+     spread as a fact. */
+  const spans = stillGrowing.map((v) => v.recentGain!.days).filter((d) => d > 0);
+  const lo = spans.length ? Math.min(...spans) : 0;
+  const hi = spans.length ? Math.max(...spans) : 0;
+  /* Reads as a phrase, not as a formula. Interpolating a "under a day" floor
+     straight into a range produced "over under a day-20d"; when the shortest
+     gap rounds to nothing the honest phrasing is a ceiling, not a span. */
+  const growthWindow = !spans.length
+    ? "since the previous reading"
+    : Math.round(hi) < 1
+      ? "over the last day"
+      : Math.round(lo) < 1
+        ? `over up to ${Math.round(hi)}d`
+        : Math.round(lo) === Math.round(hi)
+          ? `over ${Math.round(hi)}d`
+          : `over ${Math.round(lo)}–${Math.round(hi)}d`;
+
+  /* Freshness, so a fortnight-old figure cannot pass as "now" -- the exact
+     reason staleDays is carried in the first place. */
+  const stale = stillGrowing.map((v) => v.recentGain!.staleDays).filter((d) => d >= 0);
+  const freshest = stale.length ? Math.min(...stale) : null;
+  const freshness =
+    freshest == null ? "unknown" : freshest < 1 ? "today" : `${Math.round(freshest)}d ago`;
+
   // People-in-view strip (PRD v0.5 §3): per selected person, their numbers
   // computed on the CURRENT intersection -- the whole point of the merge.
   // The people strip and the Employee report are the same aggregation --
@@ -571,16 +603,50 @@ export default async function ContentPage({
               : undefined
           }
         />
-        <Stat icon={Layers} label="Posts" value={String(t.posts)} hint="across all platforms" />
+        {/* WAS "Posts", and it could never say anything Videos had not.
+            Every video in this workspace carries exactly one post -- 467 of
+            467, nothing cross-posted -- so the card printed the same figure
+            as its neighbour, twice, in the same row. That is not a
+            coincidence to wait out: posts only diverge from videos when the
+            same video is published to a second platform, which nothing here
+            does yet.
+
+            The count that DOES vary is how many platforms the population
+            spans, and it moves with the filters the way the other cards do.
+            Posts keep their place in the hint, alongside the ratio that
+            makes the two numbers legible together. */}
+        <Stat
+          icon={Layers}
+          label="Platforms"
+          value={String(platformsInView)}
+          hint={
+            t.posts === t.videos
+              ? `${t.posts.toLocaleString()} posts — one per video`
+              : `${t.posts.toLocaleString()} posts across ${t.videos.toLocaleString()} videos`
+          }
+        />
         <Stat
           icon={TrendingUp}
           label="Still growing"
-          value={gained ? `+${gained.toLocaleString()}` : "—"}
+          value={gained ? `+${gained.toLocaleString()}` : null}
+          /* "latest snapshots" told you nothing you could anchor the number
+             to: gained since WHEN, and how current is it? Both facts are
+             already carried on every reading -- `days` is the gap each video's
+             pair of readings spans and `staleDays` how long ago the newer one
+             was taken -- and neither reached the screen.
+
+             The span is quoted as a RANGE rather than an average because the
+             gaps genuinely differ per video (0 to 14 days across this
+             workspace, per the note on recentGain), and one number would
+             imply a uniformity that is not there. Freshness is the newest
+             reading in the set, because that is the most this figure can
+             claim to be current to. */
           hint={
             gained
-              ? `across ${stillGrowing.length} video${stillGrowing.length === 1 ? "" : "s"}, latest snapshots`
-              : "needs two snapshots to compare"
+              ? `${growthWindow} · ${stillGrowing.length} video${stillGrowing.length === 1 ? "" : "s"} · newest reading ${freshness}`
+              : undefined
           }
+          emptyText="Nothing has gained views since its previous reading"
           accent={gained > 0}
         />
         <Stat
