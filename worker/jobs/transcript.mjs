@@ -274,6 +274,30 @@ export async function transcript({ db, job, log }) {
   // attempts to arrive at a worse message. Manual paste is the route
   // (PRD §8.5), and it feeds everything downstream identically.
   if (body.trim().length === 0) {
+    /* TERMINAL ONLY IF THE BETTER PATH ALREADY TRIED AND FAILED.
+     *
+     * yt-dlp obtains these. It handles the proof-of-origin dance this plain
+     * fetch cannot, and it is path 1 for exactly that reason -- so an empty
+     * body here means "the fallback cannot do it", not "nobody can".
+     *
+     * The distinction is not theoretical. 16 videos were settled terminally
+     * with this note during a drain where the yt-dlp service was returning
+     * 401 on every call: the box handed back null, the job fell through to
+     * this path, and this path wrote off videos whose captions yt-dlp reads
+     * without difficulty. Same shape as the datacenter poisoning -- a
+     * transport failure recorded as a fact about the video.
+     *
+     * So when a box is CONFIGURED, a failure here is thrown rather than
+     * settled. Throwing retries, and by the next attempt the box may be
+     * answering. Only with no box configured at all is manual paste
+     * genuinely the last resort (PRD §8.5).
+     */
+    if (process.env.TIKTOK_DISCOVER_URL && process.env.TIKTOK_DISCOVER_SECRET) {
+      throw new Error(
+        "timedtext returned an empty body and the yt-dlp service did not " +
+          "answer for this video; retrying rather than writing it off",
+      );
+    }
     return {
       unavailable: true,
       note:
