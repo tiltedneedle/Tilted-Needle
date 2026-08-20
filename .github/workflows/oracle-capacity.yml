@@ -27,18 +27,21 @@ on:
     # Every 30 minutes. Capacity that appears is taken within seconds, so this
     # is a lottery ticket bought often -- but not so often that Oracle starts
     # answering with throttles instead of facts.
-    # SCHEDULE REMOVED when the tenancy moved to Pay As You Go.
+    # THE SCHEDULE IS BACK, because what it runs changed.
     #
-    # Every half hour was safe only because every launch was failing. On PAYG
-    # the same request succeeds, and this script had no memory of the instance
-    # it made thirty minutes earlier -- so the thing that made capacity
-    # reliable is the same thing that made an unattended loop expensive.
+    # It was removed when the tenancy moved to Pay As You Go: every half hour
+    # was only ever safe because every LAUNCH was failing, and on PAYG the
+    # same request succeeds and bills, from a timer nobody is watching.
     #
-    # probe_capacity.py now refuses to exceed the Always Free ceiling on its
-    # own, which is the real fix. This is the second lock: capacity is claimed
-    # deliberately, by a person, via "Run workflow" -- not by a timer nobody is
-    # watching.
-    # - cron: "*/30 * * * *"
+    # The scheduled job no longer launches anything. It asks
+    # CreateComputeCapacityReport, which creates nothing, costs nothing and --
+    # unlike launch_instance -- is not rate limited, so it can run often and
+    # honestly. Claiming stays manual, in a separate job below, behind
+    # workflow_dispatch.
+    #
+    # This is also what takes the watch off somebody's desktop. A retry loop
+    # in a terminal dies with the terminal, and capacity appears at 4am.
+    - cron: "*/20 * * * *"
   workflow_dispatch:
 
 concurrency:
@@ -47,9 +50,48 @@ concurrency:
 
 permissions:
   contents: read
+  issues: write   # the alarm is an issue; nothing else is written
 
 jobs:
-  probe:
+  # ---- Watching: automatic, provisions nothing -----------------------------
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install --quiet oci
+
+      - name: Ask whether A1 capacity exists
+        id: ask
+        env:
+          OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
+          OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+          OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+          OCI_REGION: ${{ secrets.OCI_REGION }}
+          OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+        run: |
+          set +e
+          python deploy/oracle/watch_regions.py | tee /tmp/capacity.txt
+          echo "found=$?" >> "$GITHUB_OUTPUT"
+
+      # Capacity is gone in seconds, so a quiet log is useless. A found slot
+      # opens an issue, which notifies; every empty run stays silent.
+      - name: Raise the alarm
+        if: steps.ask.outputs.found == '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create             --title "Oracle A1 capacity is available right now"             --body "$(cat /tmp/capacity.txt)
+
+          Claim it with the *claim* job on this workflow (Run workflow), or
+          locally with the command above. Capacity does not last."             --label oracle || true
+
+  # ---- Claiming: manual only, and it is the only thing that can provision --
+  claim:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

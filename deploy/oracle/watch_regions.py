@@ -48,7 +48,22 @@ PROFILES = ["DEFAULT", "ABUDHABI"]
 
 
 def context(profile: str):
-    cfg = oci.config.from_file(profile_name=profile)
+    """
+    A tenancy to watch, from ~/.oci/config or from the environment.
+
+    CI has no config file, so when OCI_USER_OCID is present the credentials
+    are assembled from env vars exactly as probe_capacity.py does it -- the
+    key arrives as a string because a GitHub secret is a string, and is
+    written 0600 into the runner's temp space, which is destroyed with the
+    job. One profile only in that mode: CI carries one tenancy's secrets.
+    """
+    import os
+
+    if os.environ.get("OCI_USER_OCID") and profile == "DEFAULT":
+        from probe_capacity import load_config  # same assembly, one copy
+        cfg = load_config()
+    else:
+        cfg = oci.config.from_file(profile_name=profile)
     tenancy = cfg["tenancy"]
     ad = oci.identity.IdentityClient(cfg).list_availability_domains(tenancy).data[0].name
     return {
