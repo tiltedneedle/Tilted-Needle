@@ -50,9 +50,11 @@ LIVE = ("RUNNING", "PROVISIONING", "STARTING", "STOPPING", "STOPPED")
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--json", action="store_true", help="machine-readable output")
+    ap.add_argument("--profile", default="DEFAULT",
+                    help="~/.oci/config profile; there is more than one tenancy now")
     args = ap.parse_args()
 
-    cfg = oci.config.from_file()
+    cfg = oci.config.from_file(profile_name=args.profile)
     oci.config.validate_config(cfg)
     tenancy = cfg["tenancy"]
 

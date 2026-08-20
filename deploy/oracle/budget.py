@@ -51,9 +51,11 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--email", help="where alerts go (required unless --plan)")
     ap.add_argument("--plan", action="store_true", help="show what would be created")
+    ap.add_argument("--profile", default="DEFAULT",
+                    help="~/.oci/config profile; there is more than one tenancy now")
     args = ap.parse_args()
 
-    cfg = oci.config.from_file()
+    cfg = oci.config.from_file(profile_name=args.profile)
     client = oci.budget.BudgetClient(cfg)
     tenancy = cfg["tenancy"]
 

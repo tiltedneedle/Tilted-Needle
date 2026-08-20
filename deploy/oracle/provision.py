@@ -53,10 +53,10 @@ MICRO_SHAPE = "VM.Standard.E2.1.Micro"
 _CTX = {}
 
 
-def _ctx():
+def _ctx(profile: str = "DEFAULT"):
     """compute client, tenancy OCID and AD name -- built once, reused."""
     if not _CTX:
-        cfg = oci.config.from_file()
+        cfg = oci.config.from_file(profile_name=profile)
         tenancy = cfg["tenancy"]
         _CTX["compute"] = oci.core.ComputeClient(cfg)
         _CTX["tenancy"] = tenancy
@@ -71,6 +71,10 @@ def log(msg: str) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--plan", action="store_true", help="show actions without making changes")
+    ap.add_argument("--profile", default="DEFAULT",
+                    help="~/.oci/config profile. There is more than one tenancy: "
+                         "DEFAULT is ap-singapore-1, ABUDHABI is me-abudhabi-1. "
+                         "Capacity is per REGION, so which one this runs against matters.")
     ap.add_argument("--ssh-key", required=False, help="path to the PUBLIC key to authorise")
     ap.add_argument("--ocpus", type=int, default=MAX_A1_OCPUS)
     ap.add_argument("--memory", type=int, default=MAX_A1_MEMORY_GB)
@@ -123,7 +127,7 @@ def main() -> int:
             # Oracle's own out-of-capacity guidance: naming one samples that
             # one, leaving it unset samples all three.
             try:
-                free, lines = any_capacity(_ctx()["compute"], _ctx()["tenancy"], _ctx()["ad"], sizes)
+                free, lines = any_capacity(_ctx(args.profile)["compute"], _ctx(args.profile)["tenancy"], _ctx(args.profile)["ad"], sizes)
                 log("capacity report: " + ", ".join(lines))
                 if not free:
                     # No launch attempt at all: nothing to throttle, so the
@@ -210,7 +214,7 @@ def launch_once(args, report: bool = False):
         )
         return out(2, "error")
 
-    cfg = oci.config.from_file()
+    cfg = oci.config.from_file(profile_name=args.profile)
     oci.config.validate_config(cfg)
     tenancy = cfg["tenancy"]
 
