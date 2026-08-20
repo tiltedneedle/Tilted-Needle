@@ -32,9 +32,31 @@ function ago(seconds: number): string {
   return `${Math.round(seconds / 3600)}h ago`;
 }
 
+/**
+ * A CI runner is not a worker that died -- it is a worker that finished.
+ *
+ * Every scheduled sync run checks in under its own `gha-<run_id>`, does its
+ * work and exits, leaving a heartbeat that will never beat again. The card
+ * drew each one as a red, struck-through "silent" worker, so a healthy
+ * pipeline accumulated an ever-growing wall of alarming corpses: 28 of the
+ * 30 rows on this workspace, the oldest a week old, every one of them a run
+ * that SUCCEEDED.
+ *
+ * Long-lived workers are the ones whose silence means something. Those are
+ * named deliberately (tn-worker-oracle, tn-worker-desktop); the ephemeral
+ * ones are counted, not listed.
+ */
+const isEphemeral = (id: string) => id.startsWith("gha-");
+
 export default function PipelineHealth({ status }: { status: PipelineStatus }) {
-  const live = status.workers.filter((w) => w.secondsAgo <= STALE_AFTER_S);
-  const stale = status.workers.filter((w) => w.secondsAgo > STALE_AFTER_S);
+  const persistent = status.workers.filter((w) => !isEphemeral(w.id));
+  const live = persistent.filter((w) => w.secondsAgo <= STALE_AFTER_S);
+  const stale = persistent.filter((w) => w.secondsAgo > STALE_AFTER_S);
+  /* The most recent CI check-in stands for all of them: what matters is
+     whether scheduled runs are still happening, not which ones have ended. */
+  const lastCi = status.workers
+    .filter((w) => isEphemeral(w.id))
+    .sort((a, b) => a.secondsAgo - b.secondsAgo)[0];
   const totals = status.queue.reduce(
     (a, q) => ({
       pending: a.pending + q.pending,
@@ -67,6 +89,24 @@ export default function PipelineHealth({ status }: { status: PipelineStatus }) {
                   <span className="text-xs text-[var(--muted)]">{ago(w.secondsAgo)}</span>
                 </span>
               ))}
+              {lastCi && (
+                <span
+                  className="flex items-center gap-1.5 text-sm"
+                  title="Scheduled runs check in under a one-off id and exit when done. Only the most recent is shown; the rest finished successfully."
+                >
+                  <span
+                    className={`size-2 rounded-full ${
+                      lastCi.secondsAgo <= 6 * 3600
+                        ? "bg-[var(--success)]"
+                        : "bg-[var(--warn)]"
+                    }`}
+                  />
+                  <span className="font-medium">scheduled runs</span>
+                  <span className="text-xs text-[var(--muted)]">
+                    last {ago(lastCi.secondsAgo)}
+                  </span>
+                </span>
+              )}
               {stale.map((w) => (
                 <span
                   key={w.id}

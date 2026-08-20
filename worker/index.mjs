@@ -177,13 +177,39 @@ async function finish(job, status, note) {
 }
 
 /**
- * Drop heartbeats nobody will ever look at again. A worker silent for a week
- * is not a worker, and leaving the row makes real outages harder to see.
+ * Drop heartbeats nobody will ever look at again.
+ *
+ * Two retentions, because the two kinds of worker mean opposite things by
+ * going quiet.
+ *
+ * A PERSISTENT worker (tn-worker-oracle, tn-worker-desktop) is supposed to
+ * keep beating, so its silence is the signal and the row has to outlive the
+ * outage long enough for somebody to notice. A week.
+ *
+ * An EPHEMERAL one is a scheduled CI run: it checks in under a one-off
+ * `gha-<run_id>`, finishes its work and exits on purpose. Its row is dead on
+ * arrival and worth nothing an hour later, but the week-long rule kept every
+ * single one -- 28 rows against 2 real workers here, and roughly 1,500 a
+ * year at the current cadence, each drawn on the dashboard as a red
+ * struck-through corpse of a run that succeeded.
  */
 async function pruneDeadWorkers() {
-  const cutoff = new Date(Date.now() - 7 * 86_400_000).toISOString();
-  const { error } = await db.from("worker_heartbeat").delete().lt("last_seen_at", cutoff);
+  const persistentCutoff = new Date(Date.now() - 7 * 86_400_000).toISOString();
+  const ephemeralCutoff = new Date(Date.now() - 86_400_000).toISOString();
+
+  const { error } = await db
+    .from("worker_heartbeat").delete().lt("last_seen_at", persistentCutoff);
   if (error) log("warn", "prune_failed", { error: error.message });
+
+  // A day is generous for a run that lasts under a minute, and leaves the
+  // most recent one in place so the dashboard can still say when scheduled
+  // runs last happened.
+  const { error: ciError } = await db
+    .from("worker_heartbeat")
+    .delete()
+    .like("worker_id", "gha-%")
+    .lt("last_seen_at", ephemeralCutoff);
+  if (ciError) log("warn", "prune_ci_failed", { error: ciError.message });
 }
 
 async function heartbeat() {
