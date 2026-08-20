@@ -31,6 +31,39 @@ app = Flask(__name__)
 # the endpoint is open to the internet.
 SECRET = os.environ.get("DISCOVER_SECRET")
 
+# An optional Netscape-format cookie jar, exported from a signed-in YouTube
+# session. Set YTDLP_COOKIES to its path.
+#
+# WHY IT IS OPTIONAL AND WHY IT MATTERS
+#
+# From a residential address YouTube answers without it and this stays unset.
+# From a datacenter address YouTube refuses every request with "Sign in to
+# confirm you're not a bot" -- measured against seven yt-dlp client variants,
+# a PO-token provider, and an anonymous cookie jar, all refused identically.
+# Cookies from an AUTHENTICATED session are the one countermeasure YouTube's
+# own error message names and the only one left untested.
+#
+# yt-dlp's documentation warns that using cookies from an account you care
+# about can get that account flagged. Use a throwaway.
+COOKIE_FILE = os.environ.get("YTDLP_COOKIES") or None
+if COOKIE_FILE and not os.path.exists(COOKIE_FILE):
+    print(f"WARNING: YTDLP_COOKIES points at {COOKIE_FILE}, which does not exist.")
+    COOKIE_FILE = None
+
+
+def _with_cookies(opts: dict) -> dict:
+    """Attach the cookie jar when one is configured. No-op otherwise."""
+    if COOKIE_FILE:
+        opts["cookiefile"] = COOKIE_FILE
+    return opts
+
+
+# The bot challenge, in the words YouTube actually uses. Matched so it can be
+# reported as a TRANSPORT failure rather than a fact about the video --
+# recording "this video has no captions" because an IP was refused is how 21
+# videos were wrongly written off already.
+BOT_CHALLENGE = ("sign in to confirm", "not a bot", "confirm you")
+
 # Recent-only: this endpoint is asked "what is new," not "give me this
 # account's entire history." A generous default keeps a single request fast
 # and its yt-dlp process short-lived.
@@ -74,6 +107,7 @@ def discover():
         "playlistend": limit,
         "skip_download": True,
     }
+    _with_cookies(opts)
 
     started = time.time()
     try:
@@ -218,6 +252,7 @@ def transcript():
         # format would work on exactly one platform.
         "subtitlesformat": "json3/vtt/best",
     }
+    _with_cookies(opts)
 
     started = time.time()
     try:
@@ -242,6 +277,19 @@ def transcript():
             raw = ydl.urlopen(track["url"]).read().decode("utf-8", "replace")
     except yt_dlp.utils.DownloadError as e:
         msg = str(e)
+        # A bot challenge is about THIS HOST, not this video. It must never
+        # become `available: false`, because the caller settles that as
+        # terminal and the video is written off for good.
+        if any(p in msg.lower() for p in BOT_CHALLENGE):
+            return jsonify({
+                "error": (
+                    "YouTube refused this host with a bot challenge"
+                    + (" despite the configured cookies (they may have expired)"
+                       if COOKIE_FILE else " and no cookies are configured")
+                    + ". This says nothing about whether the video has captions."
+                ),
+                "botChallenge": True,
+            }), 502
         if "Private video" in msg or "unavailable" in msg.lower():
             return jsonify({
                 "videoId": video_id, "available": False,

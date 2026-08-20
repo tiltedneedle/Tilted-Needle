@@ -83,6 +83,13 @@ write_files:
       # default scraper to the internet for no gain (S4.2: zero inbound).
       ExecStart=/opt/tn-transcript/venv/bin/python /opt/tn-transcript/server.py
       Environment=HOST=127.0.0.1
+      # A signed-in YouTube cookie jar, if one has been placed. Optional: the
+      # service runs without it and simply cannot fetch YouTube captions from
+      # a datacenter address, which is the documented state of affairs. Put a
+      # Netscape-format export here (0600, root-owned) to try the one
+      # countermeasure YouTube names. Use a THROWAWAY Google account -- yt-dlp
+      # warns that cookies used this way can get an account flagged.
+      Environment=YTDLP_COOKIES=/etc/tn-youtube-cookies.txt
       Restart=always
       RestartSec=10
       StandardOutput=journal

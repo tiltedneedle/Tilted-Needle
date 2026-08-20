@@ -151,6 +151,23 @@ def main() -> int:
     if code != 0:
         return 1
 
+    # ---- the optional YouTube cookie jar ------------------------------------
+    #
+    # Sent only if it exists locally. Same handling as the secrets above:
+    # straight down the SSH pipe into a root-owned 0600 file, never echoed.
+    jar = REPO / ".youtube-cookies.txt"
+    if jar.exists():
+        code, out = ssh(
+            args.host, key,
+            "cat > /etc/tn-youtube-cookies.txt && chmod 600 /etc/tn-youtube-cookies.txt && "
+            "chown root:root /etc/tn-youtube-cookies.txt && wc -l < /etc/tn-youtube-cookies.txt",
+            stdin=jar.read_bytes(),
+        )
+        print(f"  cookies: {out} lines placed" if code == 0 else f"  cookies FAILED: {out[:120]}")
+    else:
+        print("  cookies: none locally (.youtube-cookies.txt absent) — YouTube "
+              "captions will keep refusing this host")
+
     # ---- start and prove it -------------------------------------------------
     if args.start:
         code, out = ssh(

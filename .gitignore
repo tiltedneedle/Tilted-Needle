@@ -67,3 +67,4 @@ scripts/_tmp-*
 # Screenshots and measurements from scripts/ui-lab.mjs. Generated on demand.
 /ui-lab/
 /ui-lab.json
+.youtube-cookies.txt
