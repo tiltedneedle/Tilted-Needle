@@ -55,6 +55,14 @@ MAX_OCPUS, MAX_MEMORY_GB = 2, 12
 MICRO = "VM.Standard.E2.1.Micro"
 
 # Every tenancy we hold, by ~/.oci/config profile.
+#
+# In CI only DEFAULT resolves: the runner has no ~/.oci/config and the repo
+# secrets carry one tenancy's key. ABUDHABI is then reported as
+# "unavailable (ConfigFileNotFound)" and skipped rather than failing the run
+# -- a half-blind watch beats no watch. Watching both from CI needs that
+# tenancy's user/fingerprint/tenancy/key added as a second set of repo
+# secrets, which is the owner's call: it puts a second API key with
+# provisioning rights into GitHub.
 PROFILES = ["DEFAULT", "ABUDHABI"]
 
 
