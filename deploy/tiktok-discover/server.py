@@ -274,7 +274,31 @@ def transcript():
 
             # Fetched through yt-dlp's own session so its header and token
             # handling apply -- which is the entire point of routing here.
-            raw = ydl.urlopen(track["url"]).read().decode("utf-8", "replace")
+            try:
+                raw = ydl.urlopen(track["url"]).read().decode("utf-8", "replace")
+            except Exception as fetch_err:  # noqa: BLE001
+                # THE TRACK EXISTS. Whatever went wrong here is transport, and
+                # saying otherwise writes the video off: the caller settles
+                # `available: false` as terminal.
+                #
+                # 429 is the one that actually happens. YouTube throttles an IP
+                # that has asked a lot recently -- including a residential one,
+                # which is how this was found: a day of testing earned this
+                # desktop a 429 and the endpoint answered "Unexpected error",
+                # a 500 that named neither the cause nor the remedy.
+                status = getattr(fetch_err, "code", None) or getattr(fetch_err, "status", None)
+                if status == 429:
+                    return jsonify({
+                        "error": (
+                            "YouTube is rate-limiting this host (HTTP 429). The caption "
+                            "track exists and was located; only fetching it was refused. "
+                            "Retry later from this host, or from one that has been quieter."
+                        ),
+                        "rateLimited": True,
+                    }), 429
+                return jsonify({
+                    "error": f"caption track located but could not be fetched: {fetch_err}",
+                }), 502
     except yt_dlp.utils.DownloadError as e:
         msg = str(e)
         # A bot challenge is about THIS HOST, not this video. It must never
@@ -297,6 +321,18 @@ def transcript():
             }), 200
         return jsonify({"error": f"Extraction failed: {msg}"}), 502
     except Exception as e:  # noqa: BLE001
+        # A 429 can surface from ANY yt-dlp call, not just the caption fetch --
+        # extraction itself is throttled first, which is where this actually
+        # came from. Classified here so the label does not depend on guessing
+        # which call tripped it.
+        if "429" in str(e) or "Too Many Requests" in str(e):
+            return jsonify({
+                "error": (
+                    "YouTube is rate-limiting this host (HTTP 429). This is about the "
+                    "host, not the video: retry later, or from somewhere quieter."
+                ),
+                "rateLimited": True,
+            }), 429
         return jsonify({"error": f"Unexpected error: {e}"}), 500
 
     segments = _segments_from_json3(raw) or _segments_from_vtt(raw)

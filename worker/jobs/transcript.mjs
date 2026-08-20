@@ -101,6 +101,17 @@ async function viaDiscoverBox(externalId, postUrl, log) {
   });
 
   if (res.status === 401) throw new Error("discover box rejected the shared secret");
+  if (res.status === 429) {
+    /* THE HOST is throttled, not this video.
+       Falling through to the direct attempt would ask the same rate-limited
+       address again, one hop lower down, so it can only fail slower. Thrown
+       rather than returned null: the job stays pending and retries later,
+       and the log names the reason instead of leaving a bare 500 to be
+       puzzled over -- which is exactly what this looked like before the
+       service learned to say "rateLimited". */
+    log("warn", "discover_box_rate_limited", { videoId: externalId });
+    throw new Error("YouTube is rate-limiting the transcript host (429); retry later");
+  }
   if (!res.ok) {
     // A box that is down must not look like "this video has no captions":
     // returning null falls through to the direct attempt instead.
