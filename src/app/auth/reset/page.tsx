@@ -21,15 +21,58 @@ export default function ResetPasswordPage() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    // The client processes the recovery hash asynchronously on load; ask it
-    // rather than parsing the URL by hand.
-    supabase.auth.getSession().then(({ data }) => {
-      setState(data.session ? "ready" : "expired");
-    });
+    /**
+     * Adopt the recovery token from the URL HASH, by hand.
+     *
+     * This page used to assume the client would do it: "the client processes
+     * the recovery hash asynchronously on load; ask it rather than parsing
+     * the URL by hand". That is true of the plain supabase-js browser client
+     * and NOT of createBrowserClient from @supabase/ssr, which this app uses
+     * -- it runs the PKCE flow and looks for `?code=`, so a
+     * `#access_token=...` fragment is simply ignored.
+     *
+     * Supabase's /auth/v1/verify answers a recovery link with exactly that
+     * fragment (303 + #access_token&refresh_token&type=recovery, confirmed
+     * against the live project). So every reset link ever sent landed here,
+     * found no session, and reported itself invalid or expired. The button
+     * in Team admin has never worked; nor would any link this project
+     * generates.
+     *
+     * The hash is consumed and then wiped from the address bar, because a
+     * bearer token has no business surviving in history or in a shared URL.
+     */
+    let cancelled = false;
+
+    const adopt = async () => {
+      const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+      const access_token = hash.get("access_token");
+      const refresh_token = hash.get("refresh_token");
+
+      if (hash.get("error")) return setState("expired");
+
+      if (access_token && refresh_token) {
+        const { error } = await supabase.auth.setSession({ access_token, refresh_token });
+        // Leave the URL clean whether or not it worked.
+        window.history.replaceState(null, "", window.location.pathname);
+        if (cancelled) return;
+        return setState(error ? "expired" : "ready");
+      }
+
+      // No fragment: either a PKCE `?code=` the client already exchanged, or
+      // somebody opened this page directly.
+      const { data } = await supabase.auth.getSession();
+      if (!cancelled) setState(data.session ? "ready" : "expired");
+    };
+
+    void adopt();
+
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session) setState("ready");
+      if (session && !cancelled) setState("ready");
     });
-    return () => sub.subscription.unsubscribe();
+    return () => {
+      cancelled = true;
+      sub.subscription.unsubscribe();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
