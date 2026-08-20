@@ -128,6 +128,22 @@ python deploy/oracle/audit.py
 
 It fails loudly if anything in the tenancy sits outside Always Free.
 
+**Chasing a region with capacity does not work, and here is the quote.**
+Always Free compute is HOME REGION ONLY — *"You must create the Always Free
+compute instances in your home region"* — and the home region is fixed:
+*"Oracle assigns your home region and you can't change it."* Subscribing to
+another region does not help (an instance there is billed at normal rates),
+and it is irreversible: *"You can't unsubscribe from a region."* So the only
+thing that would actually move the constraint is a NEW tenancy signed up
+with a different home region. Also permanently excluded by policy: A1
+Always Free is unavailable in `ap-chuncheon-1`.
+
+Two claims that circulate and do not survive contact with this project:
+Pay As You Go does NOT buy capacity — ours is PAYG and out — and
+`VM.Standard.E2.1.Micro` is not "almost always available"; measured
+2026-08-20 it was out in both our regions. Neither region has more than one
+availability domain either, so "rotate the AD" is not a lever we have.
+
 **Capacity is not a reason to break this.** `ap-singapore-1` has a single
 availability domain and A1 capacity is frequently exhausted — still true on
 Pay As You Go, which buys queue priority, not inventory. Verified 2026-08-19:

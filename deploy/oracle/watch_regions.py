@@ -38,10 +38,21 @@ import oci
 
 from capacity import shape_report
 
-# The Always Free A1 ceiling, and the ladder worth taking. Smallest first: A1
-# Flex resizes in place, so a 1/6 that exists beats a 2/12 that does not.
-SIZES = [(1, 6), (2, 12)]
+# The ladder, smallest first, because A1.Flex resizes IN PLACE -- a 1 OCPU
+# instance that exists beats a 2 OCPU one that does not, and growing it later
+# is an UpdateInstance and a reboot.
+#
+# It goes below 1/6 deliberately. A hypervisor with room for 2 GB but not 6
+# refuses a 1/6 ask and accepts a 1/2 one, so asking only at the sizes we
+# WANT misses the fragmented space that is most likely to be free during a
+# drought. Costs nothing extra: these are reports, not launches.
+SIZES = [(1, 2), (1, 4), (1, 6), (2, 12)]
 MAX_OCPUS, MAX_MEMORY_GB = 2, 12
+
+# The x86 fallback. Not what we want -- 1 GB against A1's 12 -- but a second
+# micro is Always Free and we have an unused slot in both tenancies, so if it
+# ever frees up it is worth knowing.
+MICRO = "VM.Standard.E2.1.Micro"
 
 # Every tenancy we hold, by ~/.oci/config profile.
 PROFILES = ["DEFAULT", "ABUDHABI"]
@@ -84,9 +95,11 @@ def sweep(ctxs) -> list[tuple[dict, int, int]]:
             if ocpus > MAX_OCPUS or mem > MAX_MEMORY_GB:
                 continue  # never ask for something we may not keep
             status = shape_report(c["compute"], c["tenancy"], c["ad"], ocpus, mem)
-            parts.append(f"{ocpus:g}/{mem:g}={status}")
+            parts.append(f"{ocpus:g}/{mem:g}={'YES' if status == 'AVAILABLE' else 'no'}")
             if status == "AVAILABLE":
                 free.append((c, ocpus, mem))
+        micro = shape_report(c["compute"], c["tenancy"], c["ad"], 0, 0, shape=MICRO)
+        parts.append(f"micro={'YES' if micro == 'AVAILABLE' else 'no'}")
         print(f"  {c['region']:<16} {'  '.join(parts)}", flush=True)
     return free
 
