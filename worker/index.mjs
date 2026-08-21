@@ -286,7 +286,12 @@ async function pass() {
     return 0;
   }
 
-  for (const job of jobs ?? []) await runJob(job);
+  /* Charged here, on the job actually claimed, rather than in
+     claimableKinds() on every kind merely offered. See hasToken(). */
+  for (const job of jobs ?? []) {
+    spendToken(job.kind);
+    await runJob(job);
+  }
   return (jobs ?? []).length;
 }
 
@@ -322,9 +327,14 @@ const BURST = { transcript: 5, comments: 20, transcript_asr: 3 };
 
 const buckets = new Map(); // kind -> { tokens, lastRefill }
 
-function takeToken(kind) {
+/**
+ * Bring a kind's bucket up to date. Returns null for unmetered kinds.
+ *
+ * Continuous refill: no tick, no timer, correct across long idle gaps.
+ */
+function refill(kind) {
   const perHour = RATE_PER_HOUR[kind];
-  if (!perHour) return true;                 // unmetered kinds are unaffected
+  if (!perHour) return null;
   const cap = BURST[kind] ?? 5;
   const now = Date.now();
   let b = buckets.get(kind);
@@ -332,21 +342,44 @@ function takeToken(kind) {
     b = { tokens: cap, lastRefill: now };
     buckets.set(kind, b);
   }
-  // Continuous refill: no tick, no timer, correct across long idle gaps.
   const gained = ((now - b.lastRefill) / 3_600_000) * perHour;
   if (gained > 0) {
     b.tokens = Math.min(cap, b.tokens + gained);
     b.lastRefill = now;
   }
-  if (b.tokens < 1) return false;
-  b.tokens -= 1;
-  return true;
+  return b;
+}
+
+/**
+ * PEEK, DO NOT SPEND.
+ *
+ * The distinction is the whole fix. Asking for a kind is not the same as
+ * doing work of that kind: a metered pass claims ONE job, but the previous
+ * code spent a token for every metered kind it merely offered to the claim
+ * RPC. With two metered kinds and a 30-second poll, that is 120 tokens an hour
+ * charged against transcript_asr's budget of 20 -- and since the claim orders
+ * by priority, comments won every time and the ASR budget was consumed
+ * entirely by jobs that were never ASR jobs.
+ *
+ * Measured: the ASR lane stopped dead at 8 of 146 while the comments backfill
+ * ran, having "spent" its whole hourly allowance on polls that claimed
+ * comments. Nothing errored, nothing cooled down, and the queue looked busy.
+ */
+function hasToken(kind) {
+  const b = refill(kind);
+  return b === null || b.tokens >= 1;
+}
+
+/** Charge a kind for a job actually claimed. */
+function spendToken(kind) {
+  const b = refill(kind);
+  if (b !== null) b.tokens -= 1;
 }
 
 /** Kinds this worker may ask for right now: not cooling down, and in budget. */
 function claimableKinds() {
   const all = KINDS ?? Object.keys(handlers);
-  return all.filter((k) => !isCoolingDown(k) && takeToken(k));
+  return all.filter((k) => !isCoolingDown(k) && hasToken(k));
 }
 
 let stopping = false;

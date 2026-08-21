@@ -144,14 +144,88 @@ try {
   );
 }
 
+/* ---- A token is spent on WORK, not on asking ---------------------------- */
+/* The bug this models, which the earlier version of this test could not see
+   because it only ever simulated one kind:
+
+   claimableKinds() offers every in-budget kind to the claim RPC, but a metered
+   pass claims exactly ONE job. Charging a token per kind OFFERED means two
+   metered kinds on a 30-second poll spend 120 tokens an hour each -- and since
+   the claim orders by priority, the loser's entire budget is consumed by jobs
+   that were never its own. Measured live: the ASR lane stopped at 8 of 146
+   while the comments backfill ran, with nothing erroring and nothing cooling
+   down. */
+{
+  const makeBucket = (perHour, cap) => {
+    let tokens = cap, last = 0;
+    const refill = (atMs) => {
+      tokens = Math.min(cap, tokens + ((atMs - last) / 3_600_000) * perHour);
+      last = atMs;
+    };
+    return {
+      has: (atMs) => { refill(atMs); return tokens >= 1; },
+      spend: (atMs) => { refill(atMs); tokens -= 1; },
+    };
+  };
+
+  // Two metered kinds, polled every 30s for an hour. The high-priority kind
+  // wins every claim; the low-priority one is offered every time and never
+  // gets a job.
+  const fast = makeBucket(120, 20);      // comments
+  const slow = makeBucket(20, 3);        // transcript_asr
+  let slowOffers = 0;
+  for (let t = 0; t <= 3_600_000; t += 30_000) {
+    const offered = [];
+    if (fast.has(t)) offered.push("fast");
+    if (slow.has(t)) { offered.push("slow"); slowOffers++; }
+    if (!offered.length) continue;
+    // Exactly one job comes back, and priority means it is always the fast kind.
+    fast.spend(t);
+  }
+  check(
+    "a kind offered but never claimed keeps its budget",
+    slowOffers > 100,
+    `${slowOffers} of 121 polls still had budget after an hour of losing every claim`,
+  );
+
+  // The counter-test: the OLD behaviour, charging on offer, starves it.
+  const slowOld = makeBucket(20, 3);
+  let oldOffers = 0;
+  for (let t = 0; t <= 3_600_000; t += 30_000) {
+    if (slowOld.has(t)) { slowOld.spend(t); oldOffers++; }   // spend-on-offer
+  }
+  check(
+    "charging on offer would have starved it -- which is what happened",
+    oldOffers <= 24,
+    `${oldOffers} offers in an hour against 121 polls`,
+  );
+
+  // And the pacing guarantee still holds when work IS claimed.
+  const paced = makeBucket(20, 3);
+  let done = 0;
+  for (let t = 0; t <= 3_600_000; t += 30_000) {
+    if (paced.has(t)) { paced.spend(t); done++; }
+  }
+  check("a kind that wins every claim is still paced to its rate",
+    done >= 20 && done <= 24, `${done} jobs in an hour at 20/hour with a burst of 3`);
+}
+
 /* ---- The worker really is wired this way -------------------------------- */
 {
   const src = readFileSync("./worker/index.mjs", "utf8");
+  const live = src.split("\n").filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join("\n");
   check("the worker filters kinds by cooldown AND budget",
-    /claimableKinds/.test(src) && /takeToken/.test(src));
+    /claimableKinds/.test(live) && /hasToken/.test(live));
+  check("offering a kind does not spend its token",
+    /hasToken\(k\)/.test(live) && !/takeToken/.test(live),
+    "claimableKinds must peek, never charge");
+  check("the token is charged against the job actually claimed",
+    /spendToken\(job\.kind\)/.test(live));
   check("metered kinds claim one at a time",
-    /metered \? 1 : BATCH/.test(src));
-  check("transcript is metered", /RATE_TRANSCRIPT_PER_HOUR/.test(src));
+    /metered \? 1 : BATCH/.test(live));
+  check("transcript is metered", /RATE_TRANSCRIPT_PER_HOUR/.test(live));
+  check("the ASR lane is metered too -- it costs money per call",
+    /RATE_ASR_PER_HOUR/.test(live));
 }
 
 /* ---- The transcript service's request-rate hazards ---------------------- */
