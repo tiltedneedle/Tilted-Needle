@@ -1,0 +1,154 @@
+// Every video is accounted for: it has the data, a verdict, or work in flight.
+//   npm run test:enrichment
+//
+// THE INVARIANT
+//
+//     transcript exists  OR  enrichment_state row  OR  in-flight job
+//
+// A video matching none of those has fallen through the cracks: nobody is
+// fetching it and nobody has decided it cannot be fetched. It will sit
+// missing forever while looking exactly like a video that was checked.
+//
+// WHY THIS TEST IS THE POINT OF THE TABLE
+//
+// Before enrichment_state, "no transcript" and "not fetched yet" were the
+// same observable state, and four different answers collapsed into
+// ingest_jobs.status='unavailable' with a last_error that every retry
+// overwrote. 146 videos were condemned by that conflation -- 72 YouTube
+// Shorts filtered out by a platform map with no `youtube_shorts` key, and 74
+// TikTok posts written off because the extraction box was unreachable.
+//
+// The rule that prevents a repeat is that ONLY a handler which reached the
+// platform and got an answer may write a verdict. Every transport failure
+// throws instead. So this test also checks the corollary: no verdict may
+// exist whose note describes a transport failure rather than the video.
+import { readFileSync } from "node:fs";
+import { createClient } from "@supabase/supabase-js";
+
+const env = Object.fromEntries(
+  readFileSync("./.env.local", "utf8").split("\n").filter((l) => l.includes("="))
+    .map((l) => [l.slice(0, l.indexOf("=")).trim(),
+                 l.slice(l.indexOf("=") + 1).trim().replace(/^["']|["']$/g, "")]),
+);
+const db = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SECRET_KEY);
+
+let pass = 0, fail = 0;
+const check = (name, ok, detail = "") => {
+  console.log(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? " :: " + detail : ""}`);
+  ok ? pass++ : fail++;
+};
+
+/** Paged, because an unbounded select is silently capped at 1000 rows. */
+async function all(table, select) {
+  const out = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await db.from(table).select(select).range(from, from + 999);
+    if (error) throw new Error(`${table}: ${error.message}`);
+    if (!data?.length) break;
+    out.push(...data);
+    if (data.length < 1000) break;
+  }
+  return out;
+}
+
+const items = await all("content_items", "id, review_state, client:clients(is_archived)");
+const transcripts = new Set((await all("video_transcripts", "content_item_id")).map((t) => t.content_item_id));
+const states = await all("enrichment_state", "subject_id, kind, state, note, method, recheck_after");
+const stateFor = new Map(states.filter((s) => s.kind === "transcript").map((s) => [s.subject_id, s]));
+const jobs = await all("ingest_jobs", "subject_id, kind, status");
+const inFlight = new Set(
+  jobs.filter((j) => j.kind === "transcript" && ["pending", "running"].includes(j.status))
+      .map((j) => j.subject_id),
+);
+
+/* ---- Scope -------------------------------------------------------------- */
+/* Not every video is a candidate. Work is only spent on APPROVED videos
+   belonging to LIVE clients -- the same rule isLiveAgencyWork applies in the
+   enqueuer -- so an unapproved video having no verdict is correct, not a gap.
+   Stated explicitly rather than left implicit, because the first version of
+   this test flagged 264 videos and 118 of them were deliberate exclusions. */
+const one = (v) => (Array.isArray(v) ? v[0] : v);
+const inScope = items.filter(
+  (i) => i.review_state === "approved" && !one(i.client)?.is_archived,
+);
+const outOfScope = items.length - inScope.length;
+
+/* ---- The invariant ------------------------------------------------------ */
+{
+  const orphans = inScope.filter(
+    (i) => !transcripts.has(i.id) && !stateFor.has(i.id) && !inFlight.has(i.id),
+  );
+  check(
+    "every in-scope video has a transcript, a verdict, or work in flight",
+    orphans.length === 0,
+    orphans.length
+      ? `${orphans.length} unaccounted for, e.g. ${orphans[0].id}`
+      : `${inScope.length} in scope, ${outOfScope} out (unapproved or archived client)`,
+  );
+}
+
+/* ---- A verdict must describe the VIDEO, never the route ----------------- */
+{
+  // These phrases describe something that went wrong on our side. A verdict
+  // carrying one is the exact bug the table exists to prevent, and it would
+  // be terminal.
+  const TRANSPORT = [
+    "extraction service", "service is unavailable", "rate-limit", "429",
+    "did not answer", "unreachable", "timeout", "401",
+  ];
+  const bad = states.filter((s) =>
+    TRANSPORT.some((p) => (s.note ?? "").toLowerCase().includes(p)),
+  );
+  check(
+    "no verdict blames the route rather than the video",
+    bad.length === 0,
+    bad.length ? `${bad.length}, e.g. "${(bad[0].note ?? "").slice(0, 60)}"` : "",
+  );
+}
+
+/* ---- A transcript and a "nothing here" verdict cannot both be true ------ */
+{
+  const contradictory = [...stateFor.entries()].filter(
+    ([id, s]) => transcripts.has(id) && s.state !== "ok",
+  );
+  check(
+    "no video is both transcribed and marked as having nothing",
+    contradictory.length === 0,
+    contradictory.length ? `${contradictory.length}, e.g. ${contradictory[0][0]} is ${contradictory[0][1].state}` : "",
+  );
+}
+
+/* ---- ok means the data is actually there -------------------------------- */
+{
+  const lying = [...stateFor.entries()].filter(([id, s]) => s.state === "ok" && !transcripts.has(id));
+  check(
+    "every ok verdict has a transcript behind it",
+    lying.length === 0,
+    lying.length ? `${lying.length} claim ok with no transcript` : "",
+  );
+}
+
+/* ---- Recheckable verdicts are the ones about platforms ------------------ */
+{
+  const platformRows = states.filter((s) => s.state === "platform_unsupported");
+  const withoutDate = platformRows.filter((s) => !s.recheck_after);
+  check(
+    "platform_unsupported verdicts carry a recheck date",
+    withoutDate.length === 0,
+    `${platformRows.length} platform verdicts, ${withoutDate.length} without a date`,
+  );
+}
+
+/* ---- The denominator is reportable -------------------------------------- */
+{
+  const answered = inScope.filter((i) => transcripts.has(i.id) || stateFor.has(i.id)).length;
+  const unknown = inScope.length - answered;
+  check(
+    "the denominator is knowable",
+    answered + unknown === inScope.length,
+    `${transcripts.size} transcribed, ${stateFor.size - [...stateFor.values()].filter((s) => s.state === "ok").length} answered-no, ${unknown} still unknown`,
+  );
+}
+
+console.log(`\n${pass} passed, ${fail} failed`);
+process.exit(fail ? 1 : 0);

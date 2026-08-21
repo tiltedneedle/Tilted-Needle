@@ -51,6 +51,36 @@ export function looksBlocked({ status, finalUrl = "", body = "" }) {
   return false;
 }
 
+/**
+ * Record WHY there is no transcript, distinctly from "not fetched yet".
+ *
+ * The rule this enforces, and the only rule enrichment_state has: a row is
+ * written ONLY by a path that reached the platform and got an answer. Every
+ * transport failure in this file throws instead, so it never reaches here.
+ * That is what makes the absence of a row mean "unknown" rather than "none"
+ * -- the distinction whose absence condemned 146 videos.
+ *
+ * Best-effort: a verdict failing to store must not fail the job, because the
+ * job's own answer is still correct and retrying it would re-fetch the same
+ * caption track to learn the same nothing.
+ */
+async function recordVerdict(db, job, { state, method, note, recheckDays }) {
+  const { error } = await db.from("enrichment_state").upsert({
+    subject_type: "content_item",
+    subject_id: job.subject_id,
+    kind: "transcript",
+    workspace_id: job.workspace_id,
+    state,
+    method: method ?? null,
+    note: note ?? null,
+    decided_at: new Date().toISOString(),
+    recheck_after: recheckDays
+      ? new Date(Date.now() + recheckDays * 86_400_000).toISOString()
+      : null,
+  }, { onConflict: "subject_type,subject_id,kind" });
+  return error ? { verdictError: error.message } : {};
+}
+
 function blocked(msg) {
   const e = new Error(msg);
   e.blocked = true;
@@ -129,7 +159,14 @@ async function viaDiscoverBox(externalId, postUrl, log) {
 
   const body = await res.json();
   if (body.available === false) {
-    return { unavailable: true, note: body.reason ?? "no transcript available" };
+    /* The box REACHED the platform and was told there is nothing. That is an
+       answer, so it earns a verdict -- unlike the null returns above it,
+       which are transport failures and deliberately write nothing. */
+    return {
+      unavailable: true,
+      note: body.reason ?? "no transcript available",
+      verdict: { state: "no_captions_published", method: "box", note: body.reason },
+    };
   }
   return {
     segments: (body.segments ?? []).map((s) => ({
@@ -196,12 +233,15 @@ export async function transcript({ db, job, log }) {
     const seen = [...new Set((posts ?? [])
       .map((p) => (Array.isArray(p.account) ? p.account[0] : p.account)?.platform_slug)
       .filter(Boolean))];
-    return {
-      unavailable: true,
-      note: seen.length
-        ? `no platform on this item publishes captions (${seen.join(", ")})`
-        : "this item has no platform posts to transcribe",
-    };
+    const note = seen.length
+      ? `no platform on this item publishes captions (${seen.join(", ")})`
+      : "this item has no platform posts to transcribe";
+    // Recheckable: platforms do add caption support, and this verdict is
+    // about the PLATFORM rather than the video.
+    await recordVerdict(db, job, {
+      state: "platform_unsupported", method: "box", note, recheckDays: 90,
+    });
+    return { unavailable: true, note };
   }
 
   const post = candidates[0];
@@ -216,10 +256,21 @@ export async function transcript({ db, job, log }) {
     post.url,
     log,
   );
-  if (boxed?.unavailable) return boxed;
+  if (boxed?.unavailable) {
+    /* The box reached the platform and was told there is nothing, so it
+       carries a verdict. Recorded HERE rather than inside viaDiscoverBox
+       because that helper has no job or db handle -- it answers about a
+       video, and this is the layer that knows which job asked. */
+    if (boxed.verdict) await recordVerdict(db, job, boxed.verdict);
+    return { unavailable: true, note: boxed.note };
+  }
   if (boxed) {
     const fullText = boxed.segments.map((s) => s.text).join(" ");
     if (!fullText.trim()) {
+      await recordVerdict(db, job, {
+        state: "no_speech", method: "box",
+        note: "caption track contained no readable text",
+      });
       return { unavailable: true, note: "caption track contained no readable text" };
     }
     const { error: upErr } = await db.from("video_transcripts").upsert(
@@ -303,6 +354,10 @@ export async function transcript({ db, job, log }) {
   if (!raw) {
     // Genuinely no captions published for this video. Terminal -- retrying
     // forever would spend blockable requests on a settled fact.
+    await recordVerdict(db, job, {
+      state: "no_captions_published", method: "direct",
+      note: "no caption tracks published for this video",
+    });
     return { unavailable: true, note: "no caption tracks published for this video" };
   }
 

@@ -46,7 +46,28 @@ const only = (() => {
  * editing code: ENQUEUE_CAP_COMMENTS=40
  */
 const CAP = (kind, fallback) =>
-  Number(process.env[`ENQUEUE_CAP_${kind.toUpperCase()}`] ?? fallback);
+  BACKFILL ? Infinity : Number(process.env[`ENQUEUE_CAP_${kind.toUpperCase()}`] ?? fallback);
+
+/**
+ * --backfill: enqueue the whole outstanding list, not one run's worth.
+ *
+ * The per-run cap was the throttle when nothing else was. It is the wrong
+ * instrument now that the queue rate-limits itself: a 429 puts the entire
+ * kind into cooldown and refunds the attempt, so the DRAIN is governed
+ * properly and the enqueue does not need to be.
+ *
+ * Capping the enqueue instead had a cost that only became visible once
+ * enrichment_state existed to measure it. At 8 transcripts a run, 264 of 564
+ * videos had never been enqueued at all -- no transcript, no verdict, no job.
+ * They were indistinguishable from videos that had been checked and found
+ * wanting, which is the precise confusion this whole phase exists to remove.
+ *
+ * Backfilled jobs are inserted at a LOWER priority than the default 100, so
+ * a 260-row backlog can never delay the handful of jobs a fresh sync
+ * creates. The queue claims by `order by priority, not_before`.
+ */
+const BACKFILL = process.argv.includes("--backfill");
+const BACKFILL_PRIORITY = 500;
 
 const log = (event, data = {}) =>
   console.log(JSON.stringify({ ts: new Date().toISOString(), event, ...data }));
@@ -115,6 +136,8 @@ async function insert(kind, subjects, workspaceBySubject) {
     workspace_id: workspaceBySubject.get(id),
     kind,
     subject_id: id,
+    // Backfill yields to live work; see BACKFILL above.
+    ...(BACKFILL ? { priority: BACKFILL_PRIORITY } : {}),
   }));
   const { error } = await db.from("ingest_jobs").insert(rows);
   if (error) throw new Error(`insert failed: ${error.message}`);
@@ -196,12 +219,22 @@ async function planTranscript() {
   const kind = "transcript";
   const cap = CAP(kind, 8);
 
-  const { data: posts, error } = await db
-    .from("platform_posts")
-    .select("content_item_id, workspace_id, account:accounts(platform_slug), item:content_items!inner(review_state, client:clients(is_archived))")
-    .not("external_id", "is", null)
-    .eq("item.review_state", "approved");
-  if (error) throw new Error(error.message);
+  /* Paged. Unbounded selects are capped at 1000 rows by PostgREST without
+     saying so, and this one is workspace-wide: it fits today at 564 posts and
+     would start silently skipping videos at 1000. That failure mode has
+     already cost this project twice. */
+  const posts = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await db
+      .from("platform_posts")
+      .select("content_item_id, workspace_id, account:accounts(platform_slug), item:content_items!inner(review_state, client:clients(is_archived))")
+      .not("external_id", "is", null)
+      .eq("item.review_state", "approved")
+      .range(from, from + 999);
+    if (error) throw new Error(error.message);
+    posts.push(...(data ?? []));
+    if ((data ?? []).length < 1000) break;
+  }
 
   const byItem = new Map();
   for (const p of posts ?? []) {
