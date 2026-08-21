@@ -265,10 +265,21 @@ async function pass() {
   // datacenter IP, and settled them as terminally unavailable with a note
   // claiming the video had no captions. Silent, automatic, and unrecoverable
   // without manual SQL.
+  /* Ask only for kinds that are both awake and in budget. An empty list
+     means everything is paced or cooling, so there is nothing to claim --
+     asking anyway would return work this worker must immediately hand back,
+     which is how attempts used to accumulate. */
+  const kinds = claimableKinds();
+  if (kinds.length === 0) return 0;
+
+  /* One at a time for metered kinds. A batch of five spends five tokens and
+     makes five requests before any result comes back, which defeats the
+     pacing at exactly the moment it matters. */
+  const metered = kinds.some((k) => RATE_PER_HOUR[k]);
   const { data: jobs, error } = await db.rpc("claim_ingest_jobs", {
     p_worker: WORKER_ID,
-    p_limit: BATCH,
-    p_kinds: KINDS,
+    p_limit: metered ? 1 : BATCH,
+    p_kinds: kinds,
   });
   if (error) {
     log("error", "claim_failed", { error: error.message });
@@ -277,6 +288,59 @@ async function pass() {
 
   for (const job of jobs ?? []) await runJob(job);
   return (jobs ?? []).length;
+}
+
+/* ---- Rate limiting, per kind ---------------------------------------------
+ *
+ * The queue could already back OFF (a 429 cools the whole kind for two
+ * hours) but it could not pace itself, so every drain ran flat out until
+ * something refused it. Against YouTube that meant a burst, a 429, and two
+ * hours of nothing -- 90 jobs attempted to recover 3 transcripts.
+ *
+ * A token bucket instead. Each kind gets a sustained rate and a small burst;
+ * a claim spends a token, and with none left the kind simply is not asked
+ * for. The default is null, meaning unlimited: only kinds that talk to a
+ * rate-limited third party need pacing, and metering everything would slow
+ * the queue for no reason.
+ *
+ * The numbers are deliberately conservative rather than derived -- nobody
+ * publishes YouTube's caption limits, and the only measurement here is the
+ * one that hurt: a burst of ~90 earned a throttle. 30/hour is well under
+ * that with room to be wrong.
+ */
+const RATE_PER_HOUR = {
+  transcript: Number(process.env.RATE_TRANSCRIPT_PER_HOUR ?? 30),
+  comments: Number(process.env.RATE_COMMENTS_PER_HOUR ?? 120),
+};
+const BURST = { transcript: 5, comments: 20 };
+
+const buckets = new Map(); // kind -> { tokens, lastRefill }
+
+function takeToken(kind) {
+  const perHour = RATE_PER_HOUR[kind];
+  if (!perHour) return true;                 // unmetered kinds are unaffected
+  const cap = BURST[kind] ?? 5;
+  const now = Date.now();
+  let b = buckets.get(kind);
+  if (!b) {
+    b = { tokens: cap, lastRefill: now };
+    buckets.set(kind, b);
+  }
+  // Continuous refill: no tick, no timer, correct across long idle gaps.
+  const gained = ((now - b.lastRefill) / 3_600_000) * perHour;
+  if (gained > 0) {
+    b.tokens = Math.min(cap, b.tokens + gained);
+    b.lastRefill = now;
+  }
+  if (b.tokens < 1) return false;
+  b.tokens -= 1;
+  return true;
+}
+
+/** Kinds this worker may ask for right now: not cooling down, and in budget. */
+function claimableKinds() {
+  const all = KINDS ?? Object.keys(handlers);
+  return all.filter((k) => !isCoolingDown(k) && takeToken(k));
 }
 
 let stopping = false;
