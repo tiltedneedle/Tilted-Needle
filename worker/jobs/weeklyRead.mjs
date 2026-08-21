@@ -84,6 +84,7 @@ export async function weeklyRead({ db, job, log }) {
         const { data } = await db
           .from("post_current_metrics")
           .select("platform_post_id, views")
+          .order("platform_post_id")
           .range(from, from + 999);
         if (!data?.length) break;
         rows.push(...data);

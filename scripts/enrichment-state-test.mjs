@@ -38,11 +38,17 @@ const check = (name, ok, detail = "") => {
   ok ? pass++ : fail++;
 };
 
-/** Paged, because an unbounded select is silently capped at 1000 rows. */
-async function all(table, select) {
+/**
+ * Paged, because an unbounded select is silently capped at 1000 rows -- and
+ * ORDERED, because PostgREST guarantees no row order without it, so
+ * successive windows over the same table can skip rows and repeat others.
+ * An unordered pager made this test disagree with the enqueuer about the same
+ * seven videos, each of them reading a different slice of one table.
+ */
+async function all(table, select, orderBy = "id") {
   const out = [];
   for (let from = 0; ; from += 1000) {
-    const { data, error } = await db.from(table).select(select).range(from, from + 999);
+    const { data, error } = await db.from(table).select(select).order(orderBy).range(from, from + 999);
     if (error) throw new Error(`${table}: ${error.message}`);
     if (!data?.length) break;
     out.push(...data);
@@ -53,7 +59,7 @@ async function all(table, select) {
 
 const items = await all("content_items", "id, review_state, client:clients(is_archived)");
 const transcripts = new Set((await all("video_transcripts", "content_item_id")).map((t) => t.content_item_id));
-const states = await all("enrichment_state", "subject_id, kind, state, note, method, recheck_after");
+const states = await all("enrichment_state", "subject_id, kind, state, note, method, recheck_after", "subject_id");
 const stateFor = new Map(states.filter((s) => s.kind === "transcript").map((s) => [s.subject_id, s]));
 const jobs = await all("ingest_jobs", "subject_id, kind, status");
 const inFlight = new Set(

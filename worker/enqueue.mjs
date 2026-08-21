@@ -118,6 +118,13 @@ function isLiveAgencyWork(p) {
  * exactly the pair of symptoms this file was being fixed for.
  */
 async function pagedSubjects(kind, statuses, label) {
+      /* ORDERED, and this is not cosmetic. PostgREST gives no stable row
+         order without one, so successive .range() windows over the same
+         table can skip rows and repeat others. That is how the comments
+         planner came to disagree with its own invariant test about the same
+         seven videos, and why repeated backfills converged (101, 14, 8)
+         instead of finishing. */
+
   const out = new Set();
   for (let from = 0; ; from += 1000) {
     const { data, error } = await db
@@ -125,6 +132,7 @@ async function pagedSubjects(kind, statuses, label) {
       .select("subject_id")
       .eq("kind", kind)
       .in("status", statuses)
+      .order("id")
       .range(from, from + 999);
     if (error) throw new Error(`${label} lookup failed: ${error.message}`);
     for (const r of data ?? []) out.add(r.subject_id);
@@ -187,6 +195,7 @@ async function planComments() {
       .select("id, content_item_id, workspace_id, account:accounts(platform_slug), item:content_items!inner(review_state, client:clients(is_archived))")
       .not("external_id", "is", null)
       .eq("item.review_state", "approved")
+      .order("id")
       .range(from, from + 999);
     if (error) throw new Error(error.message);
     posts.push(...(data ?? []));
@@ -218,6 +227,7 @@ async function planComments() {
     const { data } = await db
       .from("post_comments")
       .select("platform_post_id, fetched_at")
+      .order("id")
       .range(from, from + 999);
     if (!data?.length) break;
     seen.push(...data);
@@ -292,6 +302,7 @@ async function planTranscript() {
       .select("content_item_id, workspace_id, account:accounts(platform_slug), item:content_items!inner(review_state, client:clients(is_archived))")
       .not("external_id", "is", null)
       .eq("item.review_state", "approved")
+      .order("id")
       .range(from, from + 999);
     if (error) throw new Error(error.message);
     posts.push(...(data ?? []));
@@ -355,6 +366,7 @@ async function planAnalyse() {
     const { data, error } = await db
       .from("post_comments")
       .select("platform_post_id, workspace_id")
+      .order("id")
       .range(from, from + 999);
     if (error) break;
     withComments.push(...(data ?? []));
