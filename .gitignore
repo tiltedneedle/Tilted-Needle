@@ -68,3 +68,7 @@ scripts/_tmp-*
 /ui-lab/
 /ui-lab.json
 .youtube-cookies.txt
+
+# Python bytecode from running the transcript service locally
+__pycache__/
+*.pyc
