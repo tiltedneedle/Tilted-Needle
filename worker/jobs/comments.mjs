@@ -52,9 +52,27 @@ export async function comments({ db, job, log }) {
 
   // Nothing to fetch is a terminal, normal outcome -- not a failure to retry.
   if (youtube.length === 0) {
-    return boxStats
-      ? { stats: boxStats }
-      : await (async () => {
+    if (boxStats) {
+      /* INSTAGRAM-ONLY, and this path returned early without a verdict.
+       *
+       * An item with no YouTube post goes through the box and returns its
+       * stats -- including when it fetched NOTHING. No verdict was written,
+       * so the planner saw it as never-answered and requeued it forever,
+       * which is the exact fault this phase exists to remove. It was
+       * invisible until the fixed worker was deployed and the unaccounted
+       * count started CLIMBING as jobs completed: 5, then 18. Instagram is
+       * 166 posts, so it was most of the remaining gap. */
+      if ((boxStats.fetched ?? 0) === 0) {
+        await recordCommentVerdict(db, job, {
+          state: "none_exist",
+          method: "box",
+          note: `no comments on any of this item's ${viaBox.length} instagram post(s) at fetch time`,
+          recheckDays: 30,
+        });
+      }
+      return { stats: boxStats };
+    }
+    return await (async () => {
           await recordCommentVerdict(db, job, {
             state: "platform_unsupported",
             method: "scope",
