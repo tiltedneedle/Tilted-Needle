@@ -54,7 +54,15 @@ export async function comments({ db, job, log }) {
   if (youtube.length === 0) {
     return boxStats
       ? { stats: boxStats }
-      : { unavailable: true, note: "no post on this item exposes comments" };
+      : await (async () => {
+          await recordCommentVerdict(db, job, {
+            state: "platform_unsupported",
+            method: "scope",
+            note: "no post on this item is on a platform that exposes comments",
+            recheckDays: 90,
+          });
+          return { unavailable: true, note: "no post on this item exposes comments" };
+        })();
   }
 
   let fetched = 0, stored = 0, units = 0;
@@ -131,12 +139,59 @@ export async function comments({ db, job, log }) {
     }
   }
 
+  /* ZERO COMMENTS IS AN ANSWER, and until it was recorded it was the most
+   * expensive silence in the queue.
+   *
+   * The planner decides freshness from the newest post_comments row for an
+   * item. A post with no comments leaves no row, so it looks NEVER FETCHED on
+   * every subsequent run and is queued again, forever. Measured: 1,196
+   * comments jobs across only 196 distinct subjects, one of them queued 49
+   * times -- while 263 of 437 in-scope items had never been queued once,
+   * because the per-run cap of 25 was spent re-asking about posts already
+   * known to have nothing.
+   *
+   * Recorded with a recheck date rather than permanently: a video CAN gain
+   * its first comment later, so this is "none as of now", not "none ever". */
+  const totalFetched = fetched + (boxStats?.fetched ?? 0);
+  if (totalFetched === 0) {
+    await recordCommentVerdict(db, job, {
+      state: "none_exist",
+      method: "api",
+      note: `no comments on any of this item's ${youtube.length + (boxStats?.posts ?? 0)} post(s) at fetch time`,
+      recheckDays: 30,
+    });
+  }
+
   return {
     stats: {
       posts: youtube.length, fetched, stored, units,
       ...(boxStats ? { boxFetched: boxStats.fetched, boxStored: boxStats.stored } : {}),
     },
   };
+}
+
+/**
+ * Record a comments verdict. Same single rule as the transcript recorder:
+ * only a path that REACHED the platform and got an answer may write here, so
+ * the absence of a row always means "not asked", never "none".
+ *
+ * Best-effort -- a verdict failing to store must not fail a job whose own
+ * answer was correct.
+ */
+async function recordCommentVerdict(db, job, { state, method, note, recheckDays }) {
+  await db.from("enrichment_state").upsert({
+    subject_type: "content_item",
+    subject_id: job.subject_id,
+    kind: "comments",
+    workspace_id: job.workspace_id,
+    state,
+    method: method ?? null,
+    note: note ?? null,
+    decided_at: new Date().toISOString(),
+    recheck_after: recheckDays
+      ? new Date(Date.now() + recheckDays * 86_400_000).toISOString()
+      : null,
+  }, { onConflict: "subject_type,subject_id,kind" });
 }
 
 /**

@@ -150,5 +150,70 @@ const outOfScope = items.length - inScope.length;
   );
 }
 
+/* ---- The same invariant, for comments ----------------------------------- */
+/* Comments were the other half of the same fault. Freshness was read from the
+   newest post_comments row, so a post with ZERO comments left no row, looked
+   never-fetched on every run, and was queued again forever: 1,196 jobs over
+   196 distinct subjects, one queued 49 times, while 263 of 437 in-scope items
+   had never been queued once. "None" is now recorded, so the planner
+   terminates and the cap reaches new work. */
+{
+  const commentState = new Map(
+    states.filter((s) => s.kind === "comments").map((s) => [s.subject_id, s]),
+  );
+  const commentsInFlight = new Set(
+    jobs.filter((j) => j.kind === "comments" && ["pending", "running"].includes(j.status))
+        .map((j) => j.subject_id),
+  );
+  const postsOf = new Map();
+  for (const p of await all("platform_posts", "id, content_item_id")) {
+    if (!postsOf.has(p.content_item_id)) postsOf.set(p.content_item_id, []);
+    postsOf.get(p.content_item_id).push(p.id);
+  }
+  const withComments = new Set(
+    (await all("post_comments", "platform_post_id")).map((c) => c.platform_post_id),
+  );
+  const hasData = (id) => (postsOf.get(id) ?? []).some((pid) => withComments.has(pid));
+
+  /* TikTok has no comment route yet. planComments takes YouTube-like and
+     Instagram only; TikTok needs a paid Apify actor, which is a later phase.
+     That is UNIMPLEMENTED SCOPE, not a gap in the bookkeeping -- but it is
+     named and counted here rather than quietly tolerated, so the day the
+     route ships and is not wired in, this fails. */
+  const platformsOf = new Map();
+  for (const p of await all("platform_posts", "content_item_id, account:accounts(platform_slug)")) {
+    const slug = (Array.isArray(p.account) ? p.account[0] : p.account)?.platform_slug;
+    if (!platformsOf.has(p.content_item_id)) platformsOf.set(p.content_item_id, new Set());
+    if (slug) platformsOf.get(p.content_item_id).add(slug);
+  }
+  const ROUTED = new Set(["youtube", "youtube_shorts", "instagram"]);
+  const hasRoute = (id) => [...(platformsOf.get(id) ?? [])].some((p) => ROUTED.has(p));
+
+  const orphans = inScope.filter(
+    (i) => hasRoute(i.id) && !hasData(i.id) && !commentState.has(i.id) && !commentsInFlight.has(i.id),
+  );
+  const noRoute = inScope.filter((i) => !hasRoute(i.id)).length;
+  check(
+    "every in-scope video with a comment route has comments, a verdict, or work in flight",
+    orphans.length === 0,
+    orphans.length
+      ? `${orphans.length} unaccounted for`
+      : `${inScope.length - noRoute} routable, ${noRoute} on TikTok only (no route until the Apify lane ships)`,
+  );
+
+  // The bug in one assertion: an item answered "none" must not still be queued.
+  const nowIso = new Date().toISOString();
+  const settledButQueued = [...commentState.entries()].filter(
+    ([id, st]) => st.state === "none_exist"
+      && (!st.recheck_after || st.recheck_after > nowIso)
+      && commentsInFlight.has(id),
+  );
+  check(
+    "no item answered none_exist is queued again before its recheck",
+    settledButQueued.length === 0,
+    settledButQueued.length ? `${settledButQueued.length} requeued despite a live verdict` : "",
+  );
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

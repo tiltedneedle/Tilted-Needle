@@ -102,14 +102,39 @@ function isLiveAgencyWork(p) {
 }
 
 /** Subjects that already have a job in flight for this kind. */
+/**
+ * PAGED, and this one is load-bearing.
+ *
+ * Both of these read ingest_jobs, which holds 1,235 comments rows alone and
+ * only grows. An unpaginated select is silently capped at 1000, so the
+ * planner saw a PARTIAL picture of what was already queued or already
+ * settled -- and then decided what to queue from it. The symptom was a
+ * planner that converged instead of finishing: successive --backfill runs
+ * enqueued 101, then 14, then a handful, each one seeing a different
+ * thousand-row window of the same table.
+ *
+ * Not a performance nicety. A planner that cannot see every job it has
+ * already created is a planner that duplicates work and drops work, which is
+ * exactly the pair of symptoms this file was being fixed for.
+ */
+async function pagedSubjects(kind, statuses, label) {
+  const out = new Set();
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await db
+      .from("ingest_jobs")
+      .select("subject_id")
+      .eq("kind", kind)
+      .in("status", statuses)
+      .range(from, from + 999);
+    if (error) throw new Error(`${label} lookup failed: ${error.message}`);
+    for (const r of data ?? []) out.add(r.subject_id);
+    if ((data ?? []).length < 1000) break;
+  }
+  return out;
+}
+
 async function inFlight(kind) {
-  const { data, error } = await db
-    .from("ingest_jobs")
-    .select("subject_id")
-    .eq("kind", kind)
-    .in("status", ["pending", "running"]);
-  if (error) throw new Error(`in-flight lookup failed: ${error.message}`);
-  return new Set((data ?? []).map((r) => r.subject_id));
+  return pagedSubjects(kind, ["pending", "running"], "in-flight");
 }
 
 /**
@@ -120,14 +145,9 @@ async function inFlight(kind) {
  * queues it again on the next run. A permanent no is a no.
  */
 async function settled(kind) {
-  const { data, error } = await db
-    .from("ingest_jobs")
-    .select("subject_id")
-    .eq("kind", kind)
-    .in("status", ["unavailable", "failed"]);
-  if (error) throw new Error(`settled lookup failed: ${error.message}`);
-  return new Set((data ?? []).map((r) => r.subject_id));
+  return pagedSubjects(kind, ["unavailable", "failed"], "settled");
 }
+
 
 async function insert(kind, subjects, workspaceBySubject) {
   if (subjects.length === 0) return 0;
@@ -160,12 +180,18 @@ async function planComments() {
   const cap = CAP(kind, 25);
   const maxAgeDays = Number(process.env.COMMENTS_REFRESH_DAYS ?? 30);
 
-  const { data: posts, error } = await db
-    .from("platform_posts")
-    .select("id, content_item_id, workspace_id, account:accounts(platform_slug), item:content_items!inner(review_state, client:clients(is_archived))")
-    .not("external_id", "is", null)
-    .eq("item.review_state", "approved");
-  if (error) throw new Error(error.message);
+  const posts = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await db
+      .from("platform_posts")
+      .select("id, content_item_id, workspace_id, account:accounts(platform_slug), item:content_items!inner(review_state, client:clients(is_archived))")
+      .not("external_id", "is", null)
+      .eq("item.review_state", "approved")
+      .range(from, from + 999);
+    if (error) throw new Error(error.message);
+    posts.push(...(data ?? []));
+    if ((data ?? []).length < 1000) break;
+  }
 
   // An item is worth queueing if ANY of its posts is on a platform that
   // exposes comments.
@@ -183,11 +209,22 @@ async function planComments() {
     postsOfItem.get(p.content_item_id).push(p.id);
   }
 
-  const { data: seen } = await db
-    .from("post_comments")
-    .select("platform_post_id, fetched_at");
+  /* Paged: this is every comment row in the workspace, already past 2,000
+     and growing with every fetch. Truncated at 1000 it would report posts as
+     never-fetched and requeue them -- the same failure this function is
+     being fixed for. */
+  const seen = [];
+  for (let from = 0; ; from += 1000) {
+    const { data } = await db
+      .from("post_comments")
+      .select("platform_post_id, fetched_at")
+      .range(from, from + 999);
+    if (!data?.length) break;
+    seen.push(...data);
+    if (data.length < 1000) break;
+  }
   const newestByPost = new Map();
-  for (const c of seen ?? []) {
+  for (const c of seen) {
     const t = new Date(c.fetched_at).getTime();
     if (!newestByPost.has(c.platform_post_id) || t > newestByPost.get(c.platform_post_id)) {
       newestByPost.set(c.platform_post_id, t);
@@ -200,12 +237,37 @@ async function planComments() {
     if (times.length) newestByItem.set(itemId, Math.max(...times));
   }
 
+  /* Items already answered "there are none", and not yet due a recheck.
+   *
+   * WITHOUT THIS THE PLANNER CANNOT TERMINATE. Freshness is read from the
+   * newest post_comments row, so a post with zero comments leaves no row,
+   * looks never-fetched on every run, and is queued again forever. Measured
+   * before the fix: 1,196 comments jobs over 196 distinct subjects, one
+   * queued 49 times, while 263 of 437 in-scope items had never been queued
+   * once -- the cap was being spent re-asking about posts already known to
+   * be empty. */
+  const { data: verdicts } = await db
+    .from("enrichment_state")
+    .select("subject_id, state, recheck_after")
+    .eq("kind", "comments");
+  const nowIso = new Date().toISOString();
+  const answered = new Set(
+    (verdicts ?? [])
+      .filter((v) => !v.recheck_after || v.recheck_after > nowIso)
+      .map((v) => v.subject_id),
+  );
+
   const stale = Date.now() - maxAgeDays * 86400000;
   const [busy, done] = [await inFlight(kind), await settled(kind)];
   const wanted = [...items.keys()]
-    .filter((id) => !busy.has(id) && !done.has(id))
+    .filter((id) => !busy.has(id) && !done.has(id) && !answered.has(id))
     .filter((id) => !newestByItem.has(id) || newestByItem.get(id) < stale)
-    .sort((a, b) => (newestByItem.get(a) ?? 0) - (newestByItem.get(b) ?? 0))
+    /* Oldest first, with the id as a DETERMINISTIC tiebreaker. Every
+       never-fetched item shares the sort key 0, so without a tiebreaker their
+       order came from the query's row order and the same 25 were chosen every
+       run -- which is the other half of how one subject reached 49 jobs. */
+    .sort((a, b) =>
+      ((newestByItem.get(a) ?? 0) - (newestByItem.get(b) ?? 0)) || a.localeCompare(b))
     .slice(0, cap);
 
   return { kind, count: await insert(kind, wanted, items), cap };
