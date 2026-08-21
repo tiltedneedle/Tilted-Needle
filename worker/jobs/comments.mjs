@@ -40,18 +40,42 @@ export async function comments({ db, job, log }) {
   // and neither knows nor cares that the video is vertical.
   const youtube = withPlatform.filter((p) => isYouTubeLike(p.platform));
   // Instagram has no free comment API, but yt-dlp reads them -- verified on a
-  // real post. TikTok is deliberately absent: its extractor returns zero
-  // comments even on a post with 169 of them, so queueing it would spend
-  // requests to learn nothing. Enrichment for TikTok still runs below.
+  // real post.
   const viaBox = withPlatform.filter((p) => p.platform === "instagram" && p.url);
+  /* TikTok is the one route that costs money. yt-dlp cannot do it -- its
+     extractor is broken upstream and `getcomments` takes the whole extraction
+     down with it, verified from BOTH the datacenter box and a residential
+     address so the failure is not confused with TikTok refusing the box. */
+  const viaApify = withPlatform.filter((p) => p.platform === "tiktok" && p.url);
 
   let boxStats = null;
   if (viaBox.length > 0) {
     boxStats = await fetchViaBox({ db, job, log, posts: viaBox });
   }
 
+  let apifyStats = null;
+  if (viaApify.length > 0) {
+    apifyStats = await fetchViaApify({ db, job, log, posts: viaApify });
+  }
+
   // Nothing to fetch is a terminal, normal outcome -- not a failure to retry.
   if (youtube.length === 0) {
+    /* TikTok-only items, which are 142 of the in-scope library and were the
+       last platform with no comment route at all. Same shape as the Instagram
+       branch below it, and same trap: returning stats without a verdict makes
+       the planner treat the item as never-answered and queue it forever. */
+    if (apifyStats && !boxStats) {
+      if ((apifyStats.fetched ?? 0) === 0) {
+        await recordCommentVerdict(db, job, {
+          state: "none_exist",
+          method: apifyStats.method ?? "apify",
+          note: apifyStats.note
+            ?? `no comments on any of this item's ${viaApify.length} tiktok post(s) at fetch time`,
+          recheckDays: 30,
+        });
+      }
+      return { stats: apifyStats };
+    }
     if (boxStats) {
       /* INSTAGRAM-ONLY, and this path returned early without a verdict.
        *
@@ -170,12 +194,12 @@ export async function comments({ db, job, log }) {
    *
    * Recorded with a recheck date rather than permanently: a video CAN gain
    * its first comment later, so this is "none as of now", not "none ever". */
-  const totalFetched = fetched + (boxStats?.fetched ?? 0);
+  const totalFetched = fetched + (boxStats?.fetched ?? 0) + (apifyStats?.fetched ?? 0);
   if (totalFetched === 0) {
     await recordCommentVerdict(db, job, {
       state: "none_exist",
       method: "api",
-      note: `no comments on any of this item's ${youtube.length + (boxStats?.posts ?? 0)} post(s) at fetch time`,
+      note: `no comments on any of this item's ${youtube.length + (boxStats?.posts ?? 0) + (apifyStats?.posts ?? 0)} post(s) at fetch time`,
       recheckDays: 30,
     });
   }
@@ -184,6 +208,16 @@ export async function comments({ db, job, log }) {
     stats: {
       posts: youtube.length, fetched, stored, units,
       ...(boxStats ? { boxFetched: boxStats.fetched, boxStored: boxStats.stored } : {}),
+      // spentUsd is surfaced deliberately: this is the only handler that costs
+      // money, and a per-job figure is what makes a runaway visible in the log
+      // rather than only on next month's Apify bill.
+      ...(apifyStats
+        ? {
+            tiktokFetched: apifyStats.fetched,
+            tiktokKnownEmpty: apifyStats.knownEmpty,
+            spentUsd: apifyStats.spentUsd,
+          }
+        : {}),
     },
   };
 }
@@ -225,6 +259,132 @@ async function recordCommentVerdict(db, job, { state, method, note, recheckDays 
  * an enrichment, and the whole job must not fail because one optional source
  * is down.
  */
+/**
+ * TikTok comments through Apify. The only handler in this project that spends
+ * money, so most of it is about not spending it.
+ *
+ * THE FREE ANSWER COMES FIRST. Every post carries metric snapshots from the
+ * sync, and those include a comment count straight from TikTok. 62 of the 144
+ * TikTok posts here have zero. Paying an actor to confirm a zero the platform
+ * has already told us is money for nothing, so those are answered from the
+ * snapshot -- a real observation, and therefore a legitimate verdict under the
+ * one rule enrichment_state has.
+ *
+ * THE CAP IS NOT A TUNING KNOB. Uncapped, the library costs $7.09 against a $5
+ * hard monthly ceiling -- it cannot be afforded at any setting. At 50 per post
+ * it costs $0.33. One post carries 13,200 comments and would eat the entire
+ * allowance by itself.
+ *
+ * A BUDGET CHECK BEFORE, NOT A 402 DURING. Being refused mid-backfill leaves
+ * some posts fetched and others not, and the difference is invisible
+ * afterwards. Running out is treated as `blocked`, which cools the whole kind
+ * and REFUNDS the attempt, because an exhausted plan is a fact about the month
+ * rather than about the video.
+ */
+async function fetchViaApify({ db, job, log, posts }) {
+  const { fetchTikTokComments, commentCap, remainingBudgetUsd, estimateCostUsd } =
+    await import("../../src/lib/providers/tiktokComments.ts");
+
+  if (!process.env.APIFY_TOKEN) {
+    // No token is a fact about our configuration. No verdict, no throw: the
+    // caller keeps whatever it already knew about this item.
+    log("info", "tiktok_comments_no_token", {});
+    return null;
+  }
+
+  /* ---- the free answer ------------------------------------------------- */
+  const { data: snaps } = await db
+    .from("post_snapshots")
+    .select("platform_post_id, comments, captured_at")
+    .in("platform_post_id", posts.map((p) => p.id))
+    .order("captured_at", { ascending: false });
+
+  const newestCount = new Map();
+  for (const s of snaps ?? []) {
+    if (!newestCount.has(s.platform_post_id)) newestCount.set(s.platform_post_id, Number(s.comments ?? 0));
+  }
+  // Only skip posts we have actually OBSERVED to be empty. A post with no
+  // snapshot at all is unknown, not zero, and must be fetched.
+  const worthFetching = posts.filter((p) => (newestCount.get(p.id) ?? 1) > 0);
+  const knownEmpty = posts.length - worthFetching.length;
+
+  if (worthFetching.length === 0) {
+    return {
+      fetched: 0, stored: 0, posts: posts.length, spentUsd: 0, knownEmpty,
+      method: "snapshot",
+      note: `TikTok's own comment count is 0 on all ${posts.length} post(s); no fetch was needed`,
+    };
+  }
+
+  /* ---- the budget, before anything is spent ---------------------------- */
+  const cap = commentCap();
+  const wanted = worthFetching.reduce((n, p) => n + Math.min(newestCount.get(p.id) ?? cap, cap), 0);
+  const estimate = estimateCostUsd(wanted);
+  const remaining = await remainingBudgetUsd();
+  const floor = Number(process.env.APIFY_RESERVE_USD ?? 0.5);
+
+  if (remaining !== null && remaining - estimate < floor) {
+    const e = new Error(
+      `Apify has $${remaining.toFixed(2)} left and this item needs about ` +
+        `$${estimate.toFixed(4)}; holding back to keep $${floor.toFixed(2)} in reserve`,
+    );
+    // Cools the whole kind and refunds the attempt. The video is fine; the
+    // month is not.
+    e.blocked = true;
+    throw e;
+  }
+
+  let fetched = 0, stored = 0, charged = 0;
+  for (const post of worthFetching) {
+    const result = await fetchTikTokComments(post.url, { limit: cap });
+    if (!result.ok) {
+      if (result.exhausted) {
+        const e = new Error(result.error);
+        e.blocked = true;
+        throw e;
+      }
+      // Any other failure is transport. Thrown so the job retries rather than
+      // recording "this post has no comments" because Apify had a bad minute.
+      throw new Error(`tiktok comments: ${result.error}`);
+    }
+    charged += result.charged;
+
+    const rows = result.comments.map((c, i) => ({
+      workspace_id: job.workspace_id,
+      platform_post_id: post.id,
+      /* The actor does not always return a comment id, and the upsert key
+         needs one. Falling back to an index is stable for re-runs of the same
+         post -- the actor returns comments in the same order -- and is
+         prefixed so it can never collide with a real id. */
+      external_id: c.externalId ?? `idx:${i}`,
+      author: c.authorHandle,
+      text: c.text,
+      like_count: c.likes,
+      published_at: c.publishedAt,
+    }));
+    fetched += rows.length;
+
+    if (rows.length > 0) {
+      const { error } = await db
+        .from("post_comments")
+        .upsert(rows, { onConflict: "platform_post_id,external_id" });
+      if (error) throw new Error(`upsert failed: ${error.message}`);
+      stored += rows.length;
+    }
+    log("info", "tiktok_comments_fetched", {
+      post: post.id, fetched: rows.length, charged: result.charged, cap,
+    });
+  }
+
+  return {
+    fetched, stored, posts: worthFetching.length, knownEmpty,
+    // What this job ACTUALLY cost, from rows returned rather than the estimate
+    // -- the estimate is for deciding, this is for reporting.
+    spentUsd: Number((charged * 0.0003).toFixed(4)),
+    method: "apify",
+  };
+}
+
 async function fetchViaBox({ db, job, log, posts }) {
   const base = process.env.TIKTOK_DISCOVER_URL;
   const secret = process.env.TIKTOK_DISCOVER_SECRET;

@@ -60,6 +60,16 @@ ENV_KEYS = [
     "LLM_MODEL",
     "YOUTUBE_API_KEY",
     "TIKTOK_DISCOVER_SECRET",
+    # TikTok comments are the one fetch in this project that costs money, and
+    # this is the key that spends it. The handler will not act without it --
+    # it logs and returns rather than recording a verdict, so a box without
+    # this key simply does no TikTok comment work instead of writing "no
+    # comments" over 142 items.
+    "APIFY_TOKEN",
+    # Optional cost controls, both with safe defaults in code: the per-post
+    # comment cap (50) and the reserve held back from the monthly plan ($0.50).
+    "TIKTOK_COMMENT_CAP",
+    "APIFY_RESERVE_USD",
     # Optional. Present only if a residential proxy has been bought; the
     # service treats an unset value as "no proxy" rather than an error.
     "YTDLP_PROXY",

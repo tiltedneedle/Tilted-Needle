@@ -212,7 +212,15 @@ async function planComments() {
     // Shorts count as YouTube here: they carry captions like any other video
     // on the service, and excluding them would leave a whole platform with no
     // transcripts for no reason.
-    if (!isYouTubeLike(slug) && slug !== "instagram") continue;
+    /* TikTok joined this list when the Apify lane shipped. It is the one
+       platform whose comments cost money, and the handler is where that is
+       controlled -- it answers from the sync's own comment count when that
+       says zero (62 of 144 posts), caps what it fetches, and checks the
+       remaining monthly allowance before spending any of it. Filtering TikTok
+       out here instead would have been the cheaper-looking choice and the
+       wrong one: it would leave 142 items permanently unaccounted for while
+       looking deliberate. */
+    if (!isYouTubeLike(slug) && slug !== "instagram" && slug !== "tiktok") continue;
     items.set(p.content_item_id, p.workspace_id);
     if (!postsOfItem.has(p.content_item_id)) postsOfItem.set(p.content_item_id, []);
     postsOfItem.get(p.content_item_id).push(p.id);

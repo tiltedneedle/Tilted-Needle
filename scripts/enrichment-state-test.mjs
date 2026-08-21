@@ -215,18 +215,19 @@ const outOfScope = items.length - inScope.length;
   );
   const hasData = (id) => (postsOf.get(id) ?? []).some((pid) => withComments.has(pid));
 
-  /* TikTok has no comment route yet. planComments takes YouTube-like and
-     Instagram only; TikTok needs a paid Apify actor, which is a later phase.
-     That is UNIMPLEMENTED SCOPE, not a gap in the bookkeeping -- but it is
-     named and counted here rather than quietly tolerated, so the day the
-     route ships and is not wired in, this fails. */
+  /* Every platform now has a comment route. TikTok was the last holdout and
+     is the only paid one -- and the note that used to sit here said so, on the
+     principle that unimplemented scope should be named and counted rather than
+     quietly tolerated, so that the day the route shipped and was not wired in,
+     this would fail. It shipped; ROUTED now includes tiktok, and the assertion
+     below covers the whole library rather than two thirds of it. */
   const platformsOf = new Map();
   for (const p of await all("platform_posts", "content_item_id, account:accounts(platform_slug)")) {
     const slug = (Array.isArray(p.account) ? p.account[0] : p.account)?.platform_slug;
     if (!platformsOf.has(p.content_item_id)) platformsOf.set(p.content_item_id, new Set());
     if (slug) platformsOf.get(p.content_item_id).add(slug);
   }
-  const ROUTED = new Set(["youtube", "youtube_shorts", "instagram"]);
+  const ROUTED = new Set(["youtube", "youtube_shorts", "instagram", "tiktok"]);
   const hasRoute = (id) => [...(platformsOf.get(id) ?? [])].some((p) => ROUTED.has(p));
 
   const orphans = inScope.filter(
@@ -238,7 +239,7 @@ const outOfScope = items.length - inScope.length;
     orphans.length === 0,
     orphans.length
       ? `${orphans.length} unaccounted for`
-      : `${inScope.length - noRoute} routable, ${noRoute} on TikTok only (no route until the Apify lane ships)`,
+      : `${inScope.length - noRoute} routable, ${noRoute} on no comment-bearing platform`,
   );
 
   // The bug in one assertion: an item answered "none" must not still be queued.
