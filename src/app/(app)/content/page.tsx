@@ -1,4 +1,5 @@
 import PageHeader from "@/components/PageHeader";
+import type { CommentThemeResult } from "@/components/CommentThemes";
 import NewContentForm from "@/components/NewContentForm";
 import ContentOverview from "@/components/ContentOverview";
 import ContentDetail, { type AnalyticsRow, type SnapshotRow } from "@/components/ContentDetail";
@@ -315,7 +316,7 @@ export default async function ContentPage({
     // Drafts are deliberately loaded here rather than polled from the client:
     // a page refresh is the natural moment to discover the worker has
     // finished, and it needs no extra endpoint.
-    const [transcriptRes, draftsRes] = await Promise.all([
+    const [transcriptRes, draftsRes, themesRes] = await Promise.all([
       supabase
         .from("video_transcripts")
         .select("full_text, source, is_generated")
@@ -327,6 +328,19 @@ export default async function ContentPage({
         .eq("workspace_id", ws)
         .eq("kind", "vision_draft")
         .order("created_at", { ascending: false }),
+      /* The comment analysis for THIS video. Newest wins: re-running an
+         analysis stores a new row rather than replacing the old one, so
+         without the order and the limit the panel could render a stale
+         grouping from before the last sync. */
+      supabase
+        .from("ai_analyses")
+        .select("output")
+        .eq("workspace_id", ws)
+        .eq("kind", "comment_themes")
+        .eq("subject_id", videoId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
     ]);
 
     const transcriptForItem = transcriptRes.data
@@ -399,6 +413,9 @@ export default async function ContentPage({
           analytics={view.analytics}
           clients={allClients}
           transcript={transcriptForItem}
+          commentThemes={
+            (themesRes.data?.output as CommentThemeResult | undefined) ?? null
+          }
           visionDrafts={visionDrafts}
           scrapeAllowance={scrapeAllowance}
         />

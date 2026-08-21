@@ -23,6 +23,7 @@ import Avatar from "@/components/Avatar";
 import ScreenshotImport from "@/components/ScreenshotImport";
 import ScrapeNowButton, { type ScrapeAllowance } from "@/components/ScrapeNowButton";
 import TranscriptPanel from "@/components/TranscriptPanel";
+import CommentThemes, { type CommentThemeResult } from "@/components/CommentThemes";
 import { PLATFORM_COLORS, one } from "@/lib/types";
 import type {
   Account,
@@ -67,12 +68,14 @@ export default function ContentDetail({
   analytics,
   clients,
   transcript = null,
+  commentThemes = null,
   visionDrafts = {},
   scrapeAllowance = null,
 }: {
   workspaceId: string;
   /** Existing transcript, when one has been fetched or pasted. */
   transcript?: { fullText: string; source: string; isGenerated: boolean | null } | null;
+  commentThemes?: CommentThemeResult | null;
   /** Remaining metered reads, so the counter sits beside the button. */
   scrapeAllowance?: ScrapeAllowance;
   /** Vision drafts awaiting confirmation, keyed by platform post id. */
@@ -710,6 +713,12 @@ export default function ContentDetail({
         contentItemId={item.id}
         transcript={transcript}
       />
+
+      {/* Beside the transcript, for the same reason it is placed there: both
+          describe what the video IS and how it landed, as opposed to the
+          credits and metrics below. Renders nothing when no analysis exists,
+          which is most videos -- comments are only fetched for a few. */}
+      <CommentThemes result={commentThemes ?? null} />
 
       <div className="mb-2 flex items-baseline justify-between">
         <h2 className="text-sm font-semibold">Credits</h2>
