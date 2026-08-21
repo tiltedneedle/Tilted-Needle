@@ -244,12 +244,28 @@ async function planAnalyse() {
   const cap = CAP(kind, 10);
   if (!process.env.LLM_API_KEY) return { kind, count: 0, cap, skipped: "LLM_API_KEY not set" };
 
-  // Comments are stored per post; analysis runs per item. Resolve the join
-  // rather than passing post ids straight through.
-  const { data: withComments } = await db
-    .from("post_comments")
-    .select("platform_post_id, workspace_id");
-  const postIds = [...new Set((withComments ?? []).map((c) => c.platform_post_id))];
+  /* Comments are stored per post; analysis runs per item. Resolve the join
+     rather than passing post ids straight through.
+
+     PAGED, and that is not a detail. This was one unpaginated select, and
+     PostgREST caps those at 1000 rows without saying so: against 2,093
+     comment rows it returned the first 1000, which covered 12 of the 34
+     posts that actually have comments. The other 22 were invisible, so the
+     planner reported "nothing to analyse" and the queue quietly starved --
+     no error, no warning, just a number that was always 0.
+
+     The rest of this repo reaches for selectAll for exactly this reason. */
+  const withComments = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await db
+      .from("post_comments")
+      .select("platform_post_id, workspace_id")
+      .range(from, from + 999);
+    if (error) break;
+    withComments.push(...(data ?? []));
+    if ((data ?? []).length < 1000) break;
+  }
+  const postIds = [...new Set(withComments.map((c) => c.platform_post_id))];
   if (postIds.length === 0) return { kind, count: 0, cap };
 
   const { data: posts } = await db
