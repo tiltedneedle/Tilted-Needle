@@ -179,7 +179,65 @@ async function viaDiscoverBox(externalId, postUrl, log) {
   };
 }
 
+/**
+ * Transcribe the AUDIO, for platforms that publish no caption track.
+ *
+ * The last resort, and the only route to 166 Instagram posts that have speech
+ * in them which has never been written down. Verified before building: the box
+ * extracts Instagram audio from its datacenter address without cookies.
+ *
+ * The failure modes are separated with the same care as everywhere else in
+ * this file, because they have opposite consequences:
+ *
+ *   not configured   -> no verdict, no throw. The caller keeps its existing
+ *                       platform_unsupported answer, which is still true and
+ *                       already recheckable. Writing a WORSE verdict because a
+ *                       key is unset would be the datacenter bug again.
+ *   transport / 429  -> throws. Never a fact about the video.
+ *   no audio stream  -> a real answer, so it earns a verdict.
+ *   text came back   -> GATED before it is allowed anywhere near the corpus.
+ */
+async function viaAsr(postUrl, log) {
+  const base = process.env.TIKTOK_DISCOVER_URL;
+  const secret = process.env.TIKTOK_DISCOVER_SECRET;
+  if (!base || !secret || !postUrl) return null;
+
+  const url = base.replace(/\/discover\/?$/, "") + `/asr?url=${encodeURIComponent(postUrl)}`;
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${secret}` },
+    // Generous: this downloads media and waits on a transcription API, where
+    // /transcript only fetches a few tens of KB of text.
+    signal: AbortSignal.timeout(300_000),
+  });
+
+  if (res.status === 501) {
+    // No ASR key on the box. A fact about our configuration; the caller falls
+    // back to the verdict it would have written anyway.
+    log("info", "asr_not_configured", {});
+    return null;
+  }
+  if (res.status === 429) {
+    throw blocked("the platform is rate-limiting the ASR host (429); the whole kind backs off");
+  }
+  if (!res.ok) {
+    throw new Error(`ASR route failed (HTTP ${res.status}); retrying rather than writing the video off`);
+  }
+
+  const body = await res.json();
+  if (body.available === false) {
+    return { unavailable: true, reason: body.reason ?? "no audio to transcribe" };
+  }
+  return {
+    text: body.text ?? "",
+    segments: body.segments ?? [],
+    durationSeconds: body.durationSeconds ?? null,
+    language: body.language ?? null,
+    model: body.model ?? null,
+  };
+}
+
 import { isYouTubeLike } from "../platforms.mjs";
+import { gateAsrResult, stripCredits } from "../../src/lib/analysis/asrGate.ts";
 
 export async function transcript({ db, job, log }) {
   const { data: posts, error } = await db
@@ -233,6 +291,86 @@ export async function transcript({ db, job, log }) {
     const seen = [...new Set((posts ?? [])
       .map((p) => (Array.isArray(p.account) ? p.account[0] : p.account)?.platform_slug)
       .filter(Boolean))];
+
+    /* NO CAPTIONS IS NOT THE SAME AS NO WORDS.
+     *
+     * This branch used to be the end of the line, and it is where all 166
+     * Instagram posts came to rest -- correctly, in that Instagram genuinely
+     * publishes no caption track, but the videos are full of speech. Reading
+     * the audio is the only route to it, so it is tried before settling.
+     *
+     * Only when ASR is unconfigured or has nothing to say does the original
+     * platform_unsupported verdict stand. */
+    const withUrl = (posts ?? []).find((p) => p.url);
+    if (withUrl) {
+      const heard = await viaAsr(withUrl.url, log);
+      if (heard && !heard.unavailable) {
+        const verdict = gateAsrResult(heard.text, { durationSeconds: heard.durationSeconds });
+        if (!verdict.speech) {
+          /* THE GATE EARNED ITS KEEP HERE. Whisper answers a music-only clip
+             with "Thanks for watching!", and this branch is where that would
+             otherwise have entered the corpus as the client's own words. The
+             rejected output is kept in `note` so a wrong call is auditable
+             rather than merely asserted. */
+          log("info", "asr_rejected", { reason: verdict.reason, raw: verdict.raw.slice(0, 120) });
+          await recordVerdict(db, job, {
+            state: "no_speech",
+            method: `asr:${heard.model ?? "unknown"}`,
+            note: `${verdict.reason} -- raw output: ${verdict.raw.slice(0, 500)}`,
+          });
+          return { unavailable: true, note: `no speech detected (${verdict.reason})` };
+        }
+
+        const { error: asrErr } = await db.from("video_transcripts").upsert(
+          {
+            workspace_id: job.workspace_id,
+            content_item_id: job.subject_id,
+            source_post_id: withUrl.id,
+            // A fourth source alongside public/manual/import: read from the
+            // audio rather than from anything the platform published.
+            source: "asr",
+            language: heard.language,
+            is_generated: true,
+            full_text: verdict.text,
+            /* Segments go through the SAME credit stripping as the full text.
+               Cleaning one and not the other would leave the fabricated line
+               indexed and quotable via the segment, and would make the two
+               columns disagree about what the video says. */
+            segments: (heard.segments ?? [])
+              .map((s) => ({ ...s, text: stripCredits(s.text ?? "") }))
+              .filter((s) => s.text),
+            fetched_at: new Date().toISOString(),
+          },
+          { onConflict: "content_item_id" },
+        );
+        if (asrErr) throw new Error(`ASR upsert failed: ${asrErr.message}`);
+
+        await recordVerdict(db, job, {
+          state: "ok", method: `asr:${heard.model ?? "unknown"}`,
+          note: `transcribed from audio (${Math.round(heard.durationSeconds ?? 0)}s)`,
+        });
+        log("info", "transcript_stored", {
+          post: withUrl.id, via: "asr", chars: verdict.text.length,
+          seconds: heard.durationSeconds,
+        });
+        return {
+          stats: {
+            via: "asr", chars: verdict.text.length,
+            seconds: heard.durationSeconds, language: heard.language ?? "?",
+            generated: true,
+          },
+        };
+      }
+      if (heard?.unavailable) {
+        // The box fetched the media and there was no audio in it. An answer
+        // about the video, and a permanent one.
+        await recordVerdict(db, job, {
+          state: "no_speech", method: "asr", note: heard.reason,
+        });
+        return { unavailable: true, note: heard.reason };
+      }
+    }
+
     const note = seen.length
       ? `no platform on this item publishes captions (${seen.join(", ")})`
       : "this item has no platform posts to transcribe";

@@ -311,8 +311,14 @@ async function pass() {
 const RATE_PER_HOUR = {
   transcript: Number(process.env.RATE_TRANSCRIPT_PER_HOUR ?? 30),
   comments: Number(process.env.RATE_COMMENTS_PER_HOUR ?? 120),
+  /* Metered for a different reason from the other two: not a third party's
+     patience but OUR OWN BILL and this host's capacity. Each job downloads
+     media, runs ffmpeg, and pays per minute of audio at the transcription API,
+     on a box with 954 MB of RAM. 20/hour drains the 146-item Instagram backlog
+     in about seven hours for well under a dollar, and cannot run away. */
+  transcript_asr: Number(process.env.RATE_ASR_PER_HOUR ?? 20),
 };
-const BURST = { transcript: 5, comments: 20 };
+const BURST = { transcript: 5, comments: 20, transcript_asr: 3 };
 
 const buckets = new Map(); // kind -> { tokens, lastRefill }
 

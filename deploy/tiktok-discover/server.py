@@ -19,8 +19,14 @@ Run: python3 server.py
 Requires: pip install flask yt-dlp
 """
 
+import json
 import os
+import shutil
+import subprocess
+import tempfile
 import time
+import urllib.error
+import urllib.request
 from flask import Flask, request, jsonify
 import yt_dlp
 
@@ -91,6 +97,30 @@ DEFAULT_LIMIT = 12
 # working route to per-video metadata -- it has to be able to reach a whole
 # account's history, not just the recent page.
 MAX_LIMIT = 200
+
+
+# --- ASR (the /asr endpoint) ------------------------------------------------
+#
+# Falls back to the LLM_* names the worker already uses on this host, so a
+# single OpenAI-compatible key serves both. Split anyway, because transcription
+# and chat are separately routable -- a cheap local Whisper can serve /asr while
+# chat goes to a hosted model, and that should not require editing this file.
+ASR_API_KEY = os.environ.get("ASR_API_KEY") or os.environ.get("LLM_API_KEY")
+ASR_BASE_URL = (
+    os.environ.get("ASR_BASE_URL")
+    or os.environ.get("LLM_BASE_URL")
+    or "https://api.openai.com/v1"
+)
+ASR_MODEL = os.environ.get("ASR_MODEL") or "whisper-1"
+
+# Ten minutes, which is far past anything in this library -- the longest video
+# here is under four. It exists so one pathological input cannot fill a 200 GB
+# volume or push a 25 MB upload limit: 16 kHz mono 16-bit is 32 kB/s, so this
+# caps a request at ~19 MB.
+MAX_AUDIO_SECONDS = 600
+# The download cap is separate and looser, because the source is compressed and
+# its size is not known until it arrives.
+MAX_AUDIO_BYTES = 100 * 1024 * 1024
 
 
 def authorised(req) -> bool:
@@ -378,6 +408,245 @@ def transcript():
     })
 
 
+@app.route("/asr", methods=["GET"])
+def asr():
+    """
+    Transcribe a video's AUDIO, for posts that publish no caption track.
+
+    WHY THIS EXISTS
+
+    /transcript reads captions the platform already published. Instagram
+    publishes none -- 166 posts here, 0% coverage, every one correctly marked
+    `platform_unsupported` because there was genuinely nothing to read. Those
+    posts have speech in them; it simply has never been written down. This is
+    the only route to it.
+
+    WHAT THIS ENDPOINT DELIBERATELY DOES NOT DO
+
+    It does not judge whether the result is real speech. Whisper-family models
+    answer a silent clip with "Thanks for watching!" rather than with nothing,
+    and deciding which outputs are artefacts is done by gateAsrResult in the
+    worker, where it is a pure function with a test suite. Duplicating that
+    judgement here would put two versions of it in the codebase and guarantee
+    they drift. So this returns the RAW text plus the duration the gate needs,
+    and lets the tested code decide.
+
+    Verified before building: Instagram audio extracts from this datacenter
+    address without cookies -- 8 formats, 1 audio-only m4a. YouTube's audio is
+    refused from here exactly as its captions are, which is why the caption
+    route stays primary and this is a fallback for platforms that have none.
+    """
+    if not authorised(request):
+        return jsonify({"error": "Unauthorised."}), 401
+
+    url = (request.args.get("url") or "").strip()
+    if not url:
+        return jsonify({"error": "url query param is required."}), 400
+    if not url.startswith(("http://", "https://")):
+        return jsonify({"error": "url must be absolute."}), 400
+
+    if not ASR_API_KEY:
+        # A MISSING KEY IS A FACT ABOUT THIS BOX, NOT ABOUT THE VIDEO. 501
+        # rather than `available: false`, because the caller settles that as
+        # terminal and would write off every Instagram post permanently on
+        # account of an unset environment variable.
+        return jsonify({
+            "error": "No ASR key configured on this host (set ASR_API_KEY or LLM_API_KEY).",
+            "notConfigured": True,
+        }), 501
+
+    started = time.time()
+    workdir = tempfile.mkdtemp(prefix="tn-asr-")
+    try:
+        opts = {
+            "quiet": True,
+            "no_warnings": True,
+            "format": "bestaudio/best",
+            "outtmpl": os.path.join(workdir, "audio.%(ext)s"),
+            # This box has 954 MB of RAM and a 200 GB volume it must not fill.
+            # A cap means a pathological input fails one job instead of the host.
+            "max_filesize": MAX_AUDIO_BYTES,
+        }
+        _with_cookies(opts)
+
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(url, download=True) or {}
+        except yt_dlp.utils.DownloadError as e:
+            msg = str(e)
+            if any(p in msg.lower() for p in BOT_CHALLENGE):
+                return jsonify({
+                    "error": (
+                        "The platform refused this host with a bot challenge. This says "
+                        "nothing about whether the video has speech."
+                    ),
+                    "botChallenge": True,
+                }), 502
+            if "429" in msg or "Too Many Requests" in msg:
+                return jsonify({
+                    "error": "The platform is rate-limiting this host (HTTP 429).",
+                    "rateLimited": True,
+                }), 429
+            if "Private video" in msg or "unavailable" in msg.lower():
+                return jsonify({
+                    "url": url, "available": False,
+                    "reason": "video is private or unavailable",
+                }), 200
+            return jsonify({"error": f"Audio download failed: {msg}"}), 502
+
+        downloaded = [
+            os.path.join(workdir, f) for f in os.listdir(workdir)
+            if f.startswith("audio.")
+        ]
+        if not downloaded:
+            # yt-dlp reached the platform and there was no audio to take. That
+            # is an answer ABOUT THE VIDEO, so it may be settled.
+            return jsonify({
+                "url": url, "available": False,
+                "reason": "no audio stream published for this video",
+            }), 200
+
+        # 16 kHz mono is what every Whisper-family model resamples to anyway;
+        # doing it here shrinks the upload by an order of magnitude and removes
+        # a conversion the API would otherwise do on our time.
+        wav = os.path.join(workdir, "speech.wav")
+        proc = subprocess.run(
+            ["ffmpeg", "-nostdin", "-loglevel", "error", "-y",
+             "-i", downloaded[0],
+             "-t", str(MAX_AUDIO_SECONDS),   # a long upload is a failed one
+             "-ac", "1", "-ar", "16000",
+             "-f", "wav", wav],
+            capture_output=True, timeout=180,
+        )
+        if proc.returncode != 0 or not os.path.exists(wav):
+            return jsonify({
+                "error": f"ffmpeg failed: {proc.stderr.decode('utf-8', 'replace')[:300]}",
+            }), 502
+
+        size = os.path.getsize(wav)
+        # Exact, and needs no second binary: 16 kHz x 1 channel x 16-bit is
+        # 32000 bytes per second, and the WAV header is 44 of them.
+        duration = max(0.0, (size - 44) / 32000.0)
+        if duration < 0.4:
+            return jsonify({
+                "url": url, "available": False,
+                "reason": "audio stream is empty or shorter than half a second",
+            }), 200
+
+        try:
+            heard = _transcribe(wav)
+        except _AsrTransport as e:
+            # The model was unreachable, refused, or out of quota. Transport,
+            # every time -- never a statement about the video.
+            return jsonify({"error": str(e), "asrUnavailable": True}), 502
+
+        return jsonify({
+            "url": url,
+            "available": True,
+            "text": heard["text"],
+            "segments": heard["segments"],
+            # Whisper's own detection beats yt-dlp's metadata, which was null
+            # on every Instagram post measured. The metadata is the fallback.
+            "language": heard["language"] or info.get("language") or None,
+            "durationSeconds": round(duration, 2),
+            "model": ASR_MODEL,
+            "isGenerated": True,      # ASR output is machine-made by definition
+            "tookMs": round((time.time() - started) * 1000),
+        })
+    except subprocess.TimeoutExpired:
+        return jsonify({"error": "ffmpeg timed out converting the audio."}), 504
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"error": f"Unexpected error: {e}"}), 500
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+class _AsrTransport(Exception):
+    """Reaching the model failed. Deliberately its own type so it cannot be
+    confused with an answer about the audio."""
+
+
+def _transcribe(wav_path: str) -> dict:
+    """POST the audio to an OpenAI-compatible /audio/transcriptions endpoint.
+
+    Returns {text, language, segments}.
+
+    ASKS FOR verbose_json, FALLS BACK TO TEXT. verbose_json carries the two
+    things plain text throws away: the detected language, and per-segment
+    timings. Both matter here -- half this library is German, and timings are
+    what make a transcript line clickable and what aligns it to the replay
+    curve. But verbose_json is a whisper-1 feature; the newer gpt-4o-transcribe
+    models accept only json and text. Since ASR_MODEL is configurable, the
+    response is parsed for what it turns out to be rather than for what was
+    requested, and a provider that ignores the parameter still works.
+
+    Written against urllib rather than `requests` so this service keeps the
+    dependency list it was deployed with -- yt-dlp and Flask, nothing else.
+    """
+    boundary = "----tn" + os.urandom(12).hex()
+    with open(wav_path, "rb") as fh:
+        audio = fh.read()
+
+    def part(name: str, value: str) -> bytes:
+        return (
+            f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="{name}"\r\n\r\n'
+            f"{value}\r\n"
+        ).encode()
+
+    body = b"".join([
+        part("model", ASR_MODEL),
+        part("response_format", "verbose_json"),
+        (
+            f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="file"; filename="speech.wav"\r\n'
+            f"Content-Type: audio/wav\r\n\r\n"
+        ).encode(),
+        audio,
+        f"\r\n--{boundary}--\r\n".encode(),
+    ])
+
+    req = urllib.request.Request(
+        ASR_BASE_URL.rstrip("/") + "/audio/transcriptions",
+        data=body,
+        headers={
+            "Authorization": f"Bearer {ASR_API_KEY}",
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=180) as res:
+            raw = res.read().decode("utf-8", "replace").strip()
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", "replace")[:300]
+        raise _AsrTransport(f"ASR provider returned HTTP {e.code}: {detail}") from e
+    except Exception as e:  # noqa: BLE001
+        raise _AsrTransport(f"ASR provider unreachable: {e}") from e
+
+    try:
+        parsed = json.loads(raw)
+    except ValueError:
+        # A provider that ignored response_format and sent plain text. Still a
+        # perfectly good transcript; it simply carries no language or timings.
+        return {"text": raw, "language": None, "segments": []}
+
+    segments = [
+        {
+            "start_ms": int(float(s.get("start") or 0) * 1000),
+            "dur_ms": int((float(s.get("end") or 0) - float(s.get("start") or 0)) * 1000),
+            "text": (s.get("text") or "").strip(),
+        }
+        for s in (parsed.get("segments") or [])
+        if (s.get("text") or "").strip()
+    ]
+    return {
+        "text": (parsed.get("text") or "").strip(),
+        "language": parsed.get("language") or None,
+        "segments": segments,
+    }
+
+
 def _pick_track(manual, auto):
     """Human track beats machine; English breaks ties but never wins outright
     -- a German clinic's video should keep its German."""
@@ -520,7 +789,19 @@ def health():
     # Deliberately unauthenticated and free of any yt-dlp call: this is what
     # confirms the process and dependencies are alive, not that TikTok is
     # currently reachable.
-    return jsonify({"ok": True})
+    #
+    # `asr` is reported because the ENQUEUER needs it. Instagram items are only
+    # worth queueing when there is a route to their audio, and that route is a
+    # key on this host rather than anything the enqueuer can see for itself.
+    # Asking here beats inferring: queueing 146 items against an unset key
+    # would manufacture exactly the guaranteed failures the transcript planner
+    # was written to avoid.
+    return jsonify({
+        "ok": True,
+        "asr": bool(ASR_API_KEY),
+        "asrModel": ASR_MODEL if ASR_API_KEY else None,
+        "ffmpeg": bool(shutil.which("ffmpeg")),
+    })
 
 
 if __name__ == "__main__":

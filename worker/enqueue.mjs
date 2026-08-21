@@ -283,10 +283,40 @@ async function planComments() {
   return { kind, count: await insert(kind, wanted, items), cap };
 }
 
+/**
+ * Does the extraction host have a working audio route?
+ *
+ * Asked rather than assumed, because the answer is a key on THAT machine and
+ * nothing here can see it. Instagram publishes no captions, so those items are
+ * only worth queueing when their audio can be read -- and queueing 146 of them
+ * against an unset key would manufacture precisely the guaranteed failures
+ * this planner was written to avoid.
+ *
+ * A host that cannot be reached answers false: the conservative direction,
+ * since the cost is a delayed backfill rather than a batch of dead jobs.
+ */
+let asrReadyCache;
+async function asrReady() {
+  if (asrReadyCache !== undefined) return asrReadyCache;
+  const base = process.env.TIKTOK_DISCOVER_URL;
+  if (!base) return (asrReadyCache = false);
+  try {
+    const res = await fetch(base.replace(/\/discover\/?$/, "") + "/health", {
+      signal: AbortSignal.timeout(10_000),
+    });
+    const body = await res.json();
+    asrReadyCache = Boolean(body?.asr && body?.ffmpeg);
+  } catch {
+    asrReadyCache = false;
+  }
+  return asrReadyCache;
+}
+
 /* ---- transcript ----------------------------------------------------------
    Per CONTENT ITEM: one transcript describes every platform cut of the same
-   edit. Instagram-only items are skipped -- those posts carry no caption
-   track at all, so queueing them would manufacture guaranteed failures. */
+   edit. Instagram-only items are skipped HERE and planned by planTranscriptAsr
+   instead -- see that function for why they are a separate kind rather than a
+   branch of this one. */
 async function planTranscript() {
   const kind = "transcript";
   const cap = CAP(kind, 8);
@@ -328,6 +358,81 @@ async function planTranscript() {
     .slice(0, cap);
 
   return { kind, count: await insert(kind, wanted, byItem), cap };
+}
+
+/* ---- transcript_asr ------------------------------------------------------
+   Items whose every platform publishes NO caption track, transcribed from
+   their audio instead.
+
+   In practice that means Instagram: 146 live items, zero transcripts between
+   them, each carrying a `platform_unsupported` verdict that was true only for
+   as long as captions were the sole route. The audio has always been there.
+
+   A SEPARATE KIND, NOT A BRANCH OF planTranscript. Kinds here are split by IP
+   reputation, and audio falls on the opposite side of that line from captions:
+   measured from the Oracle box, Instagram serves it an audio stream while
+   YouTube refuses the same address outright. One shared kind would force the
+   worse of both worlds -- enable it there and the first YouTube job earns a bot
+   challenge, which cools the whole kind for two hours and stalls 146 Instagram
+   items that were never in any difficulty. */
+async function planTranscriptAsr() {
+  const kind = "transcript_asr";
+  const cap = CAP(kind, 8);
+
+  // Gated on the host actually having a route. Queueing against an unset key
+  // would manufacture exactly the guaranteed failures planTranscript avoids by
+  // skipping these items in the first place.
+  if (!(await asrReady())) return { kind, count: 0, cap, skipped: "no ASR route on the host" };
+
+  const posts = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await db
+      .from("platform_posts")
+      .select("content_item_id, workspace_id, url, account:accounts(platform_slug), item:content_items!inner(review_state, client:clients(is_archived))")
+      .not("external_id", "is", null)
+      .eq("item.review_state", "approved")
+      .order("id")
+      .range(from, from + 999);
+    if (error) throw new Error(error.message);
+    posts.push(...(data ?? []));
+    if ((data ?? []).length < 1000) break;
+  }
+
+  /* An item qualifies only if NO platform on it publishes captions. A
+     cross-posted edit that also exists on YouTube is left to planTranscript,
+     because a real caption track beats ASR every time -- machine transcription
+     mangles names, brands and accents, which is exactly the vocabulary this
+     corpus gets searched for. */
+  const platformsOf = new Map();
+  const wsOf = new Map();
+  const hasUrl = new Set();
+  for (const p of posts) {
+    if (!isLiveAgencyWork(p)) continue;
+    const slug = (Array.isArray(p.account) ? p.account[0] : p.account)?.platform_slug;
+    if (!platformsOf.has(p.content_item_id)) platformsOf.set(p.content_item_id, new Set());
+    if (slug) platformsOf.get(p.content_item_id).add(slug);
+    wsOf.set(p.content_item_id, p.workspace_id);
+    if (p.url) hasUrl.add(p.content_item_id);
+  }
+
+  const eligible = [...platformsOf.entries()]
+    .filter(([id, slugs]) =>
+      slugs.size > 0 &&
+      hasUrl.has(id) &&                                   // the lane needs a URL
+      ![...slugs].some((s) => isYouTubeLike(s) || s === "tiktok"))
+    .map(([id]) => id);
+
+  const { data: have } = await db.from("video_transcripts").select("content_item_id");
+  const stored = new Set((have ?? []).map((r) => r.content_item_id));
+  const [busy, done] = [await inFlight(kind), await settled(kind)];
+
+  const wanted = eligible
+    .filter((id) => !stored.has(id) && !busy.has(id) && !done.has(id))
+    // Deterministic, so a capped run does not re-pick the same items forever.
+    .sort((a, b) => a.localeCompare(b))
+    .slice(0, cap);
+
+  return { kind, count: await insert(kind, wanted, wsOf), cap };
 }
 
 /* ---- analyse -------------------------------------------------------------
@@ -410,6 +515,9 @@ async function planAnalyse() {
 export const SUBJECT_TYPE = {
   comments: "content_item",
   transcript: "content_item",
+  // Same subject as transcript, because it IS transcript work -- the kind
+  // differs only in which host may run it.
+  transcript_asr: "content_item",
   analyse: "content_item",
   // The exception, and the reason this table is worth keeping: weeklyRead
   // looks its subject up in `clients`, not `content_items`.
@@ -481,6 +589,7 @@ async function planWeeklyRead() {
 const PLANNERS = {
   comments: planComments,
   transcript: planTranscript,
+  transcript_asr: planTranscriptAsr,
   analyse: planAnalyse,
   weekly_read: planWeeklyRead,
 };

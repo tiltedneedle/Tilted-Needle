@@ -156,6 +156,40 @@ const outOfScope = items.length - inScope.length;
   );
 }
 
+/* ---- Nothing invented reached the corpus -------------------------------- */
+/* The gate is unit-tested against phrases Whisper is KNOWN to invent. This is
+   the other half: every transcript actually stored by the ASR lane is fed back
+   through the same gate and must still pass.
+
+   It is worth asserting on the live table rather than only in the unit test,
+   because the two ways this fails leave no other trace. A row written before
+   the gate existed would sit there indefinitely; and a row written by a future
+   path that forgets to gate would look exactly like a good one. Both show up
+   here and nowhere else -- a fabricated sentence is fluent, correctly
+   punctuated, and indistinguishable from data by eye. */
+{
+  const { gateAsrResult } = await import("../src/lib/analysis/asrGate.ts");
+  const asr = await all("video_transcripts", "content_item_id, full_text, source", "content_item_id");
+  const fromAudio = asr.filter((t) => t.source === "asr");
+  const suspect = fromAudio.filter((t) => !gateAsrResult(t.full_text).speech);
+  check(
+    "no stored ASR transcript is a phrase Whisper invents from silence",
+    suspect.length === 0,
+    suspect.length
+      ? `${suspect.length} of ${fromAudio.length}, e.g. "${suspect[0].full_text.slice(0, 60)}"`
+      : `${fromAudio.length} transcribed from audio, all pass the gate`,
+  );
+
+  // A transcript of a handful of characters is not usable evidence, whatever
+  // the gate thinks of it, and would quietly weaken any hypothesis built on it.
+  const tiny = fromAudio.filter((t) => (t.full_text ?? "").trim().length < 40);
+  check(
+    "no ASR transcript is too short to be evidence",
+    tiny.length === 0,
+    tiny.length ? `${tiny.length} under 40 chars` : "",
+  );
+}
+
 /* ---- The same invariant, for comments ----------------------------------- */
 /* Comments were the other half of the same fault. Freshness was read from the
    newest post_comments row, so a post with ZERO comments left no row, looked
