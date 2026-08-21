@@ -113,11 +113,20 @@ async function runJob(job) {
     return;
   }
   if (isCoolingDown(job.kind)) {
-    // Put it straight back without spending an attempt on a request we already
-    // know will fail.
+    /* Put it straight back WITHOUT COST. Not decremented -- reset.
+     *
+     * Decrementing merely undoes this claim, which is right for one skip and
+     * wrong across many: each throttled run leaves the counter a little
+     * higher, and after enough of them a job dies at MAX_ATTEMPTS for a
+     * reason that was never about the job. Measured on the transcript queue:
+     * 40 of 87 pending jobs reached attempts=3 against a MAX_ATTEMPTS of 4,
+     * one run from being written off, having never actually been tried.
+     *
+     * A job skipped for a cooldown made no request at all, so it has made no
+     * attempts. Zero is the honest number. */
     await db.from("ingest_jobs").update({
       status: "pending",
-      attempts: Math.max(0, job.attempts - 1),
+      attempts: 0,
       not_before: new Date(cooldowns.get(job.kind)).toISOString(),
       leased_at: null, leased_by: null,
       updated_at: new Date().toISOString(),
@@ -141,9 +150,12 @@ async function runJob(job) {
     const msg = String(err?.message ?? err).slice(0, 500);
     if (err?.blocked) {
       startCooldown(job.kind, Number(process.env.COOLDOWN_MINUTES ?? 120));
+      // Same reasoning as the cooldown skip above: a blocked kind is a fact
+      // about the host, so the job is owed a clean slate rather than a
+      // refund of one attempt.
       await db.from("ingest_jobs").update({
         status: "pending",
-        attempts: Math.max(0, job.attempts - 1),
+        attempts: 0,
         not_before: new Date(cooldowns.get(job.kind)).toISOString(),
         last_error: `blocked: ${msg}`,
         leased_at: null, leased_by: null,
