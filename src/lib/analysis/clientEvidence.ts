@@ -14,6 +14,7 @@
  * videos on either side returns null rather than a number that would read as
  * a finding.
  */
+import { zoneOffsetMs, operatingZoneLabel } from "@/lib/tz";
 
 /** Below this on either side of a split, a comparison is anecdote. */
 export const MIN_PER_SIDE = 3;
@@ -165,12 +166,31 @@ export function splitBy(
 
 const round = (n: number) => Math.round(n * 1000) / 1000;
 
-/** Dubai is the operating timezone throughout this system (fixed UTC+4). */
-function dubaiHour(iso: string): number {
-  return new Date(new Date(iso).getTime() + 4 * 3600_000).getUTCHours();
+/**
+ * Hour and weekday IN THE OPERATING ZONE, asked rather than assumed.
+ *
+ * These were `dubaiHour` and `dubaiWeekday`, and added a hardcoded four
+ * hours. The operating zone moved to Asia/Karachi, which is UTC+5, so every
+ * reading was an hour out -- and for anything posted in the first hour of a
+ * Karachi day, a whole DAY out, because 00:30 Karachi is 23:30 the previous
+ * day in UTC+4.
+ *
+ * Not cosmetic. These two functions are the entire basis of the "published
+ * before noon" and "published at a weekend" findings, so a wrong offset
+ * silently moves videos across the very boundary the finding is about, and
+ * the model then reports the corrupted split as fact.
+ *
+ * zoneOffsetMs resolves the real offset for the instant in question, so this
+ * also survives a zone with daylight saving -- which no fixed constant can,
+ * whatever number is written in it.
+ */
+function operatingHour(iso: string): number {
+  const at = new Date(iso);
+  return new Date(at.getTime() + zoneOffsetMs(at)).getUTCHours();
 }
-function dubaiWeekday(iso: string): number {
-  return new Date(new Date(iso).getTime() + 4 * 3600_000).getUTCDay();
+function operatingWeekday(iso: string): number {
+  const at = new Date(iso);
+  return new Date(at.getTime() + zoneOffsetMs(at)).getUTCDay();
 }
 
 export function buildClientEvidence(
@@ -245,12 +265,12 @@ export function buildClientEvidence(
     splitBy(
       scored.filter((v) => v.postedAtTs),
       "Published at a weekend",
-      (v) => [0, 6].includes(dubaiWeekday(v.postedAtTs!)),
+      (v) => [0, 6].includes(operatingWeekday(v.postedAtTs!)),
     ),
     splitBy(
       scored.filter((v) => v.postedAtTs),
-      "Published before noon (Dubai)",
-      (v) => dubaiHour(v.postedAtTs!) < 12,
+      `Published before noon (${operatingZoneLabel()})`,
+      (v) => operatingHour(v.postedAtTs!) < 12,
     ),
   ].filter((s): s is Split => s !== null);
 

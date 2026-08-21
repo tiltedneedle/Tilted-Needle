@@ -17,6 +17,7 @@ import {
 import {
   buildClientEvidence, evidenceToPrompt, CLIENT_READ_PROMPT, CLIENT_READ_SCHEMA,
 } from "../../src/lib/analysis/clientEvidence.ts";
+import { computeRankings } from "../../src/lib/performanceData.ts";
 
 const PROMPT_VERSION = 1;
 const KIND = "weekly_read";
@@ -104,16 +105,31 @@ export async function weeklyRead({ db, job, log }) {
     if (p.posted_at_ts && !bucket.ts) bucket.ts = p.posted_at_ts;
   }
 
-  // Boost indices come from the same scoring model every surface reads.
-  const { data: scored } = await db
-    .from("post_scores")
-    .select("content_item_id, index")
-    .in("content_item_id", ids)
-    .then((r) => r, () => ({ data: null }));
+  /* Boost indices come from the same scoring model every surface reads --
+     which is `computeRankings`, and now actually does.
+   *
+   * This used to select from a table called `post_scores`. That table does
+   * not exist and never has: it appears nowhere in the migrations, nothing
+   * writes to it, and its only other mention in the repo is a line in a PRD.
+   * The query was wrapped in a `.then(ok, () => ({ data: null }))` that
+   * swallowed the failure, so every video came back unscored, every client
+   * resolved "not enough scored work to characterise (0 videos)", and the
+   * job reported DONE while writing nothing. Five clients, five successful
+   * jobs, zero output.
+   *
+   * computeRankings is what /reports Insights builds its evidence from, via
+   * cachedRankings -> scoredByContent. Calling it directly here means the
+   * weekly read and the Insights tab are derived from one model rather than
+   * two, so they cannot drift into disagreeing about the same client. The
+   * uncached builder is used deliberately: cachedRankings imports
+   * next/cache, which a plain node worker cannot load. */
+  const { scoredByContent } = await computeRankings(db, job.workspace_id);
+  const wanted = new Set(ids);
   const bestByItem = new Map();
-  for (const s of scored ?? []) {
-    const cur = bestByItem.get(s.content_item_id) ?? 0;
-    if (s.index > cur) bestByItem.set(s.content_item_id, s.index);
+  for (const [contentId, scored] of scoredByContent) {
+    if (!wanted.has(contentId)) continue;
+    const best = scored.reduce((max, s) => Math.max(max, s.index), 0);
+    if (best > 0) bestByItem.set(contentId, best);
   }
 
   const videos = items.map((i) => ({
