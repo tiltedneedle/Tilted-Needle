@@ -106,6 +106,49 @@ write_files:
       [Install]
       WantedBy=multi-user.target
 
+  - path: /etc/systemd/system/tn-enqueue-asr.service
+    permissions: "0644"
+    content: |
+      [Unit]
+      # Plans transcript_asr jobs. THIS HOST AND NO OTHER, which is why it is a
+      # timer here rather than a step in the GitHub pipeline: planTranscriptAsr
+      # asks the transcript service whether it actually has an audio route, and
+      # on a GitHub runner the honest answer is no. Left to the pipeline alone,
+      # these jobs would simply never be planned -- and the failure would be
+      # silent, because "planned nothing" and "nothing to plan" look identical
+      # in the log.
+      Description=Plan transcript_asr jobs (the only host with an audio route)
+      After=network-online.target tn-transcript.service
+      Wants=network-online.target
+
+      [Service]
+      Type=oneshot
+      User=worker
+      WorkingDirectory=/opt/tn-worker
+      EnvironmentFile=/etc/tn-worker.env
+      # --backfill, because the per-run cap is the wrong throttle here: the
+      # worker meters transcript_asr at 20/hour with a token bucket, so the
+      # drain is already governed and capping the enqueue only starves it.
+      # Backfilled jobs enter at priority 500, behind anything live.
+      ExecStart=/usr/bin/node --experimental-strip-types --import /opt/tn-worker/scripts/register-alias.mjs /opt/tn-worker/worker/enqueue.mjs --kinds=transcript_asr --backfill
+      SyslogIdentifier=tn-enqueue-asr
+
+  - path: /etc/systemd/system/tn-enqueue-asr.timer
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Plan transcript_asr jobs hourly
+
+      [Timer]
+      OnBootSec=10min
+      OnUnitActiveSec=1h
+      # Runs the moment the box comes back if a window was missed, rather than
+      # waiting a full hour after an outage.
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
+
   - path: /etc/systemd/journald.conf.d/tn-worker.conf
     content: |
       [Journal]
@@ -149,6 +192,7 @@ runcmd:
   # service that starts before either would just crash-loop on boot.
   - systemctl enable tn-worker.service
   - systemctl enable tn-transcript.service
+  - systemctl enable tn-enqueue-asr.timer
 
   # yt-dlp goes stale fast -- YouTube changes, yt-dlp adapts, and a pinned copy
   # silently stops returning transcripts. Weekly self-update keeps the fragile

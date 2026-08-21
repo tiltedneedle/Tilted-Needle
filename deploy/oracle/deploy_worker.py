@@ -194,7 +194,16 @@ def main() -> int:
         code, out = ssh(args.host, key,
                         "systemctl cat tn-worker | grep -o -- '--kinds=[a-z_,]*' | tail -1 || echo MISSING")
         print(f"  kinds guard: {out}")
-        if "transcript" in out or "MISSING" in out:
+        # EXACT TOKENS, not a substring. `transcript_asr` contains
+        # `transcript`, and a substring test would refuse a host that is
+        # configured exactly right -- stopping the worker to prevent a problem
+        # it does not have. The two kinds are deliberately named alike because
+        # they are the same work; only their IP requirements differ, which is
+        # precisely what this guard is checking.
+        kinds = set()
+        if out.startswith("--kinds="):
+            kinds = {k for k in out[len("--kinds="):].split(",") if k}
+        if "transcript" in kinds or "MISSING" in out:
             print("  REFUSING to leave this running: transcript jobs would be poisoned.", file=sys.stderr)
             ssh(args.host, key, "systemctl stop tn-worker")
             return 2
