@@ -74,7 +74,22 @@ export async function weeklyRead({ db, job, log }) {
     db.from("platform_posts")
       .select("id, content_item_id, posted_at_ts, account:accounts(platform_slug)")
       .in("content_item_id", ids),
-    db.from("post_current_metrics").select("platform_post_id, views"),
+    // Paged. Unbounded selects are silently capped at 1000 rows by PostgREST,
+    // and this one is workspace-wide: it is under the cap today and would
+    // start losing view counts without a word as the library grows.
+    (async () => {
+      const rows = [];
+      for (let from = 0; ; from += 1000) {
+        const { data } = await db
+          .from("post_current_metrics")
+          .select("platform_post_id, views")
+          .range(from, from + 999);
+        if (!data?.length) break;
+        rows.push(...data);
+        if (data.length < 1000) break;
+      }
+      return { data: rows };
+    })(),
   ]);
 
   const viewsByPost = new Map(

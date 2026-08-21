@@ -304,9 +304,79 @@ export const SUBJECT_TYPE = {
   comments: "content_item",
   transcript: "content_item",
   analyse: "content_item",
+  // The exception, and the reason this table is worth keeping: weeklyRead
+  // looks its subject up in `clients`, not `content_items`.
+  weekly_read: "client",
 };
 
-const PLANNERS = { comments: planComments, transcript: planTranscript, analyse: planAnalyse };
+/**
+ * The weekly client read -- the one AI job with a handler and no way in.
+ *
+ * worker/jobs/weeklyRead.mjs has existed and been registered in `handlers`
+ * this whole time, but nothing ever queued it: 0 jobs, 0 analyses, ever. A
+ * handler with no planner is dead code that looks like a feature.
+ *
+ * SUBJECT IS A CLIENT, not a content item -- the one planner here where that
+ * is true, and the file's own warning about subject types applies double.
+ *
+ * RECURRENCE IS THE DIFFERENCE. Every other planner asks "has this subject
+ * been done?" and never returns. A weekly read is meant to come back, so it
+ * asks "has this client been read RECENTLY?" -- and deliberately does not use
+ * settled(), which would retire a client permanently the first time one came
+ * back unavailable.
+ */
+const WEEKLY_READ_DAYS = 7;
+
+async function planWeeklyRead() {
+  const kind = "weekly_read";
+  const cap = CAP(kind, 5);
+  if (!process.env.LLM_API_KEY) return { kind, count: 0, cap, skipped: "LLM_API_KEY not set" };
+
+  // Live clients only. The handler refuses archived ones anyway, but queuing
+  // them just to be refused burns a job and muddies the failure metrics.
+  const { data: clients } = await db
+    .from("clients")
+    .select("id, workspace_id")
+    .is("deleted_at", null)
+    .eq("is_archived", false);
+  if (!clients?.length) return { kind, count: 0, cap };
+
+  // A client with no content has nothing to narrate; the handler says so, but
+  // again, better not to ask.
+  const withWork = new Set();
+  for (const c of clients) {
+    const { count } = await db
+      .from("content_items")
+      .select("id", { count: "exact", head: true })
+      .eq("client_id", c.id);
+    if ((count ?? 0) > 0) withWork.add(c.id);
+  }
+
+  const cutoff = new Date(Date.now() - WEEKLY_READ_DAYS * 86_400_000).toISOString();
+  const { data: recent } = await db
+    .from("ai_analyses")
+    .select("subject_id")
+    .eq("kind", kind)
+    .gte("created_at", cutoff);
+  const fresh = new Set((recent ?? []).map((r) => r.subject_id));
+
+  const busy = await inFlight(kind);
+  const subjects = new Map(
+    clients
+      .filter((c) => withWork.has(c.id) && !fresh.has(c.id) && !busy.has(c.id))
+      .map((c) => [c.id, c.workspace_id]),
+  );
+
+  const wanted = [...subjects.keys()].slice(0, cap);
+  return { kind, count: await insert(kind, wanted, subjects), cap };
+}
+
+const PLANNERS = {
+  comments: planComments,
+  transcript: planTranscript,
+  analyse: planAnalyse,
+  weekly_read: planWeeklyRead,
+};
 
 const chosen = only ?? Object.keys(PLANNERS);
 let total = 0;
