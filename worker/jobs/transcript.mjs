@@ -102,15 +102,23 @@ async function viaDiscoverBox(externalId, postUrl, log) {
 
   if (res.status === 401) throw new Error("discover box rejected the shared secret");
   if (res.status === 429) {
-    /* THE HOST is throttled, not this video.
-       Falling through to the direct attempt would ask the same rate-limited
-       address again, one hop lower down, so it can only fail slower. Thrown
-       rather than returned null: the job stays pending and retries later,
-       and the log names the reason instead of leaving a bare 500 to be
-       puzzled over -- which is exactly what this looked like before the
-       service learned to say "rateLimited". */
+    /* THE HOST is throttled, not this video -- and not this job either.
+     *
+     * Thrown as BLOCKED, which is the mechanism this queue already has for
+     * exactly this: the whole `transcript` kind goes into cooldown so the
+     * next ninety jobs do not each burn an attempt discovering the same
+     * throttle, and the attempt is REFUNDED rather than spent. A rate limit
+     * must never be able to kill a job through MAX_ATTEMPTS; the video did
+     * nothing wrong.
+     *
+     * Measured before this: draining 90 jobs against a throttled IP
+     * processed 90 and recovered 3, spending 87 attempts to learn one fact.
+     * With the cooldown the first 429 stops the run.
+     *
+     * Falling through to the direct attempt would ask the same rate-limited
+     * address one hop lower down, so it can only fail slower. */
     log("warn", "discover_box_rate_limited", { videoId: externalId });
-    throw new Error("YouTube is rate-limiting the transcript host (429); retry later");
+    throw blocked("YouTube is rate-limiting the transcript host (429); the whole kind backs off");
   }
   if (!res.ok) {
     // A box that is down must not look like "this video has no captions":
