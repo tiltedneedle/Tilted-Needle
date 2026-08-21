@@ -40,6 +40,71 @@ const db = createClient(
 
 /** Hours to wait before round N is allowed to run. */
 const BACKOFF_HOURS = [1, 6, 24, 72];
+
+/**
+ * --reopen-note=<substring>  reopen TERMINAL `unavailable` jobs whose note
+ *                            matches, e.g. --reopen-note="extraction service"
+ * --dry-run                  count them and change nothing
+ *
+ * WHY THIS EXISTS, AND WHY IT IS DELIBERATELY AWKWARD
+ *
+ * The header above is right that `unavailable` is an answer and must not be
+ * retried wholesale. But an answer can be WRONG, and when it is, nothing in
+ * this system could reopen it: settled() excludes the state forever and this
+ * file refused to touch it. 146 transcript jobs -- 86% of every terminal
+ * write-off -- were false. 72 YouTube Shorts condemned by a platform map
+ * that had no `youtube_shorts` key, and 74 TikTok posts condemned because
+ * the extraction box was down, each carrying a note asserting something
+ * about the video that was actually about the route.
+ *
+ * Recovering them took a hand-written UPDATE against production. That is the
+ * wrong tool for a thing that will happen again every time a handler bug is
+ * found, so it is a flag now -- but one that must be aimed. It reopens by
+ * NOTE SUBSTRING, never by kind and never by "all unavailable", because the
+ * decision being made is "this particular verdict was reached by broken
+ * code", and that is a claim about one specific sentence.
+ */
+const REOPEN_NOTE = (() => {
+  const arg = process.argv.find((a) => a.startsWith("--reopen-note="));
+  return arg ? arg.slice("--reopen-note=".length) : null;
+})();
+const DRY = process.argv.includes("--dry-run");
+
+if (REOPEN_NOTE) {
+  const { data: matches, error: readErr } = await db
+    .from("ingest_jobs")
+    .select("id, kind, last_error")
+    .eq("status", "unavailable")
+    .like("last_error", `%${REOPEN_NOTE}%`);
+  if (readErr) {
+    console.error("reopen lookup failed:", readErr.message);
+    process.exit(1);
+  }
+  const found = matches ?? [];
+  const byKind = {};
+  for (const m of found) byKind[m.kind] = (byKind[m.kind] ?? 0) + 1;
+  const summary = Object.entries(byKind).map(([k, n]) => `${k} ${n}`).join(", ") || "none";
+
+  if (!found.length) {
+    console.log(`no unavailable job carries a note matching "${REOPEN_NOTE}"`);
+    process.exit(0);
+  }
+  if (DRY) {
+    console.log(`would reopen ${found.length} job(s) — ${summary}`);
+    console.log(`  sample note: ${(found[0].last_error ?? "").slice(0, 100)}`);
+    process.exit(0);
+  }
+  const { error: upErr } = await db
+    .from("ingest_jobs")
+    .update({ status: "pending", attempts: 0, last_error: null, not_before: new Date().toISOString() })
+    .in("id", found.map((m) => m.id));
+  if (upErr) {
+    console.error("reopen failed:", upErr.message);
+    process.exit(1);
+  }
+  console.log(`reopened ${found.length} unavailable job(s) — ${summary}`);
+  process.exit(0);
+}
 const MAX_ROUNDS = BACKOFF_HOURS.length;
 
 const { data: failed, error } = await db

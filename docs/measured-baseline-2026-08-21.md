@@ -115,3 +115,57 @@ This matters more than it looks. A "trend over time" needs repeated readings
 per post, and half the corpus has barely enough for a single score. Any
 trend design that assumes a dense time series per video is designing for
 data this system does not have.
+
+## sigma, measured — and what it costs (build order step 0)
+
+**Pooled sigma = SD of ln(perfIndex) = 1.679** over 350 scored posts.
+**Pooled within-client sigma = 1.655** — the one `v_hc` actually uses.
+
+Per client:
+
+| client | n | sigma |
+|---|---|---|
+| EuroEyes Deutschland | 68 | 1.530 |
+| Tilted Needle Team | 60 | 1.344 |
+| Ameerh Naran | 47 | 1.159 |
+| Euro Eyes London (LEC) | 41 | **2.508** |
+| The Jet Business | 36 | 1.677 |
+| yusufnik8 | 32 | 1.796 |
+| Tilted Needle | 29 | 1.731 |
+| Entree Bakery and Cafe | 25 | 1.328 |
+| Alex Evagora | 12 | 1.719 |
+
+The PRD's simulations assumed 0.8–1.2 and stated that above ~1.5 every power
+figure in it is optimistic and the table must be regenerated. **It is 1.68.**
+Regenerated, 4,000 reps, real client sizes, fixed-effect pooling (the best
+case — heterogeneity only lowers it):
+
+| true effect | power at sigma=1.0 (assumed) | power at sigma=1.68 (measured) |
+|---|---|---|
+| 1.22x | 0.428 | **0.182** |
+| 1.30x | 0.645 | **0.284** |
+| 1.42x | 0.875 | **0.450** |
+| 1.50x | 0.955 | **0.590** |
+| 1.65x | 0.996 | **0.752** |
+| 2.00x | 1.000 | **0.959** |
+
+False-positive rate under a true null: **0.049** against a nominal 0.05. The
+method is correctly calibrated. It is simply much less sensitive than the
+PRD assumed.
+
+**What this changes about what the product may promise.** Even pooled across
+all 13 clients, this engine reliably detects effects of roughly **1.65x and
+above**. At 1.5x it is a coin flip; below 1.3x it is blind. So the honest
+framing is that it finds LARGE effects and is silent about small ones — and
+"silent" must never be rendered as "no effect", because at 1.3x the engine
+misses a real effect 72% of the time.
+
+Two consequences for the build:
+
+1. The three-state mapper needs a fourth consideration: a non-significant
+   result at an observed effect below ~1.5x is *uninformative*, not
+   negative. It may not be narrated as "we checked and it does not matter".
+2. Euro Eyes London at sigma = 2.508 is an outlier — nearly double the
+   quietest client. Its posts are so dispersed that no split will resolve
+   there. That is worth surfacing to whoever runs that account as a finding
+   in itself: their outcomes are far less predictable than the agency norm.

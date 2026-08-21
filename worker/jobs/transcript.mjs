@@ -177,11 +177,22 @@ export async function transcript({ db, job, log }) {
     .sort((a, b) => rankOf(a.platform) - rankOf(b.platform));
 
   if (candidates.length === 0) {
-    // Instagram-only content. Terminal and normal -- the item is still fully
-    // usable, it simply has no words attached and never will.
+    /* Instagram-only content. Terminal and normal -- the item is still fully
+       usable, it simply has no words attached and never will.
+       
+       The note now NAMES the platforms it is talking about. The old wording
+       said "instagram has none" unconditionally, so when the Shorts bug above
+       routed 72 YouTube videos here, each was condemned with a sentence about
+       Instagram -- which is how the fault stayed invisible: the note read as
+       a considered verdict rather than a misfile. */
+    const seen = [...new Set((posts ?? [])
+      .map((p) => (Array.isArray(p.account) ? p.account[0] : p.account)?.platform_slug)
+      .filter(Boolean))];
     return {
       unavailable: true,
-      note: "no platform on this item publishes captions (instagram has none)",
+      note: seen.length
+        ? `no platform on this item publishes captions (${seen.join(", ")})`
+        : "this item has no platform posts to transcribe",
     };
   }
 
@@ -237,10 +248,34 @@ export async function transcript({ db, job, log }) {
   //    into a youtube.com/watch?v=<tiktok id> URL and fail as "no captions",
   //    which is a lie about the video rather than about the route.
   if (!isYouTubeLike(post.platform)) {
+    /* THE BOX BEING DOWN IS NOT A FACT ABOUT THE VIDEO.
+     *
+     * This returned terminal `unavailable` whenever viaDiscoverBox came back
+     * null, which happens when the service is unreachable, unauthenticated
+     * or rate-limited. 74 TikTok items were written off that way -- and
+     * `unavailable` is permanent: enqueue.settled() excludes it forever and
+     * requeue.mjs refuses to touch it. TikTok demonstrably publishes captions
+     * here; 51 items already have transcripts by this exact route.
+     *
+     * This is the identical mistake the same file guards against eighty
+     * lines lower, where an empty timedtext body is deliberately THROWN
+     * because "16 videos were settled terminally with this note during a
+     * drain where the yt-dlp service was returning 401". That guard was
+     * added to the YouTube branch and not to this one.
+     *
+     * Thrown when a box is configured, so the job retries. Only when NO box
+     * exists at all is the verdict genuinely terminal -- there is then no
+     * route to try, now or later. */
+    if (process.env.TIKTOK_DISCOVER_URL && process.env.TIKTOK_DISCOVER_SECRET) {
+      throw new Error(
+        `the extraction service did not answer for this ${post.platform} post; ` +
+          `retrying rather than recording a fact about the video`,
+      );
+    }
     return {
       unavailable: true,
       note: `no transcript available for this ${post.platform} post ` +
-        `(the extraction service is unavailable and there is no direct route)`,
+        `(no extraction service is configured and there is no direct route)`,
     };
   }
 

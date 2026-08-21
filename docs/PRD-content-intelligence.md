@@ -30,6 +30,17 @@ than proposals:
 
 Everything else below is unbuilt.
 
+**One figure in this document is now known to be wrong.** Section 5.0 says to
+measure sigma before trusting any threshold, and warns that above ~1.5 every
+power figure here is optimistic. Measured: **sigma = 1.679** pooled, 1.655
+within-client. The regenerated power table is in
+`docs/measured-baseline-2026-08-21.md`, and it is materially worse: at a true
+1.30x effect, pooled power is **0.284**, not the 0.645 assumed. The method
+stays correctly calibrated (false-positive rate 0.049 against a nominal
+0.05) but the engine can only reliably find effects of roughly **1.65x and
+above**. Read every power claim below against that table, not the one in
+§1.4.
+
 ---
 
 # PRD — Content Intelligence Engine
