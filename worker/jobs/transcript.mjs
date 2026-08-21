@@ -156,11 +156,25 @@ export async function transcript({ db, job, log }) {
    * One transcript per content item serves every platform's copy anyway,
    * because the words are a property of the edit, not of where it was posted.
    */
-  const RANK = { youtube: 0, tiktok: 1 };
+  /* THE SIXTH SITE. platforms.mjs exists because "five separate
+     `slug === 'youtube'` checks were what stood between Shorts and silently
+     getting no transcripts" -- and this map was the sixth. `youtube_shorts`
+     was not a key, so `p.platform in RANK` filtered every Shorts-only item
+     to zero candidates, and it fell through to the branch below that returns
+     terminal `unavailable` with the note "no platform on this item publishes
+     captions (instagram has none)" -- a note about Instagram, written onto a
+     YouTube video.
+     
+     Measured before the fix: youtube_shorts 174 posts, 0 transcripts, while
+     long-form youtube sat at 80%. 72 items were condemned this way, and
+     `unavailable` is terminal, so no existing code path could recover them.
+     The file already calls isYouTubeLike correctly twice below; the post
+     never survived this filter to reach either. */
+  const rankOf = (platform) => (isYouTubeLike(platform) ? 0 : platform === "tiktok" ? 1 : null);
   const candidates = (posts ?? [])
     .map((p) => ({ ...p, platform: (Array.isArray(p.account) ? p.account[0] : p.account)?.platform_slug }))
-    .filter((p) => p.platform in RANK)
-    .sort((a, b) => RANK[a.platform] - RANK[b.platform]);
+    .filter((p) => rankOf(p.platform) !== null)
+    .sort((a, b) => rankOf(a.platform) - rankOf(b.platform));
 
   if (candidates.length === 0) {
     // Instagram-only content. Terminal and normal -- the item is still fully
