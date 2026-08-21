@@ -45,6 +45,22 @@ SECRET = os.environ.get("DISCOVER_SECRET")
 #
 # yt-dlp's documentation warns that using cookies from an account you care
 # about can get that account flagged. Use a throwaway.
+# An outbound proxy for yt-dlp, e.g. http://user:pass@gate.example.com:7000.
+#
+# WHY IT IS THE ONLY REAL FIX FOR THE DATACENTER BLOCK
+#
+# YouTube refuses this host by ADDRESS, before client choice or token
+# generation matter -- measured across seven yt-dlp client variants, a
+# bgutil PO-token provider, and an anonymous cookie jar, all refused
+# identically. Cookies from a signed-in session are the one untested
+# countermeasure and carry an account-ban risk; a residential proxy sidesteps
+# the question entirely by not being a datacenter address.
+#
+# Captions are TINY -- a track is a few tens of KB, so a per-GB residential
+# plan costs cents for the whole library. Unset by default: the desktop
+# runner has a residential address already and needs none.
+YTDLP_PROXY = os.environ.get("YTDLP_PROXY") or None
+
 COOKIE_FILE = os.environ.get("YTDLP_COOKIES") or None
 if COOKIE_FILE and not os.path.exists(COOKIE_FILE):
     print(f"WARNING: YTDLP_COOKIES points at {COOKIE_FILE}, which does not exist.")
@@ -52,9 +68,11 @@ if COOKIE_FILE and not os.path.exists(COOKIE_FILE):
 
 
 def _with_cookies(opts: dict) -> dict:
-    """Attach the cookie jar when one is configured. No-op otherwise."""
+    """Attach the cookie jar and proxy when configured. No-op otherwise."""
     if COOKIE_FILE:
         opts["cookiefile"] = COOKIE_FILE
+    if YTDLP_PROXY:
+        opts["proxy"] = YTDLP_PROXY
     return opts
 
 
@@ -245,6 +263,13 @@ def transcript():
         "skip_download": True,
         "writesubtitles": True,
         "writeautomaticsub": True,
+        # DELIBERATELY NO `subtitleslangs`. Setting a language glob makes
+        # yt-dlp request a track PER MATCHING LANGUAGE, so "en.*" or "all"
+        # multiplies the request count several times over against the one
+        # endpoint that is already rate-limiting this project -- silently,
+        # since each extra request looks identical in the log. _pick_track
+        # chooses the language from what the video actually publishes, which
+        # needs one request and gets a better answer.
         # json3 carries per-segment timings; the plain formats do not, and
         # timings are what make a transcript line clickable later.
         # json3 for YouTube, vtt for TikTok. Asking for both and picking what

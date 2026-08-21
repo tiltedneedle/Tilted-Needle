@@ -90,6 +90,13 @@ write_files:
       # countermeasure YouTube names. Use a THROWAWAY Google account -- yt-dlp
       # warns that cookies used this way can get an account flagged.
       Environment=YTDLP_COOKIES=/etc/tn-youtube-cookies.txt
+      # A residential proxy, if one is bought. This is the ONLY measure that
+      # addresses the real cause: YouTube refuses this host by ADDRESS, before
+      # client choice or token generation matter. Captions are tens of KB, so
+      # a per-GB residential plan costs cents for the whole library. Empty is
+      # fine and is the default -- the desktop runner already has a
+      # residential address.
+      Environment=YTDLP_PROXY=
       Restart=always
       RestartSec=10
       StandardOutput=journal

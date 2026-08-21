@@ -60,6 +60,9 @@ ENV_KEYS = [
     "LLM_MODEL",
     "YOUTUBE_API_KEY",
     "TIKTOK_DISCOVER_SECRET",
+    # Optional. Present only if a residential proxy has been bought; the
+    # service treats an unset value as "no proxy" rather than an error.
+    "YTDLP_PROXY",
 ]
 
 REMOTE_INSTALL = r"""

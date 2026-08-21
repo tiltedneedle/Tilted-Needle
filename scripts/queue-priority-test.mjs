@@ -154,5 +154,25 @@ try {
   check("transcript is metered", /RATE_TRANSCRIPT_PER_HOUR/.test(src));
 }
 
+/* ---- The transcript service's request-rate hazards ---------------------- */
+/* A config regression here is invisible: every extra request looks identical
+   in the log, and the only symptom is being throttled sooner. Asserted rather
+   than trusted, on the live lines only so the explanatory comment in the
+   service does not satisfy its own check. */
+{
+  const svc = readFileSync("./deploy/tiktok-discover/server.py", "utf8");
+  const live = svc.split("\n").filter((l) => !l.trim().startsWith("#")).join("\n");
+  check(
+    "subtitleslangs is unset -- a language glob multiplies the request rate",
+    !/["']subtitleslangs["']\s*:/.test(live),
+  );
+  check("the service can route through a proxy", /YTDLP_PROXY/.test(live));
+  check("the proxy is applied wherever cookies are", /opts\["proxy"\] = YTDLP_PROXY/.test(live));
+  check(
+    "a bot challenge is reported as transport, never as a fact about the video",
+    /botChallenge/.test(live) && /rateLimited/.test(live),
+  );
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
