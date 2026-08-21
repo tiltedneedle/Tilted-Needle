@@ -78,3 +78,40 @@ Three separate faults compound here:
   enough work yet".
 - Any claim shown to a user needs sample size and an interval attached, in
   words a marketer can act on.
+
+## Corpus size, for cost arithmetic
+
+Measured on what exists, then extrapolated to all 564 videos at the same
+rate.
+
+| | measured | extrapolated to 564 |
+|---|---|---|
+| transcript text | 972,534 chars over 115 videos (~243k tokens) | **~1.19M tokens** |
+| comments | 2,093 rows over 34 posts, avg 62/post (~160k chars) | **~34,700 comments, ~665k tokens** |
+
+Median transcript is 1,630 characters — roughly 400 tokens, or a minute of
+speech. One outlier runs 99,785 characters, so any per-video prompt needs a
+cap rather than assuming the median.
+
+The practical consequence: embedding the **entire** corpus, transcripts and
+comments together, is under two million tokens. At text-embedding-3-small
+rates that is **about four cents**. Retrieval is not the expensive part of
+this system and should not be designed as if it were.
+
+## The performance history is thinner than the video count suggests
+
+| | |
+|---|---|
+| snapshots | 5,254 |
+| median per post | **3** |
+| posts with >= 3 snapshots | 329 of 564 |
+
+`MIN_POSTS_TO_RANK` is 3, and the median post has exactly 3 readings. So
+scoring sits right on its own floor: 235 posts do not have enough history to
+be scored at all, which is most of the gap between 564 videos and the 350
+that carry a score.
+
+This matters more than it looks. A "trend over time" needs repeated readings
+per post, and half the corpus has barely enough for a single score. Any
+trend design that assumes a dense time series per video is designing for
+data this system does not have.
