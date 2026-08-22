@@ -110,6 +110,23 @@ jobs:
           node --experimental-strip-types --import ./scripts/register-alias.mjs \
             scripts/merge-themes.mjs
 
+      # The SEAMS, checked where the parts cannot check themselves. Every unit
+      # test here passes on its own; what rots is the wiring between stages --
+      # a kind enqueued by a host not allowed to claim it, a column recording a
+      # check nobody ran, a merged count that drifted from its id set. This
+      # walks the real chain against the real database and fails loudly.
+      #
+      # `shell: bash` for -eo pipefail, same reason as the inference workflow.
+      - name: Verify the pipeline end to end
+        if: ${{ !inputs.enqueue_only }}
+        shell: bash
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: |
+          node --experimental-strip-types --import ./scripts/register-alias.mjs \
+            scripts/verify-pipeline.mjs | tee -a "$GITHUB_STEP_SUMMARY"
+
       # Runs even when draining failed: a run that dies mid-queue is exactly
       # when the depth matters, and a summary only written on success is a
       # summary you cannot trust.

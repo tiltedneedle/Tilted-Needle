@@ -69,7 +69,8 @@
     "test:shrinkage": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/evidence-shrinkage-test.mjs",
     "test:findings": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/findings-lifecycle-test.mjs",
     "test:thememerge": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/theme-merge-test.mjs",
-    "test:provenance": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/provenance-test.mjs"
+    "test:provenance": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/provenance-test.mjs",
+    "verify:pipeline": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/verify-pipeline.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.3",
