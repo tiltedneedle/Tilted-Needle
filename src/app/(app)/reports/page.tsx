@@ -4,6 +4,7 @@ import PageHeader from "@/components/PageHeader";
 import ReportView from "@/components/ReportView";
 import ReportTable from "@/components/ReportTable";
 import ClientInsights from "@/components/ClientInsights";
+import IdeaReview from "@/components/IdeaReview";
 import FilterBar from "@/components/FilterBar";
 import { createClient } from "@/lib/supabase/server";
 import { requireSession } from "@/lib/workspace";
@@ -341,12 +342,47 @@ async function InsightsReport() {
     [...distinctByClient.entries()].map(([cid, ids]) => [cid, ids.size]),
   );
 
+  /* Generated ideas awaiting a verdict. The latest outcome per suggestion
+     decides whether it still needs one -- outcomes are insert-only events, so
+     "latest" is the reading rule, and a decided idea leaves the queue. */
+  const { data: ideaRows } = await supabase
+    .from("idea_suggestions")
+    .select("id, client_id, body, evidence_basis, created_at")
+    .eq("workspace_id", ws)
+    .order("created_at", { ascending: false })
+    .limit(50);
+  const { data: outcomes } = await supabase
+    .from("idea_outcomes")
+    .select("suggestion_id, disposition, decided_at")
+    .in("suggestion_id", (ideaRows ?? []).map((i) => i.id))
+    .order("decided_at", { ascending: false });
+  const latestOutcome = new Map<string, string>();
+  for (const o of outcomes ?? []) {
+    if (!latestOutcome.has(o.suggestion_id)) latestOutcome.set(o.suggestion_id, o.disposition);
+  }
+  const ideas = (ideaRows ?? []).map((i) => {
+    const body = (i.body ?? {}) as { title?: string; premise?: string; openingLine?: string };
+    return {
+      id: i.id,
+      clientName: names.get(i.client_id) ?? "Unknown client",
+      title: body.title ?? "(untitled idea)",
+      premise: body.premise ?? "",
+      openingLine: body.openingLine ?? null,
+      evidenceBasis: (i.evidence_basis === "measured" ? "measured" : "craft") as "measured" | "craft",
+      createdAt: i.created_at,
+      disposition: (latestOutcome.get(i.id) ?? null) as "adopted" | "declined" | "expired" | null,
+    };
+  });
+
   return (
-    <ClientInsights
-      entries={entries}
-      themesByClient={themesByClient}
-      themeDenominators={themeDenominators}
-    />
+    <>
+      <ClientInsights
+        entries={entries}
+        themesByClient={themesByClient}
+        themeDenominators={themeDenominators}
+      />
+      <IdeaReview ideas={ideas} />
+    </>
   );
 }
 

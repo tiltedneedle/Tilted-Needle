@@ -4122,3 +4122,37 @@ export async function setClientReportTemplate(input: {
   revalidatePath("/clients");
   return {};
 }
+
+/**
+ * Record what a strategist decided about a generated idea.
+ *
+ * This click is the cheapest evaluation signal the ideas system has, and the
+ * only one that arrives within weeks: if 90% of generated ideas are declined,
+ * that is a verdict needing no statistics. The NOT-adopted set is the part
+ * teams skip recording and the part that carries the information -- without
+ * it, any later evaluation measures human selection, not idea quality.
+ *
+ * Insert-only by design (and by policy): an outcome is an event, not a state.
+ * Changing your mind later is a new row, and the reversal history is itself
+ * signal.
+ */
+export async function recordIdeaOutcome(input: {
+  suggestionId: string;
+  disposition: "adopted" | "declined";
+  declinedReason?: string;
+}): Promise<Result> {
+  const supabase = await createClient();
+  if (!["adopted", "declined"].includes(input.disposition)) {
+    return { error: "That is not a disposition." };
+  }
+  const { error } = await supabase.from("idea_outcomes").insert({
+    suggestion_id: input.suggestionId,
+    disposition: input.disposition,
+    declined_reason: input.disposition === "declined"
+      ? (input.declinedReason?.trim() || null)
+      : null,
+  });
+  if (error) return { error: error.message };
+  revalidatePath("/reports");
+  return {};
+}
