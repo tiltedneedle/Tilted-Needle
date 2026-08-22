@@ -45,6 +45,13 @@ jobs:
         run: npm ci --omit=dev --ignore-scripts
 
       - name: Run the confidence engine and persist findings
+        # `shell: bash` is not decoration: the default runner shell is
+        # `bash -e {0}` WITHOUT pipefail, so `node ... | tee` would report the
+        # exit code of tee -- always 0 -- and a scheduled run that died on the
+        # first query would show a green tick. For a job whose whole purpose is
+        # to fire retractions unattended, a silent failure is the one outcome
+        # that must be impossible. `shell: bash` gets `-eo pipefail`.
+        shell: bash
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}

@@ -21,11 +21,25 @@ import {
   mean, variance, MIN_CLIENTS, Q_FDR,
 } from "../src/lib/analysis/inference.ts";
 
-const env = Object.fromEntries(
-  readFileSync("./.env.local", "utf8").split("\n").filter((l) => l.includes("="))
-    .map((l) => [l.slice(0, l.indexOf("=")).trim(),
-                 l.slice(l.indexOf("=") + 1).trim().replace(/^["']|["']$/g, "")]),
-);
+/* .env.local on the desktop, process.env on CI. The weekly inference workflow
+   runs this with --persist so retractions actually fire without a human at a
+   keyboard, and CI has no .env.local -- reading it unconditionally throws
+   ENOENT before the first query. Unlike the live-invariant TESTS, this one
+   must not skip quietly: a scheduled run that silently does nothing is how a
+   findings lifecycle stops retracting and nobody notices. It fails loudly. */
+let fileEnv = {};
+try {
+  fileEnv = Object.fromEntries(
+    readFileSync("./.env.local", "utf8").split("\n").filter((l) => l.includes("="))
+      .map((l) => [l.slice(0, l.indexOf("=")).trim(),
+                   l.slice(l.indexOf("=") + 1).trim().replace(/^["']|["']$/g, "")]),
+  );
+} catch { /* no .env.local: CI supplies the environment directly */ }
+const env = { ...fileEnv, ...process.env };
+if (!env.NEXT_PUBLIC_SUPABASE_URL || !env.SUPABASE_SECRET_KEY) {
+  console.error("NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SECRET_KEY are required.");
+  process.exit(1);
+}
 const db = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SECRET_KEY);
 const PERMUTATIONS = Number(process.env.SIM_PERMUTATIONS ?? 2000);
 const PERSIST = process.argv.includes("--persist");
