@@ -1,0 +1,53 @@
+# The confidence engine, run weekly and persisted.
+#
+# WHY THIS IS SCHEDULED AT ALL, AND WHY ONLY WEEKLY
+#
+# Findings have a lifecycle: a claim that loses significance on a larger
+# library is RETRACTED, with a reason, and the retraction is narrated to the
+# reader. That can only happen when a persisted run compares fresh results
+# against the stored findings -- an unscheduled engine never retracts anything,
+# and a system that cannot un-say things quietly accumulates claims it no
+# longer stands behind.
+#
+# Weekly is the ceiling, not the target. The per-client re-narration cadence is
+# governed separately by the data gate (20% library growth or 90 days), and
+# THIS run's writes are what keep that gate's alternative ledger honest. The
+# multiplicity cost of looking is controlled by BH within the run plus the
+# gate across runs -- see docs/PRD-content-intelligence.md §6.1 for the
+# measured 52-looks arithmetic this design exists to avoid.
+#
+# The permutation seed derives from the input digest, so a week with no new
+# data reproduces the same p-values exactly and writes nothing new.
+
+name: inference
+
+on:
+  schedule:
+    - cron: "41 3 * * 1"   # Mondays, offset from the pipeline's cron
+  workflow_dispatch: {}
+
+concurrency:
+  group: inference
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm ci --omit=dev --ignore-scripts
+
+      - name: Run the confidence engine and persist findings
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: |
+          node --experimental-strip-types --import ./scripts/register-alias.mjs \
+            scripts/run-inference.mjs --persist | tee -a "$GITHUB_STEP_SUMMARY"
