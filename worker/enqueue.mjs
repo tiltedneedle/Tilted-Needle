@@ -527,6 +527,7 @@ export const SUBJECT_TYPE = {
   // differs only in which host may run it.
   transcript_asr: "content_item",
   analyse: "content_item",
+  describe: "content_item",
   // The exception, and the reason this table is worth keeping: weeklyRead
   // looks its subject up in `clients`, not `content_items`.
   weekly_read: "client",
@@ -636,12 +637,67 @@ async function planWeeklyRead() {
   return { kind, count: await insert(kind, wanted, subjects), cap };
 }
 
+/* ---- describe ------------------------------------------------------------
+   One Tier 2 descriptor per TRANSCRIBED video. Downstream of the coverage
+   lanes by construction: a video with no transcript has nothing to describe,
+   and the handler settles those as unavailable -- so the planner only queues
+   items that already have words, and coverage growth feeds this lane
+   automatically on the next pass. */
+async function planDescribe() {
+  const kind = "describe";
+  const cap = CAP(kind, 25);
+  if (!process.env.LLM_API_KEY) return { kind, count: 0, cap, skipped: "LLM_API_KEY not set" };
+
+  const withWords = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await db
+      .from("video_transcripts")
+      .select("content_item_id, workspace_id")
+      .order("content_item_id")
+      .range(from, from + 999);
+    if (error) throw new Error(error.message);
+    withWords.push(...(data ?? []));
+    if ((data ?? []).length < 1000) break;
+  }
+
+  // Scope: approved items on live clients, same rule as everywhere else.
+  const items = new Map();
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await db
+      .from("content_items")
+      .select("id, review_state, client:clients(is_archived)")
+      .order("id")
+      .range(from, from + 999);
+    if (error) throw new Error(error.message);
+    for (const i of data ?? []) items.set(i.id, i);
+    if ((data ?? []).length < 1000) break;
+  }
+  const one = (v) => (Array.isArray(v) ? v[0] : v);
+
+  const { data: have } = await db.from("video_descriptors").select("content_item_id");
+  const described = new Set((have ?? []).map((r) => r.content_item_id));
+  const [busy, done] = [await inFlight(kind), await settled(kind)];
+
+  const subjects = new Map();
+  for (const t of withWords) {
+    const item = items.get(t.content_item_id);
+    if (!item || item.review_state !== "approved" || one(item.client)?.is_archived) continue;
+    if (described.has(t.content_item_id)) continue;
+    if (busy.has(t.content_item_id) || done.has(t.content_item_id)) continue;
+    subjects.set(t.content_item_id, t.workspace_id);
+  }
+
+  const wanted = [...subjects.keys()].sort().slice(0, cap);
+  return { kind, count: await insert(kind, wanted, subjects), cap };
+}
+
 const PLANNERS = {
   comments: planComments,
   transcript: planTranscript,
   transcript_asr: planTranscriptAsr,
   analyse: planAnalyse,
   weekly_read: planWeeklyRead,
+  describe: planDescribe,
 };
 
 const chosen = only ?? Object.keys(PLANNERS);

@@ -20,6 +20,7 @@ import { transcript } from "./transcript.mjs";
 import { analyse } from "./analyse.mjs";
 import { visionExtract } from "./visionExtract.mjs";
 import { weeklyRead } from "./weeklyRead.mjs";
+import { describe } from "./describe.mjs";
 
 export const handlers = {
   comments,
@@ -38,4 +39,5 @@ export const handlers = {
   analyse,
   vision_extract: visionExtract,
   weekly_read: weeklyRead,
+  describe,
 };
