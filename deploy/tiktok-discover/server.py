@@ -487,6 +487,31 @@ def asr():
                     "error": "The platform is rate-limiting this host (HTTP 429).",
                     "rateLimited": True,
                 }), 429
+            # MEASURED, NOT GUESSED: "Instagram sent an empty media response"
+            # is Instagram REFUSING THIS HOST, not a statement about the post.
+            #
+            # yt-dlp's own message suggests the post may need a login, which
+            # reads like a fact about the video and is how it was first
+            # handled -- as a plain 502, retried four times, then failed
+            # permanently. Three of the failing URLs were then fetched from a
+            # residential address minutes later: 3 of 3 returned an audio
+            # format immediately. Same URLs, same minute, different address.
+            #
+            # It is a soft throttle: 82 posts pulled cleanly before the
+            # refusals began. So it is reported as rate limiting, which the
+            # worker already knows how to handle -- cool the whole kind and
+            # REFUND the attempt, because a throttle must never be able to
+            # walk a job to death. Left as a 502, this quietly wrote off 20
+            # videos whose audio is perfectly obtainable.
+            if "empty media response" in msg.lower():
+                return jsonify({
+                    "error": (
+                        "Instagram returned an empty media response, which is this HOST "
+                        "being refused rather than a fact about the post -- the same URLs "
+                        "resolve from a residential address. Backing off."
+                    ),
+                    "rateLimited": True,
+                }), 429
             if "Private video" in msg or "unavailable" in msg.lower():
                 return jsonify({
                     "url": url, "available": False,
