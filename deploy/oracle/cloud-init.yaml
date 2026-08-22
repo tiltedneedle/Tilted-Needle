@@ -49,7 +49,21 @@ write_files:
       # from "has no captions". Transcripts belong to a host whose IP
       # YouTube trusts (the desktop runner); everything else is IP-blind
       # and runs here.
-      ExecStart=/usr/bin/node --experimental-strip-types --import /opt/tn-worker/scripts/register-alias.mjs /opt/tn-worker/worker/index.mjs --kinds=comments,analyse,vision_extract,weekly_read
+      # KEEP IN STEP WITH THE LIVE BOX. transcript_asr and describe were added
+      # here after an audit found this list had drifted: the hourly
+      # tn-enqueue-asr timer below was planning transcript_asr jobs that a
+      # rebuilt box would never have been allowed to claim, so the queue would
+      # fill and nothing would drain it -- silently, since an unclaimed job
+      # looks exactly like a job waiting its turn. The live box only worked
+      # because of a drop-in edited by hand, which is precisely the state this
+      # file exists to make reproducible.
+      #
+      # `transcript` stays OUT: YouTube refuses this datacenter address for
+      # captions, and enabling it here re-poisons the queue (deploy_worker.py
+      # refuses to leave a host running with it). transcript_asr is a
+      # different kind for exactly that reason -- Instagram serves audio to
+      # this address where YouTube serves nothing.
+      ExecStart=/usr/bin/node --experimental-strip-types --import /opt/tn-worker/scripts/register-alias.mjs /opt/tn-worker/worker/index.mjs --kinds=comments,analyse,vision_extract,weekly_read,transcript_asr,describe
       # A crash must not take the pipeline down until someone notices.
       Restart=always
       RestartSec=10

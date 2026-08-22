@@ -17,7 +17,7 @@ import { createClient } from "@supabase/supabase-js";
 import { HYPOTHESES, activeFamily, isObserved, REGISTRY_VERSION } from "../src/lib/analysis/hypotheses.ts";
 import {
   binaryClientEstimate, rankClientEstimate, dersimonianLaird, posterior,
-  benjaminiHochberg, permutationP, rng, digestSeed, isMixed, stateFor,
+  benjaminiHochberg, permutationP, rng, digestSeed, isMixed, isTooSkewed, stateFor, spearman,
   mean, variance, MIN_CLIENTS, Q_FDR,
 } from "../src/lib/analysis/inference.ts";
 
@@ -156,6 +156,67 @@ function valueFor(h, f) {
   return h.kind === "rank" ? Number(raw) : Boolean(raw);
 }
 
+/**
+ * Does this hypothesis point in OPPOSITE directions on different platforms?
+ *
+ * Platform is a proxy for format -- Shorts are length-capped and TikTok is
+ * not, so "longer" can quietly mean "is YouTube long-form" -- and a pooled
+ * effect that reverses between platforms is Simpson's paradox waiting to be
+ * printed as advice.
+ *
+ * Deliberately conservative: a platform contributes a direction only when it
+ * has both sides populated at MIN_SIDE_POOL, and a rank hypothesis needs the
+ * covariate on enough posts to correlate at all. With fewer than two platforms
+ * qualifying, there is nothing to reverse and the answer is false -- which is
+ * an honest "no reversal found", not the "never looked" this column used to
+ * record.
+ */
+function platformReversalFor(obs, h) {
+  const usable = obs.filter((o) => o.value !== null);
+  const byPlatform = new Map();
+  for (const o of usable) {
+    if (!byPlatform.has(o.platform)) byPlatform.set(o.platform, []);
+    byPlatform.get(o.platform).push(o);
+  }
+
+  /* THE THRESHOLDS ARE WHAT MAKE THE FLAG MEAN ANYTHING, and they were set by
+     measurement rather than taste. A first version counted any non-zero sign
+     disagreement over 3-per-side, and flagged 12 of 13 hypotheses. That is not
+     a finding, it is the chance rate: with four platforms and directions no
+     better than coin flips, P(at least one disagreement) = 1 - 2*(1/2)^4 =
+     87.5%. A column true 92% of the time is exactly as uninformative as the
+     constant false it replaced.
+
+     So a platform must earn its vote: both sides populated at MIN_SIDE_ROW --
+     the same floor this codebase requires before stating a client-level number
+     at all -- and an effect big enough to be worth contradicting. 0.2 on the
+     log scale is about 22%, just outside the no-difference band the UI uses.
+     A pair of ±0.02 wobbles is not a reversal. */
+  const MIN_PER_SIDE = 8;
+  const MIN_EFFECT = 0.2;
+
+  const directions = [];
+  for (const [, rows] of byPlatform) {
+    if (h.kind === "rank") {
+      const nums = rows.filter((r) => typeof r.value === "number");
+      if (nums.length < 12) continue;
+      const rho = spearman(nums.map((r) => r.value), nums.map((r) => r.x));
+      // |rho| >= 0.3 is a "moderate" correlation; below it the sign is noise.
+      if (rho === null || Math.abs(rho) < 0.3) continue;
+      directions.push(Math.sign(rho));
+    } else {
+      const withIt = rows.filter((r) => r.value === true).map((r) => r.x);
+      const without = rows.filter((r) => r.value === false).map((r) => r.x);
+      if (withIt.length < MIN_PER_SIDE || without.length < MIN_PER_SIDE) continue;
+      const diff = mean(withIt) - mean(without);
+      if (Math.abs(diff) < MIN_EFFECT) continue;
+      directions.push(Math.sign(diff));
+    }
+  }
+  if (directions.length < 2) return false;
+  return directions.some((d) => d > 0) && directions.some((d) => d < 0);
+}
+
 /* ---- Run the family ----------------------------------------------------- */
 const family = activeFamily({ descriptors: false });
 const results = [];
@@ -196,7 +257,17 @@ for (const h of family) {
     // finding unauditable: you could see what was printed but not what the
     // client's own data actually said.
     est: first.est,
-    mixed: isMixed(posts, first.pooled.mu), clients: first.est.length,
+    /* SKEW SUPPRESSION, which was written and then never called -- a guard
+       the PRD specifies, exported from inference.ts, and wired to nothing.
+       Inference runs on the geometric mean and the display shows the median;
+       they normally agree, and where they diverge past 2x the group has no
+       representative value at all, so any single number stated about it
+       misleads. Folded into `mixed` because both mean the same thing
+       downstream: there is no honest headline here. */
+    mixed: isMixed(posts, first.pooled.mu)
+      || isTooSkewed(obs.filter((o) => o.value !== null).map((o) => o.x)),
+    platformReversal: platformReversalFor(obs, h),
+    clients: first.est.length,
   });
 }
 
@@ -257,7 +328,7 @@ if (fired.length) {
 /* Off unless asked for, because a run that writes is no longer safe to use as
    an inspection tool -- and inspecting is what this script is mostly for. */
 if (PERSIST) {
-  const { reconcile } = await import("../src/lib/analysis/findings.ts");
+  const { reconcile, STALE_AFTER_DAYS } = await import("../src/lib/analysis/findings.ts");
   const wsId = [...items.values()][0].workspace_id;
 
   const { data: run, error: runErr } = await db.from("analysis_runs").insert({
@@ -290,6 +361,18 @@ if (PERSIST) {
     p_perm: Number(r.p.toFixed(6)),
     significant: Boolean(r.significant),
     is_mixed: r.mixed,
+    /* SIMPSON'S PARADOX CHECK, computed rather than defaulted. The column
+       defaults to false, and writing nothing left every row asserting "we
+       checked for a platform reversal and found none" when no such check had
+       run -- a recorded negative that was never negative, which is worse than
+       a null because nothing downstream can tell it from a real result.
+
+       A reversal means the effect points one way on one platform and the
+       other way on another; a finding that exists only in the pooled data is
+       Simpson's paradox waiting to be printed. Computed per platform over the
+       same observations, requiring both sides on each platform before a
+       direction is claimed. */
+    platform_reversal: r.platformReversal ?? false,
   }));
   if (effects.length) {
     const { error } = await db.from("workspace_effects").insert(effects);
@@ -329,7 +412,7 @@ if (PERSIST) {
     }
   }
 
-  let inserted = 0, retracted = 0;
+  let inserted = 0, retracted = 0, superseded = 0;
   for (const [clientId, fresh] of freshBy) {
     const transitions = reconcile(storedBy.get(clientId) ?? [], fresh);
     for (const t of transitions) {
@@ -342,6 +425,28 @@ if (PERSIST) {
       if (t.kind === "new" || t.kind === "superseded") {
         const f = fresh.find((x) => x.hypothesisId === t.hypothesisId);
         if (!f) continue;
+
+        /* DEMOTE THE OLD ROW FIRST. A superseded transition inserts a
+           replacement carrying the new state, and the unique constraint is
+           (client_id, hypothesis_id, first_seen_run) -- so the new row has a
+           different run id and the insert succeeds, leaving BOTH rows
+           status='active'. Every subsequent run would then read two active
+           findings for one hypothesis, reconcile against whichever came back
+           first, and add a third. The 'superseded' value was in the CHECK
+           constraint and written by nothing.
+
+           Done before the insert so there is never a moment with two active
+           rows, and scoped to status='active' so a concurrent run cannot
+           demote a row it did not observe. */
+        if (t.kind === "superseded") {
+          await db.from("client_findings")
+            .update({ status: "superseded", retracted_run: run.id,
+                      retracted_reason: `state moved from ${t.from} to ${t.to}` })
+            .eq("client_id", clientId).eq("hypothesis_id", t.hypothesisId)
+            .eq("status", "active");
+          superseded++;
+        }
+
         const { error } = await db.from("client_findings").insert({
           workspace_id: wsId, client_id: clientId, hypothesis_id: t.hypothesisId,
           status: "active", state: f.state,
@@ -387,6 +492,31 @@ if (PERSIST) {
   }
 
   console.log(`\npersisted run ${run.id}`);
-  console.log(`  effects ${effects.length} | findings +${inserted} | retracted ${retracted}`);
+  console.log(`  effects ${effects.length} | findings +${inserted} | superseded ${superseded} | retracted ${retracted}`);
   console.log(`  client_analysis_state rows ${states.length} (the data gate's memory)`);
+
+  /* THE STALE SWEEP, which the CHECK constraint allowed and nothing performed.
+     A client that goes quiet stops appearing in any run, so its findings sat
+     'active' forever -- shown in reports, describing a library that has not
+     moved in half a year, with nothing to distinguish them from a claim
+     re-confirmed last week.
+
+     Hidden, not deleted: the row keeps its numbers and its history for audit,
+     exactly like a retraction. 180 days is deliberately far longer than the
+     90-day recheck floor in the data gate, so this only catches genuinely
+     abandoned clients rather than slow ones. */
+  const staleBefore = new Date(Date.now() - STALE_AFTER_DAYS * 86_400_000).toISOString();
+  const { data: staleRuns } = await db
+    .from("analysis_runs").select("id").eq("workspace_id", wsId).lt("started_at", staleBefore);
+  const staleRunIds = (staleRuns ?? []).map((r) => r.id);
+  let staled = 0;
+  if (staleRunIds.length) {
+    const { data: gone } = await db.from("client_findings")
+      .update({ status: "stale" })
+      .eq("workspace_id", wsId).eq("status", "active")
+      .in("last_seen_run", staleRunIds)
+      .select("id");
+    staled = (gone ?? []).length;
+  }
+  console.log(`  stale swept ${staled} (not seen in ${STALE_AFTER_DAYS} days; hidden, kept for audit)`);
 }

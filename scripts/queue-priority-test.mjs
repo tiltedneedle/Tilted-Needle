@@ -40,12 +40,19 @@ try {
   );
 } catch { /* no .env.local */ }
 const env = { ...fileEnv, ...process.env };
-if (!env.NEXT_PUBLIC_SUPABASE_URL || !env.SUPABASE_SECRET_KEY) {
-  console.log("SKIPPED: no database credentials (.env.local or environment). " +
-    "This suite checks live-table invariants and cannot run without them.");
-  process.exit(0);
-}
-const db = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SECRET_KEY);
+/* ONLY THE DATABASE BLOCK IS GATED, not the whole file.
+   A first version exited here when credentials were missing -- and 17 of this
+   suite's 20 checks need no database at all: the token-bucket arithmetic is
+   closures over integers, and the wiring assertions are regexes over
+   worker/index.mjs and server.py, both of which a CI checkout has. Those 17
+   exist nowhere else in the repo, so on CI they silently stopped running while
+   npm test still reported green. A regression reintroducing spend-on-offer, or
+   a `subtitleslangs` glob that quadruples the request rate, would have sailed
+   through. */
+const HAS_DB = Boolean(env.NEXT_PUBLIC_SUPABASE_URL && env.SUPABASE_SECRET_KEY);
+const db = HAS_DB
+  ? createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SECRET_KEY)
+  : null;
 
 let pass = 0, fail = 0;
 const check = (name, ok, detail = "") => {
@@ -63,10 +70,21 @@ const check = (name, ok, detail = "") => {
    regardless, and the ordering assertion queries the table directly with the
    same ORDER BY the claim RPC uses, so claimability is irrelevant to what is
    being proved. */
+/** Distinguishes "no credentials, skip this part" from a genuine failure, so
+ *  the catch below can stay silent for one and loud for the other. */
+class SkipDb extends Error {}
+
 const KIND = "replay";
 const created = [];
 
+if (!HAS_DB) {
+  console.log("SKIPPED (ordering): no database credentials. The ordering this "
+    + "checks lives in the RPC, so a mock would only prove the mock. "
+    + "Everything below is offline and still runs.");
+}
+
 try {
+  if (!HAS_DB) throw new SkipDb();
   const { data: ws } = await db.from("workspaces").select("id").limit(1).maybeSingle();
   const { data: subjects } = await db.from("content_items").select("id").limit(3);
   if (!ws || (subjects ?? []).length < 3) throw new Error("need a workspace and 3 content items");
@@ -118,6 +136,15 @@ try {
     JSON.stringify(seen) === JSON.stringify([10, 100, 500]),
     seen.join(","),
   );
+} catch (err) {
+  /* A CAUGHT throw, not an uncaught one. The block previously had a finally
+     and no catch, so any failure -- including "need a workspace and 3 content
+     items" -- propagated after cleanup and killed the process before the
+     offline assertions below ever ran. A database hiccup would silently take
+     17 checks with it. */
+  if (!(err instanceof SkipDb)) {
+    check("the ordering check completed", false, String(err?.message ?? err));
+  }
 } finally {
   if (created.length) {
     await db.from("ingest_jobs").delete().in("id", created);
