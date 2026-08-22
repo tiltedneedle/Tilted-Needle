@@ -36,14 +36,14 @@ const v = (over = {}) => ({
     ...Array.from({ length: 9 }, () => v({ title: "Plain", bestIndex: 1 })),
   ];
   check("a split with too few on one side returns null",
-    splitBy(thin, "question", (x) => x.title.includes("?")) === null,
+    splitBy(thin, "h_title_question", "question", (x) => x.title.includes("?")) === null,
     `${MIN_PER_SIDE} needed per side`);
 
   const enough = [
     ...Array.from({ length: 4 }, () => v({ title: "Why?", bestIndex: 3 })),
     ...Array.from({ length: 4 }, () => v({ title: "Plain", bestIndex: 1 })),
   ];
-  const s = splitBy(enough, "question", (x) => x.title.includes("?"));
+  const s = splitBy(enough, "h_title_question", "question", (x) => x.title.includes("?"));
   check("a split with enough on both sides reports", s !== null);
   check("medians are computed from the right groups", s.withMedian === 3 && s.withoutMedian === 1);
   check("the ratio is with over without", s.ratio === 3);
@@ -55,7 +55,7 @@ const v = (over = {}) => ({
     ...Array.from({ length: 4 }, () => v({ title: "Plain", bestIndex: 2 })),
     ...Array.from({ length: 20 }, () => v({ title: "Why?", bestIndex: null })),
   ];
-  const s2 = splitBy(withUnscored, "question", (x) => x.title.includes("?"));
+  const s2 = splitBy(withUnscored, "h_title_question", "question", (x) => x.title.includes("?"));
   check("unscored videos are excluded, not counted as zero",
     s2.withN === 4 && near(s2.withMedian, 2), `n=${s2.withN} median=${s2.withMedian}`);
 }
@@ -94,21 +94,32 @@ const v = (over = {}) => ({
     sparse.platformFit.map((p) => p.platform).join(","));
 }
 
-/* ---- Length uses the client's OWN median -------------------------------- */
+/* ---- Length is a RANK test now, not a median split ---------------------- */
+/* This block used to assert that the length split was drawn at the client's
+   own median. That split has been deleted, and the assertion is inverted
+   rather than dropped so the deletion cannot be quietly undone.
+
+   Video length is continuous. The registry tests it as r_length_seconds, a
+   Spearman correlation, and keeping the median split as well would put the
+   same question into the family twice -- which inflates the correction it is
+   paying for, using the weaker of the two instruments: measured power 0.19 for
+   the split against 0.25 for the rank at n=39. The threshold was never
+   principled either; it moved every time the library grew.
+
+   The descriptive lengthHint stays, because it is a description rather than a
+   test and never claimed to be significant. */
 {
-  // Medians differ wildly by client; an industry number would be meaningless.
   const vids = [
     ...Array.from({ length: 5 }, () => v({ lengthSeconds: 30, bestIndex: 2 })),
     ...Array.from({ length: 5 }, () => v({ lengthSeconds: 300, bestIndex: 1 })),
   ];
   const e = buildClientEvidence("acme", vids);
-  const lengthSplit = e.splits.find((s) => s.label.includes("median"));
-  check("the length split is drawn at this client's own median",
-    lengthSplit?.label.includes("165s"), lengthSplit?.label);
-  check("and shows the shorter group performing better",
-    lengthSplit.withMedian === 1 && lengthSplit.withoutMedian === 2);
 
-  check("the best quartile's median length is reported",
+  check("no split dichotomises video length any more",
+    !e.splits.some((s) => s.label.includes("median") || s.id === "r_length_seconds"),
+    e.splits.map((s) => s.id).join(","));
+
+  check("the best quartile's median length is still reported descriptively",
     e.lengthHint?.topMedian === 30 && e.lengthHint?.restMedian !== 30,
     JSON.stringify(e.lengthHint));
 }
@@ -164,7 +175,7 @@ const v = (over = {}) => ({
   const others = Array.from({ length: 6 }, () => v({ title: "Plain", bestIndex: 1 }));
   const all = [...typical, viral, ...others];
 
-  const s = splitBy(all, "question", (x) => x.title.includes("?"));
+  const s = splitBy(all, "h_title_question", "question", (x) => x.title.includes("?"));
   check("one 500x outlier does not drag the typical case upward",
     s.withMedian === 1, `median ${s.withMedian}; a mean would be ~72`);
   check("so the ratio stays honest", s.ratio === 1, `ratio ${s.ratio}`);
