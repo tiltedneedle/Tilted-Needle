@@ -12,6 +12,11 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Session worktrees are OTHER checkouts of this repo, at other commits.
+    // Linting them reports errors that were already fixed on main (or not yet
+    // made there), against files no edit here can touch -- six phantom errors
+    // appeared this way the first time a worktree existed during a lint run.
+    ".claude/**",
   ]),
 ]);
 

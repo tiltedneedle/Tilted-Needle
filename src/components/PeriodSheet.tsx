@@ -94,11 +94,22 @@ export default function PeriodSheet({
   const fields = account ? fieldsFor(account.platform) : [];
   const specs = account ? breakdownsFor(account.platform) : [];
 
+  /* Loading flips on the moment the target changes, adjusted during render:
+     the effect version painted one frame of the PREVIOUS account's numbers
+     under the new account's name before setLoading(true) landed, which is a
+     worse lie than a spinner. The async setStates stay in the effect below,
+     where they belong. */
+  const loadKey = accountId ? `${accountId}|${range.start}|${range.end}` : null;
+  const [prevLoadKey, setPrevLoadKey] = useState<string | null>(null);
+  if (loadKey !== prevLoadKey) {
+    setPrevLoadKey(loadKey);
+    if (loadKey) setLoading(true);
+  }
+
   /** Whatever is already stored for this account and month. */
   useEffect(() => {
     if (!accountId) return;
     let cancelled = false;
-    setLoading(true);
     loadPeriod({ accountId, periodStart: range.start, periodEnd: range.end })
       .then((res) => {
         if (cancelled) return;

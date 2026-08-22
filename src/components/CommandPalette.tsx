@@ -110,12 +110,25 @@ export default function CommandPalette({ role = "owner" }: { role?: string }) {
     };
   }, [open, remote]);
 
+  /* The query resets the moment the palette opens, ADJUSTED DURING RENDER
+     rather than in the effect below. Resetting in the effect meant a full
+     extra commit: the palette painted once with the stale query and last
+     cursor, then re-rendered blank -- the cascading-render pattern the
+     react-hooks lint now rejects. The previous-value comparison is React's
+     documented replacement, and it re-renders before anything paints. */
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open) {
+      setQ("");
+      setCursor(0);
+    }
+  }
+
   useEffect(() => {
     if (open) {
       // Remembered BEFORE the input steals focus.
       returnTo.current = document.activeElement as HTMLElement | null;
-      setQ("");
-      setCursor(0);
       // After the portal paints.
       requestAnimationFrame(() => inputRef.current?.focus());
       return;
@@ -142,8 +155,15 @@ export default function CommandPalette({ role = "owner" }: { role?: string }) {
 
   /* Typing reshapes the list, so the highlight resets to the top hit --
      without this it clings to whatever index it last held, which after a
-     narrowing keystroke is a different, arbitrary row. */
-  useEffect(() => setCursor(0), [q]);
+     narrowing keystroke is a different, arbitrary row. Adjusted during render
+     (previous-value comparison), not in an effect: the effect version painted
+     one frame with the stale highlight on the reshaped list before the reset
+     landed. */
+  const [prevQ, setPrevQ] = useState(q);
+  if (q !== prevQ) {
+    setPrevQ(q);
+    setCursor(0);
+  }
 
   const go = useCallback(
     (item: Item) => {

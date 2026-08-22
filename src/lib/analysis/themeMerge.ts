@@ -73,7 +73,7 @@ export function agglomerate(vectors: number[][], cut: number): number[][] {
   const n = vectors.length;
   if (n === 0) return [];
 
-  let clusters: number[][] = vectors.map((_, i) => [i]);
+  const clusters: number[][] = vectors.map((_, i) => [i]);
   // Pairwise distances between original points, computed once.
   const d: number[][] = Array.from({ length: n }, () => new Array(n).fill(0));
   for (let i = 0; i < n; i++) {

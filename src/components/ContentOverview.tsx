@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { formatDurationShort, gainPerDay } from "@/lib/format";
 import { engagementRate } from "@/lib/rollup";
@@ -191,11 +191,18 @@ export default function ContentOverview({
    * render, and selection would be impossible.
    */
   const filterKey = FILTER_KEYS.map((k) => `${k}=${searchParams.get(k) ?? ""}`).join("&");
-  useEffect(() => {
+  /* Adjusted during render rather than in an effect. The effect version
+     committed one frame where the new filter's rows carried the OLD
+     selection -- checkboxes ticked on videos that just entered the list --
+     before the reset landed. The previous-value comparison re-renders before
+     paint, so that frame never exists. */
+  const [prevFilterKey, setPrevFilterKey] = useState(filterKey);
+  if (filterKey !== prevFilterKey) {
+    setPrevFilterKey(filterKey);
     setSelected(new Set());
     setUndoMove(null);
     setUndoCredit(null);
-  }, [filterKey]);
+  }
 
   // Clients are ranked on peak single-platform reach rather than a sum, for
   // the same reason nothing else here totals across platforms.

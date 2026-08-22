@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Eye, Heart, MessageCircle, Plus } from "lucide-react";
 import Avatar from "@/components/Avatar";
@@ -188,10 +188,16 @@ export function RoleCredits({
    * exists to remove.
    */
   const creditKey = creditsKey(credits);
-  useEffect(() => {
+  /* Adjusted during render, not in an effect: the effect version committed
+     one frame where the fresh server data AND the optimistic overlay were
+     both visible -- a duplicated avatar, for exactly one paint -- before the
+     reset landed. The previous-value comparison re-renders before paint. */
+  const [prevCreditKey, setPrevCreditKey] = useState(creditKey);
+  if (creditKey !== prevCreditKey) {
+    setPrevCreditKey(creditKey);
     setAdded([]);
     setRemoving(new Set());
-  }, [creditKey]);
+  }
 
   /**
    * Optimism is not a promise. If the write fails the overlay is rolled back
