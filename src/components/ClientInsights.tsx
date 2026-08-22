@@ -91,13 +91,25 @@ export default function ClientInsights({
                       <th className="py-1.5 pr-3 font-medium">Attribute</th>
                       <th className="py-1.5 pr-3 text-right font-medium">With</th>
                       <th className="py-1.5 pr-3 text-right font-medium">Without</th>
-                      <th className="py-1.5 text-right font-medium">Ratio</th>
+                      {/* "Adjusted", not "Ratio". The raw ratio is still shown
+                          beneath it, but the number given prominence is the
+                          one that survives being wrong -- a per-client ratio
+                          from three videos is mostly noise, and the number is
+                          what gets remembered. */}
+                      <th className="py-1.5 text-right font-medium">Adjusted</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[var(--border)]">
                     {e.splits.map((s) => (
-                      <tr key={s.label}>
-                        <td className="py-1.5 pr-3">{s.label}</td>
+                      <tr key={s.id} className={s.state === "none" ? "text-[var(--muted)]" : ""}>
+                        <td className="py-1.5 pr-3">
+                          {s.label}
+                          {s.state === "holds" && (
+                            <span className="ml-1.5 whitespace-nowrap rounded px-1 py-0.5 text-[10px] uppercase tracking-wide text-[var(--muted)] ring-1 ring-[var(--border)]">
+                              agency-wide
+                            </span>
+                          )}
+                        </td>
                         <td className="tabular py-1.5 pr-3 text-right">
                           {s.withMedian}×{" "}
                           <span className="text-xs text-[var(--muted)]">n={s.withN}</span>
@@ -107,14 +119,33 @@ export default function ClientInsights({
                         </td>
                         <td
                           className={`tabular py-1.5 text-right font-medium ${
-                            s.ratio >= 1.3
-                              ? "text-[var(--success)]"
-                              : s.ratio <= 0.77
-                                ? "text-[var(--muted)]"
-                                : ""
+                            /* Colour is reserved for "acting". Colouring a raw
+                               ratio was the old behaviour and it made noise
+                               look like a result: at n=3 a 0.33x is routine,
+                               and green or grey on it is a recommendation
+                               nobody checked. */
+                            s.state !== "acting"
+                              ? "text-[var(--muted)]"
+                              : (s.multiplier ?? 1) >= 1
+                                ? "text-[var(--success)]"
+                                : "text-[var(--danger)]"
                           }`}
                         >
-                          {s.ratio}×
+                          {s.multiplier == null ? (
+                            <span className="text-xs" title="Not enough clients contributed to test this">
+                              not tested
+                            </span>
+                          ) : (
+                            <>
+                              {s.multiplier}×
+                              <span className="ml-1 block text-[10px] font-normal text-[var(--muted)]">
+                                raw {s.ratio}×
+                                {s.pooledMultiplier != null
+                                  ? ` · ${s.pooledMultiplier}× over ${s.contributingClients}`
+                                  : ""}
+                              </span>
+                            </>
+                          )}
                         </td>
                       </tr>
                     ))}

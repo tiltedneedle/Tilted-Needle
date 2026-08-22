@@ -15,6 +15,11 @@
  * a finding.
  */
 import { zoneOffsetMs, operatingZoneLabel } from "@/lib/tz";
+import {
+  binaryClientEstimate, dersimonianLaird, posterior, benjaminiHochberg,
+  permutationP, digestSeed, isMixed, stateFor, MIN_CLIENTS, Q_FDR,
+  type Observation, type ClientEstimate,
+} from "@/lib/analysis/inference";
 
 /** Below this on either side of a split, a comparison is anecdote. */
 export const MIN_PER_SIDE = 3;
@@ -40,8 +45,44 @@ export type EvidenceVideo = {
   platforms: { platform: string; views: number }[];
 };
 
+/**
+ * The three states, computed by the inference engine and handed to the model
+ * AS DATA. The model may not upgrade, downgrade, or invent one.
+ *
+ * This replaces a free `confidence: low|medium|high` that the model chose for
+ * itself, which made confidence decoration rather than a measured property.
+ *
+ * Three rather than five, because five was simulated and rejected: at real
+ * client sizes with real effects present, "unresolved" came out at 0.892 of
+ * rows and "ruled out" at 0.000. A per-row wall of hedges is the failed
+ * product this design exists to avoid.
+ */
+export type FindingState = "acting" | "holds" | "none";
+
 export type Split = {
+  /** Registry id, or a local one for descriptive splits with no hypothesis. */
+  id: string;
   label: string;
+  /**
+   * THE NUMBER THAT GETS PRINTED, and it is a posterior rather than this
+   * client's raw ratio.
+   *
+   * Null when the workspace-level engine has not run (too few clients
+   * contributed), in which case only the descriptive columns below are safe to
+   * show and `state` is "none".
+   *
+   * On the real reported finding: raw 0.588x becomes 0.830x once shrunk toward
+   * the pooled effect. A "41% penalty for numbers in titles" computed from
+   * three videos becomes a 17% lean, and that is the honest number.
+   */
+  multiplier: number | null;
+  /** How much of the pooled mean was used. 1 = this client's own data said
+   *  nothing the pool did not already say. */
+  shrinkage: number | null;
+  /** The effect across every contributing client, and how many contributed. */
+  pooledMultiplier: number | null;
+  contributingClients: number | null;
+  state: FindingState;
   /**
    * MEDIAN boost of the group that has the attribute -- not the mean.
    *
@@ -112,19 +153,23 @@ function hookSplits(withHook: EvidenceVideo[]): (Split | null)[] {
   const medianPace = paces.length ? median(paces) : 0;
 
   return [
-    splitBy(withHook, "Opening asks a question", (v) =>
+    splitBy(withHook, "h_hook_question", "Opening asks a question", (v) =>
       (v.hookText ?? "").includes("?") || QUESTION_OPEN.test(v.hookText ?? "")),
-    splitBy(withHook, "Opening is a channel greeting", (v) =>
+    splitBy(withHook, "h_hook_greeting", "Opening is a channel greeting", (v) =>
       GREETING_OPEN.test(v.hookText ?? "")),
-    splitBy(withHook, "Opening speaks to the viewer directly", (v) =>
+    splitBy(withHook, "h_hook_second_person", "Opening speaks to the viewer directly", (v) =>
       DIRECT_ADDRESS.test(v.hookText ?? "")),
-    medianPace > 0
-      ? splitBy(
-          withHook,
-          `Faster opening (over ${Math.round(medianPace)} words in 15s)`,
-          (v) => words(v.hookText ?? "") > medianPace,
-        )
-      : null,
+    /* "Faster opening (over N words in 15s)" USED TO BE HERE and has been
+       removed rather than given an id.
+
+       Hook pace is continuous, and the registry already tests it as
+       r_hook_word_count -- a rank correlation. Keeping the median split as
+       well would test the same covariate twice, which double-counts one
+       question into the family that the correction is paying for, and does so
+       with the weaker of the two instruments: at the same underlying effect,
+       measured power is 0.19 for a median split against 0.25 for the rank at
+       n=39. Dichotomising a continuous variable "is rarely defensible"
+       (MacCallum, Zhang, Preacher & Rucker, Psychological Methods 2002). */
   ];
 }
 
@@ -142,6 +187,10 @@ function median(xs: number[]): number {
  */
 export function splitBy(
   videos: EvidenceVideo[],
+  /** The registry id this split corresponds to, so the workspace engine can
+   *  attach a pooled estimate to it. A split with no registry entry stays
+   *  descriptive and never acquires a state. */
+  id: string,
   label: string,
   predicate: (v: EvidenceVideo) => boolean,
 ): Split | null {
@@ -154,7 +203,16 @@ export function splitBy(
   const b = median(without);
   if (!(b > 0)) return null;
   return {
+    id,
     label,
+    // Descriptive only until the workspace engine fills these in. A split that
+    // never reaches the engine stays at state "none" and carries no
+    // multiplier, which is the correct reading of "we have not tested this".
+    multiplier: null,
+    shrinkage: null,
+    pooledMultiplier: null,
+    contributingClients: null,
+    state: "none",
     withMedian: round(a),
     withN: withIt.length,
     withoutMedian: round(b),
@@ -237,19 +295,16 @@ export function buildClientEvidence(
   const splits = [
     // Title shape. Cheap to act on, and the only lever available before a
     // shoot is even scheduled.
-    splitBy(scored, "Title asks a question", (v) => v.title.includes("?")),
-    splitBy(scored, "Title contains a number", (v) => /\d/.test(v.title)),
-    splitBy(scored, "Title over 50 characters", (v) => v.title.length > 50),
+    splitBy(scored, "h_title_question", "Title asks a question", (v) => v.title.includes("?")),
+    splitBy(scored, "h_title_numeral", "Title contains a number", (v) => /\d/.test(v.title)),
 
-    // Length, split at this client's own median rather than an industry
-    // number: what counts as long depends entirely on what they usually make.
-    medianLength != null
-      ? splitBy(
-          scored.filter((v) => v.lengthSeconds != null),
-          `Longer than this client's median (${Math.round(medianLength)}s)`,
-          (v) => (v.lengthSeconds ?? 0) > medianLength,
-        )
-      : null,
+    /* "Title over 50 characters" and "Longer than this client's median" USED
+       TO BE HERE, and both are gone for the same reason as the hook-pace split
+       above: title length and video length are continuous, the registry tests
+       them as r_title_length and r_length_seconds, and running both forms of
+       one covariate is double-counting into the family. The rank test is also
+       simply better -- and neither threshold was principled, one being a round
+       number and the other a median that moves whenever the library grows. */
 
     // What the opening actually SAYS. This is the payoff of gathering
     // transcripts at all: the hook is the one thing a team can change before
@@ -264,11 +319,13 @@ export function buildClientEvidence(
     // column cannot answer this and never could.
     splitBy(
       scored.filter((v) => v.postedAtTs),
+      "h_posted_weekend",
       "Published at a weekend",
       (v) => [0, 6].includes(operatingWeekday(v.postedAtTs!)),
     ),
     splitBy(
       scored.filter((v) => v.postedAtTs),
+      "h_posted_before_noon",
       `Published before noon (${operatingZoneLabel()})`,
       (v) => operatingHour(v.postedAtTs!) < 12,
     ),
@@ -378,15 +435,165 @@ export const CLIENT_READ_SCHEMA = {
       type: "array",
       items: {
         type: "object",
-        required: ["text", "confidence"],
+        required: ["text", "state"],
         properties: {
           text: { type: "string" },
-          confidence: { type: "string", enum: ["low", "medium", "high"] },
+          /* WAS `confidence: low|medium|high`, CHOSEN BY THE MODEL.
+             That made confidence decoration: a language model's self-reported
+             certainty is a stylistic choice, not a measurement, and it was the
+             one field in the output most likely to be read as authoritative.
+             `state` is computed by the inference engine and supplied to the
+             model as data it may not alter. This single change is what turns
+             confidence from a word into a measured property. */
+          state: { type: "string", enum: ["acting", "holds", "none"] },
         },
       },
     },
   },
 } as const;
+
+/**
+ * Run the confidence engine across EVERY client, then hand each client back
+ * its own shrunk numbers.
+ *
+ * WHY THIS FUNCTION HAD TO EXIST AT ALL
+ *
+ * buildClientEvidence looks at one client in isolation, and in isolation the
+ * question "does asking a question in the title help?" cannot be answered: no
+ * client here has enough videos. Thirteen clients together do. So the estimate
+ * is necessarily workspace-level, and the per-client number is a posterior
+ * derived from it -- which means the pooling has to happen ABOVE the per-client
+ * call, not inside it.
+ *
+ * The split ratios each client already computed stay on the row, because they
+ * are what actually happened in that client's library and a reader is entitled
+ * to see them. But `multiplier` -- the number the copy will quote -- is the
+ * posterior, and `state` is computed here rather than chosen by a model.
+ *
+ * Silence is the expected output at current coverage. Measured on the live
+ * corpus 2026-08-22: 16 hypotheses registered, 13 ran, 0 survived BH, 0 rows
+ * reached "acting". The engine this replaces would have printed a confident
+ * multiplier for nearly every one.
+ */
+export function applyWorkspaceInference(
+  byClient: Map<string, EvidenceVideo[]>,
+  evidence: Map<string, ClientEvidence>,
+  {
+    permutations = 2000,
+    binaryEstimate = binaryClientEstimate,
+  }: { permutations?: number; binaryEstimate?: typeof binaryClientEstimate } = {},
+): { ran: number; significant: number; acting: number } {
+  /* One row per scored POST, not per video -- see run-inference.mjs. Here the
+     evidence rows carry bestIndex, a max across a video's posts, so this is
+     the video-level approximation; it is identical while nothing is
+     cross-posted, and the per-post path is the one that generalises. */
+  const rowsByHypothesis = new Map<string, Observation[]>();
+  const splitsById = new Map<string, { clientId: string; split: Split }[]>();
+
+  for (const [, ev] of evidence) {
+    for (const s of ev.splits ?? []) {
+      if (!splitsById.has(s.id)) splitsById.set(s.id, []);
+      splitsById.get(s.id)!.push({ clientId: ev.clientId, split: s });
+    }
+  }
+
+  /* Rebuild the observation set per hypothesis from the same predicates the
+     splits used. Done by REPLAYING splitBy's predicate rather than by trusting
+     the split's counts, so the two can never describe different data. */
+  for (const [id, entries] of splitsById) {
+    const obs: Observation[] = [];
+    for (const { clientId } of entries) {
+      const videos = byClient.get(clientId) ?? [];
+      for (const v of videos) {
+        if (v.bestIndex == null || !(v.bestIndex > 0)) continue;
+        const value = predicateFor(id, v);
+        if (value === null) continue;
+        obs.push({
+          clientId,
+          // Platform is the stratifier that keeps "longer" from silently
+          // meaning "is YouTube long-form". A video's dominant platform is the
+          // best available proxy at this level.
+          platform: v.platforms[0]?.platform ?? "unknown",
+          x: Math.log(v.bestIndex),
+          value,
+        });
+      }
+    }
+    if (obs.length) rowsByHypothesis.set(id, obs);
+  }
+
+  const estimateFor = (input: Observation[]) => {
+    const clients = [...new Set(input.map((o) => o.clientId))];
+    const est = clients.map((c) => binaryEstimate(input, c)).filter(Boolean) as ClientEstimate[];
+    return est.length >= MIN_CLIENTS ? { pooled: dersimonianLaird(est), est } : null;
+  };
+
+  const results: {
+    id: string; p: number; pooled: NonNullable<ReturnType<typeof dersimonianLaird>>;
+    est: ClientEstimate[]; mixed: boolean;
+  }[] = [];
+
+  for (const [id, obs] of rowsByHypothesis) {
+    const first = estimateFor(obs);
+    if (!first?.pooled) continue;
+    const seed = digestSeed(`${id}|${obs.length}|${first.est.length}`);
+    const p = permutationP(obs, (i) => estimateFor(i)?.pooled ?? null, first.pooled.mu,
+      { permutations, seed });
+    const posts = first.est.map((e) => posterior(e, first.pooled!));
+    results.push({
+      id, p, pooled: first.pooled, est: first.est,
+      mixed: isMixed(posts, first.pooled.mu),
+    });
+  }
+
+  /* BH ONCE, across the whole family, workspace-wide. Correcting per client
+     and calling it done is a documented way to inflate the real FDR past
+     nominal -- one marketing team's per-channel correction ran at ~0.14
+     against a nominal 0.05. */
+  const rejected = benjaminiHochberg(results.map((r) => r.p), Q_FDR);
+
+  let acting = 0;
+  results.forEach((r, i) => {
+    const significant = rejected[i];
+    for (const e of r.est) {
+      const post = posterior(e, r.pooled);
+      const state = stateFor({ significant, mixed: r.mixed, p: post });
+      const target = (evidence.get(e.clientId)?.splits ?? []).find((s) => s.id === r.id);
+      if (!target) continue;
+      target.multiplier = round(post.multiplier);
+      target.shrinkage = round(post.b);
+      target.pooledMultiplier = round(Math.exp(r.pooled.mu));
+      target.contributingClients = r.pooled.k;
+      target.state = state;
+      if (state === "acting") acting++;
+    }
+  });
+
+  return { ran: results.length, significant: rejected.filter(Boolean).length, acting };
+}
+
+/**
+ * The predicate behind each registry id, in the same terms splitBy used.
+ * Returns null for "unobserved", which drops the video rather than counting it
+ * on the negative side -- the distinction that keeps an untranscribed video
+ * from being read as one that failed to ask a question.
+ */
+function predicateFor(id: string, v: EvidenceVideo): boolean | null {
+  const hook = (v.hookText ?? "").trim();
+  switch (id) {
+    case "h_title_question": return v.title.includes("?");
+    case "h_title_numeral": return /\d/.test(v.title);
+    case "h_hook_question":
+      return hook ? hook.includes("?") || QUESTION_OPEN.test(hook) : null;
+    case "h_hook_greeting": return hook ? GREETING_OPEN.test(hook) : null;
+    case "h_hook_second_person": return hook ? DIRECT_ADDRESS.test(hook) : null;
+    case "h_posted_weekend":
+      return v.postedAtTs ? [0, 6].includes(operatingWeekday(v.postedAtTs)) : null;
+    case "h_posted_before_noon":
+      return v.postedAtTs ? operatingHour(v.postedAtTs) < 12 : null;
+    default: return null;
+  }
+}
 
 export const CLIENT_READ_PROMPT = [
   "Write the week's read for one client, from the table below.",
@@ -398,6 +605,21 @@ export const CLIENT_READ_PROMPT = [
   "All figures are MEDIANS. Never describe them as averages, and never claim a",
   "typical video performs like the best single post.",
   "Where the table lists limits, respect them — do not make a claim the sample",
-  "size cannot carry, and set confidence to low when n is small.",
-  "Three to five findings. Prefer the ones the team could act on.",
+  "size cannot carry.",
+  "",
+  "Each row carries a STATE, already computed. Use it exactly as given: never",
+  "upgrade, downgrade, or invent one.",
+  "  acting — this client's own number is measured and clear of the",
+  "           no-difference band. Quote the multiplier on the row, which is",
+  "           already adjusted; do not recompute it from the medians.",
+  "  holds  — the pattern holds across the agency but this client's library",
+  "           cannot be told apart from it. Say so plainly: report the pooled",
+  "           figure and that we cannot yet distinguish this client from it.",
+  "  none   — nothing measurable. Do NOT write a row for these. Cover them",
+  "           with ONE closing line for the whole report.",
+  "",
+  "If no row is 'acting' or 'holds', say that plainly in a sentence and stop.",
+  "That is a real answer, not a failure, and it is the expected one for a",
+  "small library.",
+  "Three to five findings at most. Prefer the ones the team could act on.",
 ].join("\n");

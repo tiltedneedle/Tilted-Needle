@@ -31,7 +31,7 @@
     "test:videolength": "node scripts/video-length-test.mjs",
     "test:import": "node scripts/import-test.mjs",
     "test:todo-parse": "node scripts/todo-parse-test.mjs",
-    "test": "node scripts/scoring-test.mjs && node scripts/billing-test.mjs && node scripts/clockify-test.mjs && node scripts/export-test.mjs && node scripts/providers-test.mjs && node scripts/discovery-throttle-test.mjs && node scripts/video-embed-test.mjs && node scripts/todo-parse-test.mjs && node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/content-filters-test.mjs && node scripts/content-url-test.mjs && node scripts/video-length-test.mjs && npm run test:reports && npm run test:lifecycle && npm run test:blockdetect && npm run test:studio && npm run test:llm && npm run test:themes && npm run test:evidence && npm run test:vision && npm run test:merge && npm run test:labels && npm run test:tz && npm run test:contrast && npm run test:metering && npm run test:binscope && npm run test:thin && npm run test:tokens && npm run test:revoked && npm run test:reach && npm run test:avatar && npm run test:results && npm run test:enrichment && npm run test:queue && npm run test:asr && npm run test:tiktokcost && npm run test:features && npm run test:inference",
+    "test": "node scripts/scoring-test.mjs && node scripts/billing-test.mjs && node scripts/clockify-test.mjs && node scripts/export-test.mjs && node scripts/providers-test.mjs && node scripts/discovery-throttle-test.mjs && node scripts/video-embed-test.mjs && node scripts/todo-parse-test.mjs && node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/content-filters-test.mjs && node scripts/content-url-test.mjs && node scripts/video-length-test.mjs && npm run test:reports && npm run test:lifecycle && npm run test:blockdetect && npm run test:studio && npm run test:llm && npm run test:themes && npm run test:evidence && npm run test:vision && npm run test:merge && npm run test:labels && npm run test:tz && npm run test:contrast && npm run test:metering && npm run test:binscope && npm run test:thin && npm run test:tokens && npm run test:revoked && npm run test:reach && npm run test:avatar && npm run test:results && npm run test:enrichment && npm run test:queue && npm run test:asr && npm run test:tiktokcost && npm run test:features && npm run test:inference && npm run test:shrinkage",
     "test:sync-idempotency": "node scripts/sync-idempotency-test.mjs",
     "test:display-calc": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/display-calc-test.mjs",
     "test:filters": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/content-filters-test.mjs",
@@ -65,7 +65,8 @@
     "test:asr": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/asr-gate-test.mjs",
     "test:tiktokcost": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/tiktok-cost-test.mjs",
     "test:features": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/features-test.mjs",
-    "test:inference": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/inference-sim.mjs"
+    "test:inference": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/inference-sim.mjs",
+    "test:shrinkage": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/evidence-shrinkage-test.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.3",

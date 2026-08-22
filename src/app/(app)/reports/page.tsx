@@ -13,7 +13,7 @@ import { parseFilters } from "@/lib/contentFilters";
 import { cachedRankings } from "@/lib/cachedRankings";
 import { loadContentOverview } from "@/lib/dashboards";
 import { secondsByUserOnVideos } from "@/lib/reportData";
-import { buildClientEvidence } from "@/lib/analysis/clientEvidence";
+import { buildClientEvidence, applyWorkspaceInference } from "@/lib/analysis/clientEvidence";
 import {
   personStats,
   buildEmployeeReport,
@@ -286,11 +286,26 @@ async function InsightsReport() {
   }
 
   const names = new Map(overview.clients.map((c) => [c.id, c.name]));
-  const entries = [...byClient.entries()]
-    .map(([clientId, videos]) => ({
+
+  /* Per-client evidence FIRST, then one workspace-wide pass that pools across
+     all of them and writes each client's shrunk numbers back onto its rows.
+     The order is forced by the statistics: no client here has enough videos to
+     answer "does this technique work", and nine of them together do, so the
+     estimate is workspace-level and the per-client figure is a posterior
+     derived from it. */
+  const evidence = new Map(
+    [...byClient.entries()].map(([clientId, videos]) => [
+      clientId,
+      buildClientEvidence(clientId, videos),
+    ]),
+  );
+  applyWorkspaceInference(byClient, evidence);
+
+  const entries = [...evidence.entries()]
+    .map(([clientId, ev]) => ({
       clientId,
       clientName: names.get(clientId) ?? "Unknown client",
-      evidence: buildClientEvidence(clientId, videos),
+      evidence: ev,
     }))
     // Most characterisable first: a reader wants the clients with findings.
     .sort((a, b) => b.evidence.scoredCount - a.evidence.scoredCount);
