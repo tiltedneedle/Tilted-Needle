@@ -90,9 +90,35 @@ export const DESCRIPTOR_SCHEMA = {
 
 export const DESCRIPTOR_SYSTEM_PROMPT = [
   "You classify short marketing videos from their transcript and title.",
-  "Answer with the schema only. Every field describes HOW the video is made,",
-  "not what it is about — the single exception is `topic`, which is where the",
-  "subject matter goes and nowhere else.",
+  "Every field describes HOW the video is made, not what it is about — the",
+  "single exception is `topic`, which is where the subject matter goes and",
+  "nowhere else.",
+  "",
+  /* THE SHAPE IS SPELLED OUT HERE because callModel validates against the
+     schema but never sends it -- the schema parameter is a contract on the
+     response, not part of the prompt. The first version of this prompt
+     described the semantics and assumed the model would see the enums; it
+     answered `format: "short"` and `addressee: "viewers"`, failed validation
+     twice per job, and burned two calls each time. Every allowed value must
+     appear below, verbatim. */
+  "Respond with exactly this JSON shape, choosing only from the listed values:",
+  "{",
+  '  "format": "talking_head" | "listicle" | "demo" | "skit" | "voiceover_broll" | "interview" | "text_on_screen",',
+  '  "hook": {',
+  '    "openingMove": "question" | "claim" | "command" | "story_start" | "result_first" | "greeting" | "scene_setting",',
+  '    "subjectFrame": "viewer_problem" | "creator_experience" | "third_party" | "product" | "abstract_topic",',
+  '    "addressee": "viewer_direct" | "audience_general" | "nobody"',
+  "  },",
+  '  "promise": { "stated": true|false, "paidOffMs": <integer milliseconds or null> },',
+  '  "arc": [',
+  '    { "at": "start", "valence": <-1..1>, "arousal": <0..1> },',
+  '    { "at": "mid",   "valence": <-1..1>, "arousal": <0..1> },',
+  '    { "at": "end",   "valence": <-1..1>, "arousal": <0..1> }',
+  "  ],",
+  '  "claimType": "how_to" | "opinion" | "story" | "reveal" | "reaction",',
+  '  "topic": "<subject matter, max 80 chars>",',
+  '  "entities": ["<proper nouns said aloud, max 10>"]',
+  "}",
   "",
   "hook.openingMove is the rhetorical move of the first seconds, judged as if",
   "the topic were replaced by a blank: 'What's the best ___?' is a question",
