@@ -206,6 +206,36 @@ export async function weeklyRead({ db, job, log }) {
   });
   if (error) throw new Error(`storing read failed: ${error.message}`);
 
+  /* ADVANCE THE DATA GATE'S MEMORY, or the gate leaks.
+   *
+   * planWeeklyRead holds a client until its approved library has grown 20%
+   * since the last look, reading client_analysis_state. But only the manual
+   * --persist inference run wrote that table -- so the moment a client
+   * crossed 20% it became due and STAYED due, re-queued on every enqueue
+   * pass, which is precisely the 52-looks-a-year problem the gate was built
+   * to stop, reintroduced by the gate's own bookkeeping.
+   *
+   * Completing a read IS the look, so this is where the ledger advances. The
+   * count is taken the same way the planner takes it -- approved items on
+   * this client -- because growth measured against a differently-counted
+   * baseline is meaningless.
+   *
+   * Best-effort: the read itself succeeded and is stored; a bookkeeping
+   * failure must not fail the job and re-buy the narration.
+   */
+  const { count: approvedNow } = await db
+    .from("content_items")
+    .select("id", { count: "exact", head: true })
+    .eq("client_id", job.subject_id)
+    .eq("review_state", "approved");
+  const { error: gateErr } = await db.from("client_analysis_state").upsert({
+    client_id: job.subject_id,
+    workspace_id: job.workspace_id,
+    scored_posts_at_run: approvedNow ?? 0,
+    last_run_at: new Date().toISOString(),
+  }, { onConflict: "client_id" });
+  if (gateErr) log("warn", "gate_state_write_failed", { error: gateErr.message });
+
   return {
     stats: {
       findings: result.data.findings?.length ?? 0,

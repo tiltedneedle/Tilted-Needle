@@ -310,7 +310,44 @@ async function InsightsReport() {
     // Most characterisable first: a reader wants the clients with findings.
     .sort((a, b) => b.evidence.scoredCount - a.evidence.scoredCount);
 
-  return <ClientInsights entries={entries} />;
+  /* The audience themes, merged client-level by the embedding layer. The
+     denominator comes from the same verified counting: analysed_count is what
+     tallyThemes actually grouped, summed over this client's analysed posts,
+     so "29 of 213" is checkable rather than asserted. */
+  const { data: themes } = await supabase
+    .from("merged_themes")
+    .select("client_id, label, sentiment, comment_count, post_count, source_count, comment_ids")
+    .eq("workspace_id", ws)
+    .order("comment_count", { ascending: false });
+  const themesByClient = new Map<string, {
+    label: string; sentiment: string | null;
+    commentCount: number; postCount: number; sourceCount: number;
+  }[]>();
+  /* The denominator is DISTINCT verified comments, computed from the stored
+     id sets rather than by summing per-theme counts -- a comment carrying two
+     genuinely different themes would be counted twice by the sum, and a
+     denominator that can exceed the truth is not a denominator. */
+  const distinctByClient = new Map<string, Set<string>>();
+  for (const t of themes ?? []) {
+    if (!themesByClient.has(t.client_id)) themesByClient.set(t.client_id, []);
+    themesByClient.get(t.client_id)!.push({
+      label: t.label, sentiment: t.sentiment,
+      commentCount: t.comment_count, postCount: t.post_count, sourceCount: t.source_count,
+    });
+    if (!distinctByClient.has(t.client_id)) distinctByClient.set(t.client_id, new Set());
+    for (const id of (t.comment_ids ?? []) as string[]) distinctByClient.get(t.client_id)!.add(id);
+  }
+  const themeDenominators = new Map<string, number>(
+    [...distinctByClient.entries()].map(([cid, ids]) => [cid, ids.size]),
+  );
+
+  return (
+    <ClientInsights
+      entries={entries}
+      themesByClient={themesByClient}
+      themeDenominators={themeDenominators}
+    />
+  );
 }
 
 /* ---- The original time-entries report, unchanged ------------------------ */

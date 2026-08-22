@@ -12,11 +12,22 @@ import { readFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
 import { mergeThemes, MERGE_DISTANCE } from "../src/lib/analysis/themeMerge.ts";
 
-const env = Object.fromEntries(
-  readFileSync("./.env.local", "utf8").split("\n").filter((l) => l.includes("="))
-    .map((l) => [l.slice(0, l.indexOf("=")).trim(),
-                 l.slice(l.indexOf("=") + 1).trim().replace(/^["']|["']$/g, "")]),
-);
+/* .env.local on the desktop, process.env on CI -- the pipeline runs this after
+   each drain so freshly analysed posts fold into the client-level themes
+   without anyone remembering to. */
+let fileEnv = {};
+try {
+  fileEnv = Object.fromEntries(
+    readFileSync("./.env.local", "utf8").split("\n").filter((l) => l.includes("="))
+      .map((l) => [l.slice(0, l.indexOf("=")).trim(),
+                   l.slice(l.indexOf("=") + 1).trim().replace(/^["']|["']$/g, "")]),
+  );
+} catch { /* no .env.local: CI supplies the environment directly */ }
+const env = { ...fileEnv, ...process.env };
+if (!env.NEXT_PUBLIC_SUPABASE_URL || !env.SUPABASE_SECRET_KEY) {
+  console.error("NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SECRET_KEY are required.");
+  process.exit(1);
+}
 const db = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SECRET_KEY);
 const DRY = process.argv.includes("--dry-run");
 

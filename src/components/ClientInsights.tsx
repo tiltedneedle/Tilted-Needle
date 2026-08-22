@@ -16,10 +16,25 @@ import type { ClientEvidence } from "@/lib/analysis/clientEvidence";
  * baseline" when the typical post was at 0.97x. The peak is shown separately
  * so a real hit stays visible without pretending to be typical.
  */
+export type MergedThemeRow = {
+  label: string;
+  sentiment: string | null;
+  commentCount: number;
+  postCount: number;
+  sourceCount: number;
+};
+
 export default function ClientInsights({
   entries,
+  themesByClient = new Map(),
+  themeDenominators = new Map(),
 }: {
   entries: { clientId: string; clientName: string; evidence: ClientEvidence }[];
+  /** Client-level audience themes, merged across posts by the embedding
+   *  layer. Counts are unions of VERIFIED comment ids -- see themeMerge.ts. */
+  themesByClient?: Map<string, MergedThemeRow[]>;
+  /** Total analysed comments per client, so every share has a denominator. */
+  themeDenominators?: Map<string, number>;
 }) {
   if (entries.length === 0) {
     return (
@@ -162,6 +177,45 @@ export default function ClientInsights({
                 <span className="tabular text-[var(--fg)]">{e.lengthHint.restMedian}s</span>{" "}
                 (n={e.lengthHint.n}).
               </p>
+            )}
+
+            {/* What the AUDIENCE says, merged across this client's posts.
+                Each per-post analysis invents its own labels, so "how much is
+                it", "Pricing?" and "what's the cost" were three orphan rows
+                until the embedding layer merged them. The count beside each
+                theme is a union of VERIFIED comment ids -- the model grouped,
+                the system counted -- and the denominator is stated because a
+                share against an unknown total is not a statement. */}
+            {(themesByClient.get(clientId)?.length ?? 0) > 0 && (
+              <div className="mt-3 border-t border-[var(--border)] pt-3">
+                <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-[var(--muted)]">
+                  What their audience says
+                  {themeDenominators.get(clientId) ? (
+                    <span className="ml-1.5 normal-case tracking-normal">
+                      · {themeDenominators.get(clientId)} distinct comments grouped
+                    </span>
+                  ) : null}
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {themesByClient.get(clientId)!.slice(0, 8).map((t) => (
+                    <span
+                      key={t.label}
+                      className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs ring-1 ring-[var(--border)]"
+                      title={`${t.commentCount} comments across ${t.postCount} post${t.postCount === 1 ? "" : "s"}, merged from ${t.sourceCount} per-post theme${t.sourceCount === 1 ? "" : "s"}`}
+                    >
+                      {t.sentiment === "positive" ? (
+                        <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-[var(--success)]" />
+                      ) : t.sentiment === "negative" ? (
+                        <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-[var(--danger)]" />
+                      ) : (
+                        <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-[var(--muted)]" />
+                      )}
+                      {t.label}
+                      <span className="tabular text-[var(--muted)]">{t.commentCount}</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
             )}
 
             {/* Limits are shown, never hidden: a gap in the data is itself

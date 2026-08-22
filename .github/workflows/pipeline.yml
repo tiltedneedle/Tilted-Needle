@@ -94,7 +94,21 @@ jobs:
         run: |
           node --experimental-strip-types --import ./scripts/register-alias.mjs \
             worker/index.mjs --once \
-            --kinds=${{ inputs.kinds || 'comments,analyse,weekly_read' }}
+            --kinds=${{ inputs.kinds || 'comments,analyse,weekly_read,describe' }}
+
+      # After the drain, so themes from posts analysed THIS run fold into the
+      # client-level view immediately. Embeddings are cached by label text, so
+      # a run with nothing new costs nothing.
+      - name: Merge comment themes
+        if: ${{ !inputs.enqueue_only }}
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
+        run: |
+          node --experimental-strip-types --import ./scripts/register-alias.mjs \
+            scripts/merge-themes.mjs
 
       # Runs even when draining failed: a run that dies mid-queue is exactly
       # when the depth matters, and a summary only written on success is a
