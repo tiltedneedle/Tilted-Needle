@@ -563,7 +563,24 @@ def asr():
         except _AsrTransport as e:
             # The model was unreachable, refused, or out of quota. Transport,
             # every time -- never a statement about the video.
-            return jsonify({"error": str(e), "asrUnavailable": True}), 502
+            #
+            # A 429 OR A QUOTA REFUSAL IS REPORTED AS RATE LIMITING, not as a
+            # generic 502. Found by actually exercising the endpoint against a
+            # failing URL rather than reasoning about it: the download had
+            # SUCCEEDED and OpenAI was refusing the transcription. As a 502 the
+            # worker retries, spends four attempts inside one exhausted window,
+            # and fails the job permanently -- a video written off because the
+            # transcription API was busy for a minute. The 429 path cools the
+            # whole kind and refunds the attempt, which is what a throttle
+            # deserves. Same rule as YouTube's 429 and Instagram's refusal; the
+            # only thing that differed was which service said no.
+            msg = str(e)
+            if "HTTP 429" in msg or "rate limit" in msg.lower() or "quota" in msg.lower():
+                return jsonify({
+                    "error": f"The transcription provider is rate-limiting this host: {msg[:200]}",
+                    "rateLimited": True,
+                }), 429
+            return jsonify({"error": msg, "asrUnavailable": True}), 502
 
         return jsonify({
             "url": url,
