@@ -575,20 +575,62 @@ async function planWeeklyRead() {
     if ((count ?? 0) > 0) withWork.add(c.id);
   }
 
-  const cutoff = new Date(Date.now() - WEEKLY_READ_DAYS * 86_400_000).toISOString();
-  const { data: recent } = await db
-    .from("ai_analyses")
-    .select("subject_id")
-    .eq("kind", kind)
-    .gte("created_at", cutoff);
-  const fresh = new Set((recent ?? []).map((r) => r.subject_id));
+  /* A DATA GATE, NOT A CLOCK.
+   *
+   * This was a pure seven-day cutoff with no check on whether anything had
+   * changed, so a client gaining about one scored video a week was re-tested
+   * 52 times a year on nearly the same 29 videos.
+   *
+   * That is a correctness problem, not a cost one. BH controls the
+   * false-discovery rate WITHIN a run and says nothing about looking 52 times.
+   * Measured under a pure null with BH applied per report exactly as designed,
+   * P(a given client is shown at least one false finding) is 0.105 after one
+   * run, 0.293 after 13, and 0.471 after 52 -- carrying one in a mean of 6.7
+   * separate weeks. Across 13 clients over a year: 0.9998.
+   *
+   * A re-test on data that has not moved cannot learn anything; it can only
+   * roll the dice again. So: 20% growth in scored posts, or 90 days. About 6
+   * runs a year instead of 52.
+   *
+   * The time cutoff is KEPT as well, as a floor -- MAX_DAYS_BETWEEN_RUNS in
+   * findings.ts -- so a client that goes quiet is not frozen forever.
+   */
+  const { isDue } = await import("../src/lib/analysis/findings.ts");
+
+  const { data: runState } = await db
+    .from("client_analysis_state")
+    .select("client_id, scored_posts_at_run, last_run_at");
+  const stateBy = new Map(
+    (runState ?? []).map((r) => [r.client_id, {
+      clientId: r.client_id,
+      scoredPostsAtRun: r.scored_posts_at_run,
+      lastRunAt: r.last_run_at,
+    }]),
+  );
+
+  /* How much evidence each client has NOW. Approved items on a live client is
+     the same population the engine scores, so growth here is growth in what
+     could actually change an answer. */
+  const scoredNow = new Map();
+  for (const c of clients) {
+    const { count } = await db
+      .from("content_items")
+      .select("id", { count: "exact", head: true })
+      .eq("client_id", c.id)
+      .eq("review_state", "approved");
+    scoredNow.set(c.id, count ?? 0);
+  }
 
   const busy = await inFlight(kind);
-  const subjects = new Map(
-    clients
-      .filter((c) => withWork.has(c.id) && !fresh.has(c.id) && !busy.has(c.id))
-      .map((c) => [c.id, c.workspace_id]),
-  );
+  const held = [];
+  const subjects = new Map();
+  for (const c of clients) {
+    if (!withWork.has(c.id) || busy.has(c.id)) continue;
+    const decision = isDue(stateBy.get(c.id) ?? null, scoredNow.get(c.id) ?? 0);
+    if (decision.due) subjects.set(c.id, c.workspace_id);
+    else held.push(`${c.id}: ${decision.reason}`);
+  }
+  if (held.length) log("weekly_read_held", { count: held.length, sample: held.slice(0, 2) });
 
   const wanted = [...subjects.keys()].slice(0, cap);
   return { kind, count: await insert(kind, wanted, subjects), cap };

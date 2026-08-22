@@ -1,12 +1,20 @@
 // Run the confidence engine over the live corpus.
 //   node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/run-inference.mjs
 //
-// Read-only. This prints what the engine currently concludes and, just as
-// importantly, what it declines to conclude -- which at this coverage will be
-// most of it. A run that reports nothing is a working run, not a broken one.
+// Read-only by default. This prints what the engine currently concludes and,
+// just as importantly, what it declines to conclude -- which at this coverage
+// will be most of it. A run that reports nothing is a working run.
+//
+//   --persist   record the run, its effects, and each client's findings
+//
+// Persisting matters for a reason beyond bookkeeping. It is what lets the DATA
+// GATE work: client_analysis_state records how much evidence existed when a
+// client was last tested, and without it every client looks never-run and is
+// re-tested on every pass -- which is the 52-looks-a-year problem the gate
+// exists to stop.
 import { readFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
-import { HYPOTHESES, activeFamily, isObserved } from "../src/lib/analysis/hypotheses.ts";
+import { HYPOTHESES, activeFamily, isObserved, REGISTRY_VERSION } from "../src/lib/analysis/hypotheses.ts";
 import {
   binaryClientEstimate, rankClientEstimate, dersimonianLaird, posterior,
   benjaminiHochberg, permutationP, rng, digestSeed, isMixed, stateFor,
@@ -20,6 +28,7 @@ const env = Object.fromEntries(
 );
 const db = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SECRET_KEY);
 const PERMUTATIONS = Number(process.env.SIM_PERMUTATIONS ?? 2000);
+const PERSIST = process.argv.includes("--persist");
 
 async function all(table, select, orderBy = "id") {
   const out = [];
@@ -168,6 +177,11 @@ for (const h of family) {
   const posts = first.est.map((e) => posterior(e, first.pooled));
   results.push({
     h, ran: true, p, pooled: first.pooled, posteriors: posts,
+    // The per-client estimates are kept so --persist can record y_raw and v
+    // alongside the shrunk number. Storing only the posterior would make a
+    // finding unauditable: you could see what was printed but not what the
+    // client's own data actually said.
+    est: first.est,
     mixed: isMixed(posts, first.pooled.mu), clients: first.est.length,
   });
 }
@@ -223,4 +237,142 @@ if (fired.length) {
   console.log("   These have no plausible mechanism. Distrust this run rather than publishing it.");
 } else {
   console.log("\ncanaries: none fired.");
+}
+
+/* ---- Persistence -------------------------------------------------------- */
+/* Off unless asked for, because a run that writes is no longer safe to use as
+   an inspection tool -- and inspecting is what this script is mostly for. */
+if (PERSIST) {
+  const { reconcile } = await import("../src/lib/analysis/findings.ts");
+  const wsId = [...items.values()][0].workspace_id;
+
+  const { data: run, error: runErr } = await db.from("analysis_runs").insert({
+    workspace_id: wsId,
+    registry_version: REGISTRY_VERSION,
+    outcome: "perf_index",
+    // RECORDED, not inferred later. m is the number of hypotheses that
+    // actually ran, which depends on how many clients had both sides
+    // populated today -- irrecoverable afterwards, and it is what a past
+    // p-value was corrected against.
+    m_tested: ran.length,
+    q: Q_FDR,
+    permutations: PERMUTATIONS,
+    seed: String(digestSeed(`${rows.length}|${family.length}|${ran.length}`)),
+    sigma_pooled: Number(sigma.toFixed(4)),
+    scored_posts: rows.length,
+    clients_contributing: new Set(rows.map((r) => r.clientId)).size,
+    finished_at: new Date().toISOString(),
+  }).select("id").single();
+  if (runErr) throw new Error(`could not record the run: ${runErr.message}`);
+
+  const effects = ran.map((r) => ({
+    run_id: run.id,
+    hypothesis_id: r.h.id,
+    k_clients: r.pooled.k,
+    mu: Number(r.pooled.mu.toFixed(6)),
+    se: Number(r.pooled.se.toFixed(6)),
+    tau2: Number(r.pooled.tau2.toFixed(6)),
+    i2: Number(r.pooled.i2.toFixed(6)),
+    p_perm: Number(r.p.toFixed(6)),
+    significant: Boolean(r.significant),
+    is_mixed: r.mixed,
+  }));
+  if (effects.length) {
+    const { error } = await db.from("workspace_effects").insert(effects);
+    if (error) throw new Error(`could not record effects: ${error.message}`);
+  }
+
+  /* Reconcile against what each client has already been told. A claim that
+     lost its support is RETRACTED with a reason rather than quietly dropped:
+     the report does not remember across weeks, but the reader does, and
+     silently un-saying something leaves them acting on a claim we no longer
+     support. */
+  const { data: stored } = await db
+    .from("client_findings")
+    .select("client_id, hypothesis_id, status, state, multiplier")
+    .eq("workspace_id", wsId);
+  const storedBy = new Map();
+  for (const s of stored ?? []) {
+    if (!storedBy.has(s.client_id)) storedBy.set(s.client_id, []);
+    storedBy.get(s.client_id).push({
+      hypothesisId: s.hypothesis_id, status: s.status,
+      state: s.state, multiplier: Number(s.multiplier),
+    });
+  }
+
+  const freshBy = new Map();
+  for (const r of ran) {
+    for (const e of r.est) {
+      const post = posterior(e, r.pooled);
+      if (!freshBy.has(e.clientId)) freshBy.set(e.clientId, []);
+      freshBy.get(e.clientId).push({
+        hypothesisId: r.h.id,
+        significant: Boolean(r.significant),
+        state: stateFor({ significant: Boolean(r.significant), mixed: r.mixed, p: post }),
+        multiplier: post.multiplier,
+        _post: post, _est: e,
+      });
+    }
+  }
+
+  let inserted = 0, retracted = 0;
+  for (const [clientId, fresh] of freshBy) {
+    const transitions = reconcile(storedBy.get(clientId) ?? [], fresh);
+    for (const t of transitions) {
+      if (t.kind === "retracted") {
+        await db.from("client_findings")
+          .update({ status: "retracted", retracted_run: run.id, retracted_reason: t.reason })
+          .eq("client_id", clientId).eq("hypothesis_id", t.hypothesisId).eq("status", "active");
+        retracted++;
+      }
+      if (t.kind === "new" || t.kind === "superseded") {
+        const f = fresh.find((x) => x.hypothesisId === t.hypothesisId);
+        if (!f) continue;
+        const { error } = await db.from("client_findings").insert({
+          workspace_id: wsId, client_id: clientId, hypothesis_id: t.hypothesisId,
+          status: "active", state: f.state,
+          first_seen_run: run.id, last_seen_run: run.id,
+          y_raw: Number(f._est.y.toFixed(6)), v: Number(f._est.v.toFixed(6)),
+          shrink_b: Number(f._post.b.toFixed(6)), theta: Number(f._post.theta.toFixed(6)),
+          multiplier: Number(f._post.multiplier.toFixed(6)),
+          n_with: f._est.n1, n_without: f._est.n0,
+        });
+        if (!error) inserted++;
+      }
+      if (t.kind === "confirmed") {
+        await db.from("client_findings").update({ last_seen_run: run.id })
+          .eq("client_id", clientId).eq("hypothesis_id", t.hypothesisId).eq("status", "active");
+      }
+    }
+  }
+
+  /* The data gate's memory. Without this row every client reads as never-run
+     and is re-tested on every pass, which is exactly the 52-looks-a-year
+     problem the gate exists to prevent. */
+  const postsPerClient = new Map();
+  for (const r of rows) postsPerClient.set(r.clientId, (postsPerClient.get(r.clientId) ?? 0) + 1);
+  const approved = new Map();
+  for (const it of items.values()) {
+    if (it.review_state !== "approved" || one(it.client)?.is_archived) continue;
+    approved.set(it.client_id, (approved.get(it.client_id) ?? 0) + 1);
+  }
+  const states = [...new Set([...postsPerClient.keys(), ...approved.keys()])].map((clientId) => ({
+    client_id: clientId,
+    workspace_id: wsId,
+    last_run_id: run.id,
+    // Counted the SAME WAY the gate counts it -- approved items on a live
+    // client. Recording scored posts here and comparing against approved
+    // items there would make growth incomparable and the gate meaningless.
+    scored_posts_at_run: approved.get(clientId) ?? 0,
+    last_run_at: new Date().toISOString(),
+  }));
+  if (states.length) {
+    const { error } = await db.from("client_analysis_state")
+      .upsert(states, { onConflict: "client_id" });
+    if (error) throw new Error(`could not record client state: ${error.message}`);
+  }
+
+  console.log(`\npersisted run ${run.id}`);
+  console.log(`  effects ${effects.length} | findings +${inserted} | retracted ${retracted}`);
+  console.log(`  client_analysis_state rows ${states.length} (the data gate's memory)`);
 }
