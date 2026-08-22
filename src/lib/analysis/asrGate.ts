@@ -75,6 +75,16 @@ const CREDIT_MARKS = [
 /** Music and sound-effect markers, which are annotations rather than speech. */
 const NON_SPEECH_MARKS = /^[\s♪♫🎵🎶*\[\]()<>_-]*$|^\[(music|applause|silence|laughter|sound|noise)[^\]]*\]$/i;
 
+/**
+ * The same annotations without their brackets. Caught in production by the
+ * live-table assertion, not by the unit tests: Whisper emitted "🎵 Outro
+ * Music 🎵" for a music-only clip, which is an annotation dressed in emoji
+ * rather than square brackets, and it walked through a gate that only knew
+ * the bracketed form. Matched on the WHOLE remaining text after music symbols
+ * are stripped, so a real sentence that merely mentions music is untouched.
+ */
+const BARE_ANNOTATION = /^(intro\s+|outro\s+|background\s+)?(music|song|applause|laughter|silence|sound(\s+effects?)?)(\s+plays?|\s+playing)?$/i;
+
 export type AsrVerdict =
   | { speech: true; text: string }
   | { speech: false; reason: string; raw: string };
@@ -112,6 +122,12 @@ export function gateAsrResult(
   if (!raw) return { speech: false, reason: "empty result", raw };
 
   if (NON_SPEECH_MARKS.test(raw)) {
+    return { speech: false, reason: "music or sound-effect annotation only", raw };
+  }
+  // The unbracketed form: strip the music symbols and see whether an
+  // annotation is all that remains.
+  const deSymbolled = raw.replace(/[♪♫🎵🎶*\[\]()<>_-]/gu, " ").replace(/\s+/g, " ").trim();
+  if (BARE_ANNOTATION.test(deSymbolled)) {
     return { speech: false, reason: "music or sound-effect annotation only", raw };
   }
 

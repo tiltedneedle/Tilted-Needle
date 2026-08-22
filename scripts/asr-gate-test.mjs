@@ -52,6 +52,18 @@ const check = (name, ok, detail = "") => {
   for (const t of ["♪♪♪", "[Music]", "[music playing]", "[Applause]", "***", "   "]) {
     check(`rejects ${JSON.stringify(t)}`, gateAsrResult(t).speech === false);
   }
+
+  /* The unbracketed form. Found IN PRODUCTION by the live-table assertion:
+     Whisper emitted "🎵 Outro Music 🎵" for a music-only Instagram clip, an
+     annotation dressed in emoji rather than square brackets, and it walked
+     through a gate that only knew the bracketed form. The exact string is
+     pinned here verbatim. */
+  for (const t of ["🎵 Outro Music 🎵", "Outro music", "intro music playing", "🎵 Music 🎵", "background music"]) {
+    check(`rejects ${JSON.stringify(t)}`, gateAsrResult(t).speech === false);
+  }
+  check("a real sentence that mentions music still passes",
+    gateAsrResult("The music in this showroom was chosen by our design team in Hamburg.",
+      { durationSeconds: 5 }).speech === true);
 }
 
 /* ---- Real speech survives ----------------------------------------------- */
