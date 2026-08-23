@@ -149,7 +149,26 @@ async function runJob(job) {
   } catch (err) {
     const msg = String(err?.message ?? err).slice(0, 500);
     if (err?.blocked) {
-      startCooldown(job.kind, Number(process.env.COOLDOWN_MINUTES ?? 120));
+      /* A DAILY cap is not a two-hour throttle, and treating it as one wastes
+         a dozen wake-ups a day discovering the same wall.
+         Measured on whisper-1: "Rate limit reached ... on requests per day
+         (RPD): Limit 50, Used 50" -- a hard cap that clears at the provider's
+         UTC midnight and at no other time. The default 120 minutes would
+         probe it about twelve more times before then, each one a claim, a
+         request and a refusal.
+         Anything that names a per-day limit sleeps until just past the next
+         UTC midnight instead. Every other block keeps the short cooldown,
+         because a throttle usually does clear in minutes. */
+      const perDay = /requests per day|\bRPD\b/i.test(msg);
+      const minutesToUtcMidnight = () => {
+        const now = new Date();
+        const next = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 5);
+        return Math.max(5, Math.ceil((next - now.getTime()) / 60_000));
+      };
+      startCooldown(
+        job.kind,
+        perDay ? minutesToUtcMidnight() : Number(process.env.COOLDOWN_MINUTES ?? 120),
+      );
       // Same reasoning as the cooldown skip above: a blocked kind is a fact
       // about the host, so the job is owed a clean slate rather than a
       // refund of one attempt.
