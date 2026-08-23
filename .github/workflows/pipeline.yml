@@ -110,6 +110,20 @@ jobs:
           node --experimental-strip-types --import ./scripts/register-alias.mjs \
             scripts/merge-themes.mjs
 
+      # Tier 3 counters, recomputed after every drain. Pure arithmetic over
+      # comments already stored -- no model, no quota -- so there is never a
+      # reason to let them go stale, and a marker change is a re-run rather
+      # than a migration.
+      - name: Recompute comment diagnostics
+        if: ${{ !inputs.enqueue_only }}
+        shell: bash
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: |
+          node --experimental-strip-types --import ./scripts/register-alias.mjs \
+            scripts/compute-comment-metrics.mjs | tee -a "$GITHUB_STEP_SUMMARY"
+
       # The SEAMS, checked where the parts cannot check themselves. Every unit
       # test here passes on its own; what rots is the wiring between stages --
       # a kind enqueued by a host not allowed to claim it, a column recording a

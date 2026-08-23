@@ -24,10 +24,21 @@ export type MergedThemeRow = {
   sourceCount: number;
 };
 
+/** Tier 3: what the audience was DOING, counted rather than interpreted. */
+export type AudienceCounts = {
+  analysed: number;
+  filtered: number;
+  questions: number;
+  intent: number;
+  mentions: number;
+  confusion: number;
+};
+
 export default function ClientInsights({
   entries,
   themesByClient = new Map(),
   themeDenominators = new Map(),
+  audienceByClient = new Map(),
 }: {
   entries: { clientId: string; clientName: string; evidence: ClientEvidence }[];
   /** Client-level audience themes, merged across posts by the embedding
@@ -35,6 +46,8 @@ export default function ClientInsights({
   themesByClient?: Map<string, MergedThemeRow[]>;
   /** Total analysed comments per client, so every share has a denominator. */
   themeDenominators?: Map<string, number>;
+  /** Tier 3 counters summed over the client's posts. */
+  audienceByClient?: Map<string, AudienceCounts>;
 }) {
   if (entries.length === 0) {
     return (
@@ -178,6 +191,59 @@ export default function ClientInsights({
                 (n={e.lengthHint.n}).
               </p>
             )}
+
+            {/* What the audience was DOING, counted. Distinct from the themes
+                below, which say what they talked ABOUT.
+
+                Questions are the useful one and the PRD says why: unmet
+                information demand is the next video's topic chosen by the
+                audience rather than guessed. Purchase intent is the figure an
+                agency can actually put in front of a client.
+
+                Every rate carries its denominator, and the denominator is the
+                SUBSTANTIVE set -- short reactions ("first", "W", a bare emoji)
+                are excluded before counting, and the excluded count is shown
+                too, because a rate whose denominator is hidden is not a
+                measurement. */}
+            {(() => {
+              const a = audienceByClient.get(clientId);
+              if (!a || a.analysed === 0) return null;
+              const pct = (n: number) => Math.round((n * 100) / a.analysed);
+              // "1 questions" is the kind of small wrongness that makes a
+              // careful number look careless.
+              const s = (n: number, one: string, many: string) => (n === 1 ? one : many);
+              return (
+                <div className="mt-3 flex flex-wrap items-baseline gap-x-4 gap-y-1 border-t border-[var(--border)] pt-3 text-xs">
+                  <span className="text-[11px] font-medium uppercase tracking-wide text-[var(--muted)]">
+                    What they did
+                  </span>
+                  <span title="Comments that ask something. Unmet information demand: the next video's topic, chosen by the audience rather than guessed.">
+                    <span className="tabular font-medium">{a.questions}</span>{" "}
+                    <span className="text-[var(--muted)]">{s(a.questions, "question", "questions")} ({pct(a.questions)}%)</span>
+                  </span>
+                  <span title="Comments asking price, availability or how to book.">
+                    <span className="tabular font-medium">{a.intent}</span>{" "}
+                    <span className="text-[var(--muted)]">{s(a.intent, "buying signal", "buying signals")} ({pct(a.intent)}%)</span>
+                  </span>
+                  {a.mentions > 0 && (
+                    <span title="Comments tagging someone else — the publicly visible cousin of a DM share.">
+                      <span className="tabular font-medium">{a.mentions}</span>{" "}
+                      <span className="text-[var(--muted)]">tagged {s(a.mentions, "a friend", "friends")}</span>
+                    </span>
+                  )}
+                  {a.confusion > 0 && (
+                    <span title="Comments saying they got lost. Ambiguous: confusion also drives rewatches, which platforms reward.">
+                      <span className="tabular font-medium">{a.confusion}</span>{" "}
+                      <span className="text-[var(--muted)]">said they were lost</span>
+                    </span>
+                  )}
+                  <span className="text-[var(--muted)]">
+                    of {a.analysed} substantive
+                    {a.filtered > 0 ? ` · ${a.filtered} short ${s(a.filtered, "reaction", "reactions")} excluded` : ""}
+                  </span>
+                </div>
+              );
+            })()}
 
             {/* What the AUDIENCE says, merged across this client's posts.
                 Each per-post analysis invents its own labels, so "how much is

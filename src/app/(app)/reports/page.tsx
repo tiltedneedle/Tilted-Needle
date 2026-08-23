@@ -342,6 +342,41 @@ async function InsightsReport() {
     [...distinctByClient.entries()].map(([cid, ids]) => [cid, ids.size]),
   );
 
+  /* Tier 3 counters, rolled up from POSTS to clients. The metrics table is
+     keyed by platform_post_id because comments belong to a posting, so the
+     roll-up needs the post -> item -> client chain rather than a direct join.
+     Summed, not averaged: these are counts, and averaging rates across posts
+     of wildly different comment volumes would weight a 3-comment post as
+     heavily as a 300-comment one. */
+  const { data: metricRows } = await supabase
+    .from("post_comment_metrics")
+    .select("platform_post_id, analysed_count, filtered_count, question_count, intent_count, mention_count, confusion_count")
+    .eq("workspace_id", ws);
+  const { data: metricPosts } = await supabase
+    .from("platform_posts")
+    .select("id, content_item_id")
+    .in("id", (metricRows ?? []).map((m) => m.platform_post_id));
+  const itemOfPost = new Map((metricPosts ?? []).map((p) => [p.id, p.content_item_id]));
+  const clientOfItem = new Map(overview.videos.map((v) => [v.id, v.clientId]));
+
+  const audienceByClient = new Map<string, {
+    analysed: number; filtered: number; questions: number;
+    intent: number; mentions: number; confusion: number;
+  }>();
+  for (const m of metricRows ?? []) {
+    const clientId = clientOfItem.get(itemOfPost.get(m.platform_post_id) ?? "");
+    if (!clientId) continue;
+    const acc = audienceByClient.get(clientId)
+      ?? { analysed: 0, filtered: 0, questions: 0, intent: 0, mentions: 0, confusion: 0 };
+    acc.analysed += m.analysed_count ?? 0;
+    acc.filtered += m.filtered_count ?? 0;
+    acc.questions += m.question_count ?? 0;
+    acc.intent += m.intent_count ?? 0;
+    acc.mentions += m.mention_count ?? 0;
+    acc.confusion += m.confusion_count ?? 0;
+    audienceByClient.set(clientId, acc);
+  }
+
   /* Generated ideas awaiting a verdict. The latest outcome per suggestion
      decides whether it still needs one -- outcomes are insert-only events, so
      "latest" is the reading rule, and a decided idea leaves the queue. */
@@ -380,6 +415,7 @@ async function InsightsReport() {
         entries={entries}
         themesByClient={themesByClient}
         themeDenominators={themeDenominators}
+        audienceByClient={audienceByClient}
       />
       <IdeaReview ideas={ideas} />
     </>
