@@ -405,31 +405,31 @@ def transcript():
                 "videoId": video_id, "available": False,
                 "reason": "video is private or unavailable",
             }), 200
-        # AN UPSTREAM EXTRACTOR REGRESSION IS A FACT ABOUT OUR TOOLING.
+        # AN UPSTREAM EXTRACTOR REGRESSION IS A FACT ABOUT OUR TOOLING, and
+        # it is reported as a plain retryable failure ON PURPOSE.
         #
-        # "Unexpected response from webpage request" is yt-dlp telling us its
-        # own extractor no longer matches what the site returns. It is not the
-        # video, not the address, and not something a retry in four minutes
-        # fixes -- but it IS temporary: 51 items in this library already have
-        # TikTok transcripts fetched by exactly this route, so the extractor
-        # worked until it regressed and will work again when it is patched.
+        # It was briefly returned as 429 so the worker would cool the kind and
+        # refund the attempt. That was the wrong instrument: the cooldown is
+        # KIND-WIDE and 120 minutes, and 74 of the 87 pending caption jobs are
+        # TikTok -- so nearly every claim would have parked the whole
+        # `transcript` kind, starving the 13 items that are cross-posted to
+        # YouTube and perfectly fetchable from a residential address. A
+        # per-platform problem must not stop a per-kind queue.
         #
-        # Reported as a throttle so the worker cools the kind and REFUNDS the
-        # attempt. Left as a plain 502 these jobs retry four times, fail
-        # permanently, and land in the same limbo that swallowed 22 Instagram
-        # videos: no verdict, no queue entry, invisible to everything except
-        # the enrichment invariant. Waiting is the correct behaviour when the
-        # blocker is a dependency someone else is fixing.
-        if "unexpected response from webpage" in msg.lower():
+        # requeue.mjs already owns exactly this case: failed jobs come back on
+        # a 1/6/24/72-hour backoff, which is the right shape for "wait for a
+        # dependency somebody else is fixing". The message names the real cause
+        # so the log says what is actually wrong.
+        if "unexpected response from webpage" in msg.lower()                 or "unable to extract universal data" in msg.lower():
             return jsonify({
                 "error": (
                     f"yt-dlp's {_platform_of(url)} extractor is broken upstream "
-                    f"({yt_dlp.version.__version__}); the video is fine and this "
-                    "will resolve on a yt-dlp update. Holding rather than retrying."
+                    f"(tested on {yt_dlp.version.__version__}, the 2026.08.19 release "
+                    "and the 2026.08.20 nightly -- all fail). The video is fine; this "
+                    "resolves when the extractor is patched."
                 ),
-                "rateLimited": True,
                 "extractorBroken": True,
-            }), 429
+            }), 502
         return jsonify({"error": f"Extraction failed: {msg}"}), 502
     except Exception as e:  # noqa: BLE001
         # A 429 can surface from ANY yt-dlp call, not just the caption fetch --
