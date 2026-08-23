@@ -86,7 +86,19 @@ def _with_cookies(opts: dict) -> dict:
 # reported as a TRANSPORT failure rather than a fact about the video --
 # recording "this video has no captions" because an IP was refused is how 21
 # videos were wrongly written off already.
-BOT_CHALLENGE = ("sign in to confirm", "not a bot", "confirm you")
+#
+# "confirm you" USED TO BE IN THIS LIST AND MATCHED ALMOST EVERYTHING.
+# yt-dlp appends "Confirm you are on the latest version using yt-dlp -U" to
+# most of its errors, so the substring fired on failures that had nothing to
+# do with bot detection -- a broken TikTok extractor came back as "YouTube
+# refused this host with a bot challenge", naming the wrong platform and the
+# wrong cause, for a URL that was not YouTube.
+#
+# That is the same fault this service guards against everywhere else: a
+# transport classification that is confidently wrong hides the real reason and
+# sends whoever reads the log looking for cookies they do not need. The
+# patterns are now the words the challenge itself uses.
+BOT_CHALLENGE = ("sign in to confirm", "not a bot", "confirm you're not", "confirm you are not")
 
 # Recent-only: this endpoint is asked "what is new," not "give me this
 # account's entire history." A generous default keeps a single request fast
@@ -121,6 +133,21 @@ MAX_AUDIO_SECONDS = 600
 # The download cap is separate and looser, because the source is compressed and
 # its size is not known until it arrives.
 MAX_AUDIO_BYTES = 100 * 1024 * 1024
+
+
+def _platform_of(url: str) -> str:
+    """Name the platform in an error, rather than assuming YouTube.
+
+    This endpoint takes TikTok and Instagram URLs as well as YouTube ids, and
+    every failure message used to say "YouTube" -- so a broken TikTok
+    extraction sent whoever read the log looking for YouTube cookies.
+    """
+    u = (url or "").lower()
+    if "tiktok.com" in u:
+        return "TikTok"
+    if "instagram.com" in u:
+        return "Instagram"
+    return "YouTube"
 
 
 def authorised(req) -> bool:
@@ -362,7 +389,11 @@ def transcript():
         if any(p in msg.lower() for p in BOT_CHALLENGE):
             return jsonify({
                 "error": (
-                    "YouTube refused this host with a bot challenge"
+                    # The PLATFORM, not a guess. This endpoint takes TikTok and
+                    # Instagram URLs as well as YouTube ids, and hardcoding
+                    # "YouTube" sent a reader hunting for YouTube cookies over
+                    # a TikTok failure.
+                    f"{_platform_of(url)} refused this host with a bot challenge"
                     + (" despite the configured cookies (they may have expired)"
                        if COOKIE_FILE else " and no cookies are configured")
                     + ". This says nothing about whether the video has captions."
@@ -374,6 +405,31 @@ def transcript():
                 "videoId": video_id, "available": False,
                 "reason": "video is private or unavailable",
             }), 200
+        # AN UPSTREAM EXTRACTOR REGRESSION IS A FACT ABOUT OUR TOOLING.
+        #
+        # "Unexpected response from webpage request" is yt-dlp telling us its
+        # own extractor no longer matches what the site returns. It is not the
+        # video, not the address, and not something a retry in four minutes
+        # fixes -- but it IS temporary: 51 items in this library already have
+        # TikTok transcripts fetched by exactly this route, so the extractor
+        # worked until it regressed and will work again when it is patched.
+        #
+        # Reported as a throttle so the worker cools the kind and REFUNDS the
+        # attempt. Left as a plain 502 these jobs retry four times, fail
+        # permanently, and land in the same limbo that swallowed 22 Instagram
+        # videos: no verdict, no queue entry, invisible to everything except
+        # the enrichment invariant. Waiting is the correct behaviour when the
+        # blocker is a dependency someone else is fixing.
+        if "unexpected response from webpage" in msg.lower():
+            return jsonify({
+                "error": (
+                    f"yt-dlp's {_platform_of(url)} extractor is broken upstream "
+                    f"({yt_dlp.version.__version__}); the video is fine and this "
+                    "will resolve on a yt-dlp update. Holding rather than retrying."
+                ),
+                "rateLimited": True,
+                "extractorBroken": True,
+            }), 429
         return jsonify({"error": f"Extraction failed: {msg}"}), 502
     except Exception as e:  # noqa: BLE001
         # A 429 can surface from ANY yt-dlp call, not just the caption fetch --
@@ -477,8 +533,8 @@ def asr():
             if any(p in msg.lower() for p in BOT_CHALLENGE):
                 return jsonify({
                     "error": (
-                        "The platform refused this host with a bot challenge. This says "
-                        "nothing about whether the video has speech."
+                        f"{_platform_of(url)} refused this host with a bot challenge. "
+                        "This says nothing about whether the video has speech."
                     ),
                     "botChallenge": True,
                 }), 502
