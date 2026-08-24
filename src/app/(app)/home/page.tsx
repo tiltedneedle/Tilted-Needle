@@ -104,14 +104,8 @@ export default async function HomePage() {
       clientsRes,
       videosRes,
       todosRes,
-      accountsRes,
       reach,
-      weekHours,
       rankings,
-      trainingModulesRes,
-      trainingVideosRes,
-      trainingAssignRes,
-      trainingDoneRes,
     ] = await Promise.all([
       supabase
         .from("memberships")
@@ -135,23 +129,8 @@ export default async function HomePage() {
         .eq("workspace_id", ws)
         .eq("assigned_on", today)
         .order("created_at"),
-      supabase
-        .from("accounts")
-        .select("last_synced_at, last_sync_error")
-        .eq("workspace_id", ws)
-        .eq("is_archived", false)
-        .eq("sync_enabled", true),
       loadReachCards(ws, archivedItemIds),
-      loadWeekHoursByDay(supabase, ws, startOfWeek()),
       cachedRankings(ws),
-      supabase
-        .from("training_modules")
-        .select("id")
-        .eq("workspace_id", ws)
-        .eq("is_archived", false),
-      supabase.from("training_videos").select("id, module_id").eq("workspace_id", ws),
-      supabase.from("training_assignments").select("module_id, user_id").eq("workspace_id", ws),
-      supabase.from("training_completions").select("video_id, user_id").eq("workspace_id", ws),
     ]);
 
     // The count query is unfiltered (a head count cannot express "except
@@ -173,42 +152,12 @@ export default async function HomePage() {
     }
     const sheet = [...byPerson.values()].sort((a, b) => a.name.localeCompare(b.name));
 
-    // Pipeline health, at a glance.
-    const accounts = (accountsRes.data ?? []) as {
-      last_synced_at: string | null;
-      last_sync_error: string | null;
-    }[];
-    const lastSync = accounts
-      .map((a) => a.last_synced_at)
-      .filter((t): t is string => !!t)
-      .sort()
-      .at(-1);
-    const syncErrors = accounts.filter((a) => a.last_sync_error).length;
-
-    // Training pulse: how much of everything assigned is complete.
-    const activeModules = new Set(
-      ((trainingModulesRes.data ?? []) as { id: string }[]).map((m) => m.id),
-    );
-    const videosByModule = new Map<string, string[]>();
-    for (const v of (trainingVideosRes.data ?? []) as { id: string; module_id: string }[]) {
-      if (!videosByModule.has(v.module_id)) videosByModule.set(v.module_id, []);
-      videosByModule.get(v.module_id)!.push(v.id);
-    }
-    const doneByUser = new Map<string, Set<string>>();
-    for (const c of (trainingDoneRes.data ?? []) as { video_id: string; user_id: string }[]) {
-      if (!doneByUser.has(c.user_id)) doneByUser.set(c.user_id, new Set());
-      doneByUser.get(c.user_id)!.add(c.video_id);
-    }
-    let unitsTotal = 0;
-    let unitsDone = 0;
-    for (const a of (trainingAssignRes.data ?? []) as { module_id: string; user_id: string }[]) {
-      if (!activeModules.has(a.module_id)) continue;
-      const vids = videosByModule.get(a.module_id) ?? [];
-      unitsTotal += vids.length;
-      const mine = doneByUser.get(a.user_id);
-      if (mine) unitsDone += vids.filter((v) => mine.has(v)).length;
-    }
-
+    /* The pipeline-health and training-pulse blocks were here, feeding the
+       "Data pipeline" and "Training" cards. Both cards were removed from this
+       page: it is the PERFORMANCE dashboard, and neither answered a question
+       about performance. Their reads went with them -- five queries per home
+       load computing numbers nothing rendered. /data and /training still own
+       both, in full. */
     // Who is credited on the most videos. This replaced a "top performers"
     // list ranked by exp(score) -- the boost multiplier -- which was removed
     // everywhere else in the product and survived only here.
@@ -236,7 +185,6 @@ export default async function HomePage() {
     // makes the card's window switch instant.
     const leaders = await buildLeaderboards(ws, rankings.assignments);
 
-    const weekTotalSeconds = weekHours.reduce((s, d) => s + d.seconds, 0);
     const maxMoverGain = Math.max(...movers.map((m) => m.gained), 1);
 
     return (
@@ -422,32 +370,20 @@ export default async function HomePage() {
           )}
         </section>
 
-        {/* ---- Hours + what's moving -------------------------------------- */}
+        {/* ---- Who made it + what's moving ---------------------------------
+            The two leaderboards sit where team hours used to. They are a PAIR
+            and are never split: volume beside reach, because reading a credit
+            count without the views next to it is how "most videos" gets
+            mistaken for "best videos". The cards say so themselves in their
+            own footnotes.
+
+            Hours moved off this page entirely. It is the performance
+            dashboard, and a timesheet total answered a question nothing else
+            here was asking -- /hours and /timesheet own that. */}
         <div className="mb-7 grid gap-3 [&>*]:min-w-0 lg:grid-cols-2">
-          {/* flex column, so whatever this card holds takes the slack rather
-              than leaving it at the bottom. Grid items stretch to the tallest
-              in the row, and with no hours logged the chart collapsed to its
-              own small height and left a third of the card empty underneath
-              -- trading one void for a smaller one. */}
-          <div className="card animate-rise flex flex-col p-4">
-            <div className="mb-3 flex items-baseline gap-2">
-              <Clock size={15} className="text-[var(--muted)]" />
-              <span className="text-sm font-semibold">Team hours this week</span>
-              <span className="tabular ml-auto text-lg font-semibold">
-                {weekTotalSeconds ? formatDurationShort(weekTotalSeconds) : "0h"}
-              </span>
-            </div>
-            <div className="flex flex-1 flex-col justify-center">
-              <MiniBars
-                data={weekHours.map((d) => ({
-                  label: d.label,
-                  hint: d.hint,
-                  value: Math.round((d.seconds / 3600) * 10) / 10,
-                }))}
-                valueSuffix="h"
-                emptyLabel="No hours logged this week"
-              />
-            </div>
+          <div className="grid gap-3 [&>*]:min-w-0 sm:grid-cols-2">
+            <LeaderCard kind="credits" data={leaders} />
+            <LeaderCard kind="views" data={leaders} />
           </div>
 
           <div className="card animate-rise p-4">
@@ -510,69 +446,6 @@ export default async function HomePage() {
               </div>
             )}
           </div>
-        </div>
-
-        {/* ---- Performers, training, pipeline ------------------------------ */}
-        {/* Four columns now: the two leaderboards sit side by side because
-            they are a pair -- volume next to reach -- and reading one without
-            the other is how a credit count gets mistaken for a verdict. */}
-        <div className="mb-7 grid gap-3 [&>*]:min-w-0 sm:grid-cols-2 xl:grid-cols-4">
-          <LeaderCard kind="credits" data={leaders} />
-          <LeaderCard kind="views" data={leaders} />
-
-          <Link href="/training" className="card card-interactive animate-rise flex items-center gap-4 p-4">
-            <ProgressRing
-              fraction={unitsTotal ? unitsDone / unitsTotal : 0}
-              size={56}
-              stroke={6}
-              track="var(--bg-subtle)"
-            >
-              <GraduationCap size={16} className="text-[var(--muted)]" />
-            </ProgressRing>
-            <div className="min-w-0">
-              <div className="text-sm font-semibold">Training</div>
-              <div className="tabular mt-0.5 text-lg font-semibold">
-                {unitsTotal ? `${Math.round((unitsDone / unitsTotal) * 100)}%` : null}
-              </div>
-              <div className="text-xs text-[var(--muted)]">
-                {unitsTotal
-                  ? `${unitsDone}/${unitsTotal} assigned videos watched`
-                  : "nothing assigned yet"}
-              </div>
-            </div>
-          </Link>
-
-          <Link href="/data" className="card card-interactive animate-rise flex items-center gap-4 p-4">
-            <div
-              className="grid size-10 shrink-0 place-items-center rounded-full"
-              style={{
-                background: syncErrors ? "var(--danger-100)" : "var(--success-100)",
-                color: syncErrors ? "var(--danger)" : "var(--success)",
-              }}
-            >
-              {syncErrors ? <RefreshCw size={16} /> : <CheckCircle2 size={16} />}
-            </div>
-            <div className="min-w-0">
-              <div className="text-sm font-semibold">Data pipeline</div>
-              <div className="mt-0.5 text-xs text-[var(--muted)]">
-                {/* The viewer's clock, not the server's. Unqualified
-                    toLocaleTimeString on a server component resolves to UTC on
-                    Vercel, so this said 09:25 to someone whose clock read
-                    14:25. */}
-                {lastSync
-                  ? `last sync ${formatInstant(lastSync, session.timezone, {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}`
-                  : "never synced"}
-              </div>
-              <div className={`text-xs ${syncErrors ? "text-[var(--danger)]" : "text-[var(--muted)]"}`}>
-                {syncErrors
-                  ? `${syncErrors} account${syncErrors === 1 ? "" : "s"} with errors`
-                  : "all accounts healthy"}
-              </div>
-            </div>
-          </Link>
         </div>
 
         {/* ---- Today's sheet, person by person ----------------------------- */}

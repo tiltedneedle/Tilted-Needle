@@ -123,6 +123,10 @@ export default async function ChannelDashboardPage({
                   id: v.id,
                   title: v.title,
                   producedAt: v.producedAt,
+                  // VideoTile has drawn poster frames since they were added;
+                  // this page just never passed one, so every row fell back
+                  // to the platform glyph.
+                  thumbnailUrl: v.thumbnailUrl,
                   // One account, so one platform -- the tile still shows it
                   // per platform rather than as a bare figure.
                   platforms: [

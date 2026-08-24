@@ -49,29 +49,54 @@ export async function loadClientChannels(
     .maybeSingle();
   if (!client) return null;
 
-  const [accountsRes, postsRes] = await Promise.all([
-    db
-      .from("accounts")
-      .select(
-        "id, platform_slug, handle, display_name, is_archived, last_synced_at, last_sync_error",
+  const accountsRes = await db
+    .from("accounts")
+    .select(
+      "id, platform_slug, handle, display_name, is_archived, last_synced_at, last_sync_error",
+    )
+    .eq("workspace_id", ws)
+    .eq("client_id", clientId)
+    .order("platform_slug");
+
+  const accountIds = ((accountsRes.data ?? []) as { id: string }[]).map((a) => a.id);
+
+  /* SCOPED TO THIS CLIENT'S ACCOUNTS, and that is a bug fix rather than an
+     optimisation.
+
+     This read every post in the WORKSPACE and then filtered in JavaScript,
+     which is wasteful on its face -- one client's page paying for every
+     client's posts -- but the failure was worse than slow. Joined to
+     post_current_metrics and run through RLS, the workspace-wide version
+     started exceeding Postgres's statement timeout: measured as the demo
+     user, `canceling statement due to statement timeout`. selectAll returns
+     `{data, error}` and the caller only read `.data`, so a timeout arrived as
+     an EMPTY ARRAY. Every channel then rendered "0 views across 0 videos"
+     over a client with 68 posts, and nothing anywhere said a query had
+     failed.
+
+     Filtering server-side keeps the row count proportional to the page, and
+     the error is no longer swallowed below. Still paged: a client with more
+     than 1000 posts is entirely plausible, and PostgREST truncates at 1000
+     in silence. */
+  const postsRes = accountIds.length
+    ? await selectAll(() =>
+        db
+          .from("platform_posts")
+          .select("id, account_id, metrics:post_current_metrics(views)")
+          .eq("workspace_id", ws)
+          .in("account_id", accountIds)
+          .order("id"),
       )
-      .eq("workspace_id", ws)
-      .eq("client_id", clientId)
-      .order("platform_slug"),
-    // Paged. This reads EVERY post in the workspace, and PostgREST caps an
-    // unbounded select at 1000 rows SILENTLY -- no error, no warning, just a
-    // short array. At 237 posts it would have looked correct indefinitely and
-    // then started under-reporting channel reach the moment the library
-    // crossed the cap, with nothing to indicate why. The snapshot read below
-    // was already wrapped; this one was missed.
-    selectAll(() =>
-      db
-        .from("platform_posts")
-        .select("id, account_id, metrics:post_current_metrics(views)")
-        .eq("workspace_id", ws)
-        .order("id"),
-    ),
-  ]);
+    : { data: [], error: null };
+
+  /* A failed read must not read as an empty one. Returning zeros here is
+     indistinguishable from a client that genuinely has no posts, which is
+     exactly how the timeout above stayed invisible. */
+  if (postsRes.error) {
+    throw new Error(
+      `channel posts for client ${clientId}: ${postsRes.error.message ?? postsRes.error}`,
+    );
+  }
 
   type PostRow = {
     id: string;
@@ -197,6 +222,16 @@ export type ChannelVideo = {
   title: string;
   producedAt: string | null;
   url: string | null;
+  /**
+   * Poster frame, when the platform reported one.
+   *
+   * This surface rendered VideoTile all along and VideoTile has drawn
+   * thumbnails since they were added -- it simply was never handed one,
+   * because the query did not select the column and this type had no field
+   * for it. So every channel page fell back to the platform-glyph
+   * placeholder while 425 of 570 posts had artwork sitting in the database.
+   */
+  thumbnailUrl: string | null;
   views: number;
   likes: number;
   comments: number;
@@ -248,7 +283,7 @@ export async function loadChannelDashboard(
   const { data: postsData } = await db
     .from("platform_posts")
     .select(
-      "id, content_item_id, url, content:content_items(id, title, produced_at), metrics:post_current_metrics(views, likes, comments)",
+      "id, content_item_id, url, thumbnail_url, content:content_items(id, title, produced_at), metrics:post_current_metrics(views, likes, comments)",
     )
     .eq("workspace_id", ws)
     .eq("account_id", accountId);
@@ -257,6 +292,7 @@ export async function loadChannelDashboard(
     id: string;
     content_item_id: string;
     url: string | null;
+    thumbnail_url: string | null;
     content: { id: string; title: string; produced_at: string | null } | { id: string; title: string; produced_at: string | null }[] | null;
     metrics:
       | { views: number | null; likes: number | null; comments: number | null }
@@ -359,6 +395,7 @@ export async function loadChannelDashboard(
       title: content?.title ?? "Untitled",
       producedAt: content?.produced_at ?? null,
       url: p.url,
+      thumbnailUrl: p.thumbnail_url ?? null,
       views: m?.views ?? 0,
       likes: m?.likes ?? 0,
       comments: m?.comments ?? 0,
