@@ -22,6 +22,7 @@ import {
   retirePosts,
   type BudgetPool,
 } from "@/lib/scrapeBudget";
+import { durableThumbnailUrl } from "@/lib/thumbnailCache";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Db = SupabaseClient<any>;
@@ -150,7 +151,12 @@ async function fillMissingThumbnails(db: Db, account: AccountRow): Promise<void>
       if (account.platform_slug !== "tiktok") return;
       continue;
     }
-    await db.from("platform_posts").update({ thumbnail_url: src }).eq("id", row.id);
+    /* Copy the bytes before storing anything. `src` from TikTok's oEmbed is
+       a SIGNED url: it works now and 403s in a few weeks, which is how 138
+       TikTok posters became broken images in a client's PDF. YouTube's is
+       passed through untouched -- see needsCaching. */
+    const durable = await durableThumbnailUrl(db, row.id, src);
+    await db.from("platform_posts").update({ thumbnail_url: durable }).eq("id", row.id);
     // Only pace the route that makes a real request; YouTube's is arithmetic.
     if (account.platform_slug === "tiktok") {
       await new Promise((r) => setTimeout(r, 250));
