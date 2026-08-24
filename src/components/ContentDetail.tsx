@@ -24,6 +24,8 @@ import ScreenshotImport from "@/components/ScreenshotImport";
 import ScrapeNowButton, { type ScrapeAllowance } from "@/components/ScrapeNowButton";
 import TranscriptPanel from "@/components/TranscriptPanel";
 import HookTypePanel from "@/components/HookTypePanel";
+import VideoAttributionPanel from "@/components/VideoAttribution";
+import type { VideoAttribution } from "@/lib/analysis/videoAttribution";
 import CommentThemes, { type CommentThemeResult } from "@/components/CommentThemes";
 import { PLATFORM_COLORS, one } from "@/lib/types";
 import type {
@@ -72,6 +74,7 @@ export default function ContentDetail({
   commentThemes = null,
   visionDrafts = {},
   scrapeAllowance = null,
+  attribution = null,
 }: {
   workspaceId: string;
   /** Existing transcript, when one has been fetched or pasted. */
@@ -79,6 +82,8 @@ export default function ContentDetail({
   commentThemes?: CommentThemeResult | null;
   /** Remaining metered reads, so the counter sits beside the button. */
   scrapeAllowance?: ScrapeAllowance;
+  /** How this video sat against its client's corpus. Null when unavailable. */
+  attribution?: VideoAttribution | null;
   /** Vision drafts awaiting confirmation, keyed by platform post id. */
   visionDrafts?: Record<
     string,
@@ -706,6 +711,12 @@ export default function ContentDetail({
           )}
         </div>
       )}
+
+      {/* Immediately after the numbers, because it is the first question
+          anyone asks of them -- and immediately BEFORE the hook picker, so a
+          reader who wants to know why reaches a control that improves the
+          answer rather than a dead end. */}
+      {attribution && <VideoAttributionPanel data={attribution} />}
 
       {/* Directly above the transcript, because the tagger's evidence is the
           opening line and the transcript is where the rest of it lives. A

@@ -20,6 +20,8 @@ import { hoursPerThousandViews } from "@/lib/rollup";
 import { cachedRankings } from "@/lib/cachedRankings";
 import { parseFilters } from "@/lib/contentFilters";
 import { selectAll } from "@/lib/selectAll";
+import { attributeVideo, attributesOf } from "@/lib/analysis/videoAttribution";
+import { hookTypeLabel } from "@/lib/analysis/hookTypes";
 import { loadContentOverview, loadReviewQueue, loadRoles } from "@/lib/dashboards";
 import { getScrapeBudget } from "@/app/actions";
 import type {
@@ -418,6 +420,7 @@ export default async function ContentPage({
           }
           visionDrafts={visionDrafts}
           scrapeAllowance={scrapeAllowance}
+          attribution={await loadAttribution(supabase, ws, view.item, rankings)}
         />
       </Shell>
     );
@@ -863,6 +866,69 @@ async function loadVideoView(supabase: any, ws: string, id: string) {
     history: (historyRes.data ?? []) as SnapshotRow[],
     analytics: (analyticsRes.data ?? []) as AnalyticsRow[],
   };
+}
+
+/**
+ * What this video shares with the rest of its client's corpus.
+ *
+ * The cohort is the CLIENT'S videos, never the workspace's: the index is
+ * already normalised per account precisely so that accounts with different
+ * baselines do not have to be mixed, and mixing them here would undo that.
+ *
+ * Paged and ordered. A silent 1000-row truncation would not error -- it would
+ * quietly drop attributes below the n>=8 floor and report "nothing to compare
+ * against" about a client with hundreds of videos.
+ */
+async function loadAttribution(
+  supabase: any,
+  ws: string,
+  item: { id: string; client_id: string | null; length_seconds: number | null },
+  rankings: { scoredByContent: Map<string, { index: number }[]> },
+) {
+  if (!item.client_id) return null;
+
+  const { data: siblings } = await selectAll<{
+    id: string; length_seconds: number | null; topic_labels: string[] | null;
+    hook_type: string | null;
+  }>(() => supabase
+    .from("content_items")
+    .select("id, length_seconds, topic_labels, hook_type")
+    .eq("workspace_id", ws).eq("client_id", item.client_id).order("id"));
+
+  const ids = (siblings ?? []).map((s) => s.id);
+  const { data: posts } = await selectAll<{ content_item_id: string; posted_at: string | null }>(
+    () => supabase.from("platform_posts").select("content_item_id, posted_at")
+      .eq("workspace_id", ws).in("content_item_id", ids.length ? ids : ["-"]).order("id"),
+  );
+  // Earliest post is the video's date: a repost did not make it newer.
+  const firstPosted = new Map<string, Date>();
+  for (const p of posts ?? []) {
+    if (!p.posted_at) continue;
+    const d = new Date(p.posted_at);
+    const cur = firstPosted.get(p.content_item_id);
+    if (!cur || d < cur) firstPosted.set(p.content_item_id, d);
+  }
+
+  const toScored = (s: {
+    id: string; length_seconds: number | null; topic_labels: string[] | null;
+    hook_type: string | null;
+  }) => ({
+    id: s.id,
+    index: (rankings.scoredByContent.get(s.id) ?? [])
+      .reduce((m: number, p: { index: number }) => Math.max(m, p.index), 0) || null,
+    attributes: attributesOf({
+      hookType: s.hook_type,
+      hookTypeLabel: hookTypeLabel(s.hook_type),
+      lengthSeconds: s.length_seconds,
+      topicLabels: s.topic_labels,
+      postedAt: firstPosted.get(s.id) ?? null,
+    }),
+  });
+
+  const cohort = (siblings ?? []).map(toScored);
+  const subject = cohort.find((c) => c.id === item.id);
+  if (!subject) return null;
+  return attributeVideo(subject, cohort);
 }
 
 /** Browser-tab identity; the root layout template appends the app name. */
