@@ -784,7 +784,7 @@ async function loadVideoView(supabase: any, ws: string, id: string) {
   const { data: item } = await supabase
     .from("content_items")
     .select(
-      "id, workspace_id, client_id, title, subject, hook, music_used, length_seconds, produced_at, notes, client:clients(id, name)",
+      "id, workspace_id, client_id, title, subject, hook, hook_type, hook_type_set_at, music_used, length_seconds, produced_at, notes, client:clients(id, name)",
     )
     .eq("id", id)
     .eq("workspace_id", ws)

@@ -23,6 +23,7 @@ import Avatar from "@/components/Avatar";
 import ScreenshotImport from "@/components/ScreenshotImport";
 import ScrapeNowButton, { type ScrapeAllowance } from "@/components/ScrapeNowButton";
 import TranscriptPanel from "@/components/TranscriptPanel";
+import HookTypePanel from "@/components/HookTypePanel";
 import CommentThemes, { type CommentThemeResult } from "@/components/CommentThemes";
 import { PLATFORM_COLORS, one } from "@/lib/types";
 import type {
@@ -705,6 +706,17 @@ export default function ContentDetail({
           )}
         </div>
       )}
+
+      {/* Directly above the transcript, because the tagger's evidence is the
+          opening line and the transcript is where the rest of it lives. A
+          hook picker anywhere else on this page would be a quiz from memory. */}
+      <HookTypePanel
+        workspaceId={workspaceId}
+        contentItemId={item.id}
+        hook={item.hook ?? null}
+        hookType={item.hook_type ?? null}
+        setAt={item.hook_type_set_at ?? null}
+      />
 
       {/* The transcript sits above credits: it describes the video itself,
           and it is what the whole corpus layer reads (PRD §5.11). */}

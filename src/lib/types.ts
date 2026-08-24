@@ -115,6 +115,13 @@ export type ContentItem = {
   title: string;
   subject: string | null;
   hook: string | null;
+  /**
+   * The controlled vocabulary that `hook` cannot provide. NULL means UNTAGGED
+   * — a third state distinct from "no hook", and one every read path must
+   * keep out of its denominator. See src/lib/analysis/hookTypes.ts.
+   */
+  hook_type?: string | null;
+  hook_type_set_at?: string | null;
   music_used: string | null;
   length_seconds: number | null;
   produced_at: string | null;

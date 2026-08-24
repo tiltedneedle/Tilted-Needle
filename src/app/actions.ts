@@ -14,6 +14,7 @@ import { youtubeIdFrom } from "@/lib/videoEmbed";
 import { parseContentUrl, tiktokPostedAtTs } from "@/lib/contentUrl";
 import { operatingDate } from "@/lib/tz";
 import { attachRefusal } from "@/lib/attachGuards";
+import { isHookType } from "@/lib/analysis/hookTypes";
 import { fetchVideoDetails } from "@/lib/providers/youtube";
 import { verifyVideo as tiktokVerifyVideo } from "@/lib/providers/tiktok";
 import { MANAGER_ROLES, one, type WorkspaceRole } from "@/lib/types";
@@ -3672,6 +3673,55 @@ export async function saveTranscript(input: {
   });
 
   revalidatePath("/content");
+  return {};
+}
+
+/**
+ * Tag a video's hook type, or clear it.
+ *
+ * The value is validated against the SAME list the check constraint uses, and
+ * both are validated here rather than trusting either alone: the constraint
+ * would reject a bad value with a Postgres error string no user should read,
+ * and app-side validation alone would be bypassable. `null` is a legitimate
+ * input — untagging is how a mistake gets corrected, and "untagged" has to
+ * stay reachable or the first wrong click is permanent.
+ */
+export async function setHookType(input: {
+  workspaceId: string;
+  contentItemId: string;
+  hookType: string | null;
+}): Promise<Result> {
+  const supabase = await createClient();
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth?.user) return { error: "Not signed in." };
+
+  const hookType = input.hookType;
+  if (hookType !== null && !isHookType(hookType)) {
+    return { error: "That is not a hook type this system recognises." };
+  }
+
+  const { error } = await supabase.from("content_items").update({
+    hook_type: hookType,
+    // Who and when, because this is a judgement rather than a measurement.
+    // A number nobody signed can still be checked against the source; a
+    // judgement cannot, so the reviewer needs to know whose it was.
+    hook_type_set_by: hookType ? auth.user.id : null,
+    hook_type_set_at: hookType ? new Date().toISOString() : null,
+  }).eq("id", input.contentItemId).eq("workspace_id", input.workspaceId);
+  if (error) return { error: error.message };
+
+  await logAudit(supabase, {
+    workspaceId: input.workspaceId,
+    actorId: auth.user.id,
+    action: hookType ? "content.hook_type.set" : "content.hook_type.clear",
+    entityType: "content_items",
+    entityId: input.contentItemId,
+    detail: { hookType },
+  });
+
+  // Both: the video page shows the tag, the Insights tab aggregates it.
+  revalidatePath("/content");
+  revalidatePath("/reports");
   return {};
 }
 

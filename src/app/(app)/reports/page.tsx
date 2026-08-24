@@ -7,6 +7,8 @@ import ClientInsights from "@/components/ClientInsights";
 import IdeaReview from "@/components/IdeaReview";
 import FilterBar from "@/components/FilterBar";
 import { createClient } from "@/lib/supabase/server";
+import { selectAll } from "@/lib/selectAll";
+import { hookPerformance } from "@/lib/analysis/hookTypes";
 import { requireSession } from "@/lib/workspace";
 import { canManage, one } from "@/lib/types";
 import { addDays, startOfWeek } from "@/lib/format";
@@ -377,6 +379,39 @@ async function InsightsReport() {
     audienceByClient.set(clientId, acc);
   }
 
+  /* HOOK PERFORMANCE, per client.
+     Paged, because content_items outgrows a single response and a truncated
+     read here would not error -- it would quietly drop whole hooks below the
+     n>=8 floor and report "not enough data" about a client that has plenty.
+     Ordered too: .range() without ORDER BY has no stable row order, so pages
+     can repeat and skip. */
+  const { data: hookRows } = await selectAll<{ id: string; hook_type: string | null }>(
+    () => supabase
+      .from("content_items")
+      .select("id, hook_type")
+      .eq("workspace_id", ws)
+      .not("hook_type", "is", null)
+      .order("id"),
+  );
+  const hookOfItem = new Map((hookRows ?? []).map((r) => [r.id, r.hook_type]));
+
+  const hooksByClient = new Map<string, ReturnType<typeof hookPerformance>>();
+  {
+    const byClient = new Map<string, { hookType: string | null; index: number | null }[]>();
+    for (const v of overview.videos) {
+      if (!v.clientId) continue;
+      if (!byClient.has(v.clientId)) byClient.set(v.clientId, []);
+      byClient.get(v.clientId)!.push({
+        hookType: hookOfItem.get(v.id) ?? null,
+        index: v.bestIndex,
+      });
+    }
+    for (const [clientId, videos] of byClient) {
+      const perf = hookPerformance(videos);
+      if (perf.length) hooksByClient.set(clientId, perf);
+    }
+  }
+
   /* Generated ideas awaiting a verdict. The latest outcome per suggestion
      decides whether it still needs one -- outcomes are insert-only events, so
      "latest" is the reading rule, and a decided idea leaves the queue. */
@@ -416,6 +451,7 @@ async function InsightsReport() {
         themesByClient={themesByClient}
         themeDenominators={themeDenominators}
         audienceByClient={audienceByClient}
+        hooksByClient={hooksByClient}
       />
       <IdeaReview ideas={ideas} />
     </>

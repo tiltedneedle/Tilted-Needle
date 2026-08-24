@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { SectionHeading } from "@/components/Stat";
 import type { ClientEvidence } from "@/lib/analysis/clientEvidence";
+import type { HookPerformance } from "@/lib/analysis/hookTypes";
 
 /**
  * What works, per client -- rendered from the computed evidence table with no
@@ -39,6 +40,7 @@ export default function ClientInsights({
   themesByClient = new Map(),
   themeDenominators = new Map(),
   audienceByClient = new Map(),
+  hooksByClient = new Map(),
 }: {
   entries: { clientId: string; clientName: string; evidence: ClientEvidence }[];
   /** Client-level audience themes, merged across posts by the embedding
@@ -48,6 +50,8 @@ export default function ClientInsights({
   themeDenominators?: Map<string, number>;
   /** Tier 3 counters summed over the client's posts. */
   audienceByClient?: Map<string, AudienceCounts>;
+  /** Hand-tagged hook types, scored against their siblings. */
+  hooksByClient?: Map<string, HookPerformance[]>;
 }) {
   if (entries.length === 0) {
     return (
@@ -244,6 +248,62 @@ export default function ClientInsights({
                 </div>
               );
             })()}
+
+            {/* WHICH HOOKS WORK, from the tags a human applied.
+                Ratios are against the client's OTHER hooks rather than
+                against 1.0, because 1.0 is "this account's typical post"
+                including every untagged one -- and a hook can only be judged
+                against the alternatives that were actually on the table.
+
+                Rows below the 8-video floor are shown greyed with their n
+                rather than hidden. Hiding them would make a client with 30
+                tagged videos look identical to one with none; showing them
+                unmarked would invite reading a 3-video hook as a finding.
+                Neither is descriptive, and this is a descriptive table -- it
+                runs no test, so it must not look like the engine's output. */}
+            {(hooksByClient.get(clientId)?.length ?? 0) > 0 && (
+              <div className="mt-3 border-t border-[var(--border)] pt-3">
+                <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-[var(--muted)]">
+                  Which hooks land
+                </p>
+                <div className="flex flex-col gap-1">
+                  {hooksByClient.get(clientId)!.map((h) => (
+                    <div
+                      key={h.hookType}
+                      className={`flex items-baseline justify-between gap-3 text-xs ${
+                        h.underpowered ? "text-[var(--muted)]" : ""
+                      }`}
+                    >
+                      <span className="truncate">{h.label}</span>
+                      <span className="flex shrink-0 items-baseline gap-2">
+                        {h.ratio != null && !h.underpowered && (
+                          <span
+                            className={`tabular font-medium ${
+                              h.ratio >= 1.15
+                                ? "text-[var(--success)]"
+                                : h.ratio <= 0.87
+                                  ? "text-[var(--danger)]"
+                                  : ""
+                            }`}
+                            title="Median index for this hook, divided by the median of this client's other tagged hooks."
+                          >
+                            {h.ratio.toFixed(2)}×
+                          </span>
+                        )}
+                        <span className="tabular text-[var(--muted)]">
+                          n={h.n}
+                          {h.underpowered ? " · too few to rank" : ""}
+                        </span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-1.5 text-[11px] text-[var(--muted)]">
+                  Against this client&apos;s other tagged hooks. Descriptive —
+                  no significance test, so treat a gap as a lead, not a finding.
+                </p>
+              </div>
+            )}
 
             {/* What the AUDIENCE says, merged across this client's posts.
                 Each per-post analysis invents its own labels, so "how much is
