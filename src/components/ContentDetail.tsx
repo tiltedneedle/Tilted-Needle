@@ -23,6 +23,7 @@ import Avatar from "@/components/Avatar";
 import ScreenshotImport from "@/components/ScreenshotImport";
 import ScrapeNowButton, { type ScrapeAllowance } from "@/components/ScrapeNowButton";
 import TranscriptPanel from "@/components/TranscriptPanel";
+import ScriptPanel from "@/components/ScriptPanel";
 import HookTypePanel from "@/components/HookTypePanel";
 import VideoAttributionPanel from "@/components/VideoAttribution";
 import type { VideoAttribution } from "@/lib/analysis/videoAttribution";
@@ -71,6 +72,7 @@ export default function ContentDetail({
   analytics,
   clients,
   transcript = null,
+  script = null,
   commentThemes = null,
   visionDrafts = {},
   scrapeAllowance = null,
@@ -79,6 +81,8 @@ export default function ContentDetail({
   workspaceId: string;
   /** Existing transcript, when one has been fetched or pasted. */
   transcript?: { fullText: string; source: string; isGenerated: boolean | null } | null;
+  /** What the video was WRITTEN to say. Distinct from the transcript. */
+  script?: { body: string; updatedAt: string | null; author: string | null } | null;
   commentThemes?: CommentThemeResult | null;
   /** Remaining metered reads, so the counter sits beside the button. */
   scrapeAllowance?: ScrapeAllowance;
@@ -727,6 +731,15 @@ export default function ContentDetail({
         hook={item.hook ?? null}
         hookType={item.hook_type ?? null}
         setAt={item.hook_type_set_at ?? null}
+      />
+
+      {/* Script above transcript, because that is the order they happen in:
+          written before the shoot, recorded after it. Side by side they show
+          the gap between what was planned and what was delivered. */}
+      <ScriptPanel
+        workspaceId={workspaceId}
+        contentItemId={item.id}
+        script={script}
       />
 
       {/* The transcript sits above credits: it describes the video itself,

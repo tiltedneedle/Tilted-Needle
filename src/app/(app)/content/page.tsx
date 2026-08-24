@@ -11,10 +11,10 @@ import { secondsByUserOnVideos } from "@/lib/reportData";
 import FilterBar from "@/components/FilterBar";
 import PlatformReach from "@/components/PlatformReach";
 import { Stat, StatGrid, SectionHeading } from "@/components/Stat";
-import { Clapperboard, Eye, Layers, TrendingUp, Timer } from "lucide-react";
+import { Clapperboard, Eye, MessageCircleQuestion, TrendingUp } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { requireSession } from "@/lib/workspace";
-import { canManage, one } from "@/lib/types";
+import { canManage, one, PLATFORM_LABEL } from "@/lib/types";
 import { formatCount, formatDurationShort } from "@/lib/format";
 import { hoursPerThousandViews } from "@/lib/rollup";
 import { cachedRankings } from "@/lib/cachedRankings";
@@ -345,6 +345,42 @@ export default async function ContentPage({
         .maybeSingle(),
     ]);
 
+    /* The script, and who last wrote it. A separate read rather than a join
+       on the transcript query: they are different artefacts on different
+       tables, and one being absent must never affect whether the other
+       renders. */
+    /* No embedded join on the author, deliberately. written_by references
+       auth.users, and PostgREST can only embed across a declared foreign key
+       -- asking it for `profiles!video_scripts_written_by_fkey` matched no
+       relationship, so the whole select errored and the panel rendered as
+       "no script" over a script that existed. Two plain reads cannot fail
+       that way, and the second only runs when there is an author to name. */
+    const { data: scriptRow, error: scriptErr } = await supabase
+      .from("video_scripts")
+      .select("body, updated_at, written_by")
+      .eq("workspace_id", ws)
+      .eq("content_item_id", videoId)
+      .maybeSingle();
+    if (scriptErr) console.error("script read failed", scriptErr.message);
+
+    let scriptAuthor: string | null = null;
+    if (scriptRow?.written_by) {
+      const { data: prof } = await supabase
+        .from("profiles")
+        .select("full_name")
+        .eq("id", scriptRow.written_by)
+        .maybeSingle();
+      scriptAuthor = (prof?.full_name as string | null) ?? null;
+    }
+
+    const scriptForItem = scriptRow
+      ? {
+          body: scriptRow.body as string,
+          updatedAt: (scriptRow.updated_at as string | null) ?? null,
+          author: scriptAuthor,
+        }
+      : null;
+
     const transcriptForItem = transcriptRes.data
       ? {
           fullText: transcriptRes.data.full_text as string,
@@ -415,6 +451,7 @@ export default async function ContentPage({
           analytics={view.analytics}
           clients={allClients}
           transcript={transcriptForItem}
+          script={scriptForItem}
           commentThemes={
             (themesRes.data?.output as CommentThemeResult | undefined) ?? null
           }
@@ -524,7 +561,31 @@ export default async function ContentPage({
   const stillGrowing = overview.videos.filter(
     (v) => v.recentGain != null && v.recentGain.views > 0,
   );
-  const gained = stillGrowing.reduce((s, v) => s + (v.recentGain?.views ?? 0), 0);
+  /* SPLIT BY PLATFORM, NEVER POOLED.
+     This card used to print one figure: stillGrowing summed over
+     recentGain.views. The arithmetic was right and the number was not -- it
+     added Instagram views to YouTube views, four inches above a line that
+     says "Each platform counts a view differently — never summed". Measured
+     on this workspace the pooled 258,443 was 216,735 Instagram (84%) plus
+     three much smaller platforms, so the headline mostly said "Instagram
+     moved" while appearing to describe the whole library.
+
+     dashboards.ts admits it at the source: recentGain.views "pools it into
+     one number, which is fine for 'is this still moving' but useless to the
+     platform report". It was built as a yes/no signal and displayed as a
+     quantity.
+
+     So the biggest single-platform gain becomes the headline -- a real number
+     in one real unit -- and the rest are listed beside it, still separate. */
+  const growthByPlatform = new Map<string, number>();
+  for (const v of stillGrowing) {
+    for (const g of v.platformGains ?? []) {
+      if (g.views > 0) growthByPlatform.set(g.platform, (growthByPlatform.get(g.platform) ?? 0) + g.views);
+    }
+  }
+  const growthRanked = [...growthByPlatform.entries()].sort((a, b) => b[1] - a[1]);
+  const topGrowth = growthRanked[0] ?? null;
+  const gained = topGrowth ? topGrowth[1] : 0;
 
   /* How many platforms the filtered population actually spans. Derived from
      the same platformTotals the reach section renders, so the card and the
@@ -550,6 +611,39 @@ export default async function ContentPage({
         : Math.round(lo) === Math.round(hi)
           ? `over ${Math.round(hi)}d`
           : `over ${Math.round(lo)}–${Math.round(hi)}d`;
+
+  /* WHAT THE AUDIENCE ASKED FOR, which appears nowhere else on this page.
+     Every other figure here describes what WE published and how far it went.
+     This is the only one describing what came back, and it is the one a
+     strategist can act on directly: an unanswered question is the next
+     video's topic chosen by the audience rather than guessed.
+
+     Scoped to the videos in view, so it narrows with the filters like every
+     other card rather than quietly staying workspace-wide. */
+  const inViewItemIds = new Set(overview.videos.map((v) => v.id));
+  let questionsAsked = 0;
+  let substantive = 0;
+  {
+    const { data: postRows } = await selectAll<{ id: string; content_item_id: string }>(
+      () => supabase.from("platform_posts").select("id, content_item_id")
+        .eq("workspace_id", ws).order("id"),
+    );
+    const wanted = new Set(
+      (postRows ?? []).filter((p) => inViewItemIds.has(p.content_item_id)).map((p) => p.id),
+    );
+    if (wanted.size > 0) {
+      const { data: metricRows } = await selectAll<{
+        platform_post_id: string; question_count: number | null; analysed_count: number | null;
+      }>(() => supabase.from("post_comment_metrics")
+        .select("platform_post_id, question_count, analysed_count")
+        .eq("workspace_id", ws).order("platform_post_id"));
+      for (const m of metricRows ?? []) {
+        if (!wanted.has(m.platform_post_id)) continue;
+        questionsAsked += m.question_count ?? 0;
+        substantive += m.analysed_count ?? 0;
+      }
+    }
+  }
 
   /* Freshness, so a fortnight-old figure cannot pass as "now" -- the exact
      reason staleDays is carried in the first place. */
@@ -639,7 +733,7 @@ export default async function ContentPage({
             other is the only figure on this row that changes on its own. */}
         <Stat
           icon={TrendingUp}
-          label="Still growing"
+          label={topGrowth ? `Growing on ${PLATFORM_LABEL[topGrowth[0]] ?? topGrowth[0]}` : "Still growing"}
           value={gained ? `+${gained.toLocaleString()}` : null}
           /* "latest snapshots" told you nothing you could anchor the number
              to: gained since WHEN, and how current is it? Both facts are
@@ -653,14 +747,38 @@ export default async function ContentPage({
              imply a uniformity that is not there. Freshness is the newest
              reading in the set, because that is the most this figure can
              claim to be current to. */
+          /* The other platforms are named with their own figures rather than
+             folded in. A reader can add them up if they want a meaningless
+             number; the card will not do it for them. */
           hint={
             gained
-              ? `${growthWindow} · ${stillGrowing.length} video${stillGrowing.length === 1 ? "" : "s"} · newest reading ${freshness}`
+              ? [
+                  growthRanked
+                    .slice(1)
+                    .map(([p, n]) => `${PLATFORM_LABEL[p] ?? p} +${n.toLocaleString()}`)
+                    .join(" · "),
+                  `${growthWindow} · ${stillGrowing.length} video${stillGrowing.length === 1 ? "" : "s"} · newest ${freshness}`,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")
               : undefined
           }
           emptyText="Nothing has gained views since its previous reading"
           accent={gained > 0}
         />
+        {/* Rendered only when comments have actually been analysed. A zero
+            here would be indistinguishable from "nobody asked anything",
+            when the truth is almost always "these posts have no comment
+            analysis yet" -- the absence-versus-zero rule again. */}
+        {substantive > 0 && (
+          <Stat
+            icon={MessageCircleQuestion}
+            label="Questions asked"
+            value={questionsAsked.toLocaleString()}
+            hint={`of ${substantive.toLocaleString()} substantive comment${substantive === 1 ? "" : "s"} · unmet demand`}
+          />
+        )}
+
         {/* The last figure the deleted client view had that this one did not.
             Peak single-platform views, never a sum across platforms -- and
             shown only for a single client, because "the most viewed video"

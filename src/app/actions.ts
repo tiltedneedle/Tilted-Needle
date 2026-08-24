@@ -3677,6 +3677,64 @@ export async function saveTranscript(input: {
 }
 
 /**
+ * Save or clear a video's script — what it was written to say.
+ *
+ * Deliberately NOT saveTranscript with a flag. A transcript is a record of
+ * what went out and arrives four ways; a script is an intention somebody
+ * typed. Sharing a write path would mean one of them eventually overwrites
+ * the other, and the pair is only useful while both survive.
+ *
+ * An empty body DELETES rather than storing "". A script nobody wrote and a
+ * script that is blank are the same state, and keeping an empty row would put
+ * a video in the "has a script" set with nothing in it — the same
+ * absence-versus-zero rule enrichment_state follows.
+ */
+export async function saveScript(input: {
+  workspaceId: string;
+  contentItemId: string;
+  body: string;
+}): Promise<Result> {
+  const supabase = await createClient();
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth?.user) return { error: "Not signed in." };
+
+  const body = input.body.trim();
+
+  if (!body) {
+    const { error } = await supabase
+      .from("video_scripts")
+      .delete()
+      .eq("content_item_id", input.contentItemId)
+      .eq("workspace_id", input.workspaceId);
+    if (error) return { error: error.message };
+  } else {
+    const { error } = await supabase.from("video_scripts").upsert(
+      {
+        workspace_id: input.workspaceId,
+        content_item_id: input.contentItemId,
+        body,
+        written_by: auth.user.id,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "content_item_id" },
+    );
+    if (error) return { error: error.message };
+  }
+
+  await logAudit(supabase, {
+    workspaceId: input.workspaceId,
+    actorId: auth.user.id,
+    action: body ? "script.saved" : "script.cleared",
+    entityType: "content_items",
+    entityId: input.contentItemId,
+    detail: { chars: body.length },
+  });
+
+  revalidatePath("/content");
+  return {};
+}
+
+/**
  * Tag a video's hook type, or clear it.
  *
  * The value is validated against the SAME list the check constraint uses, and
