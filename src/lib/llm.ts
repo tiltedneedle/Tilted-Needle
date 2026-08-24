@@ -180,8 +180,18 @@ function sortDeep(v: unknown): unknown {
 
 /**
  * A deliberately small JSON-Schema subset: type, required, properties, items,
- * enum. Enough to pin every shape this product asks for, small enough to read
- * in one sitting, and it brings no dependency onto the worker.
+ * enum, and the size bounds minItems / maxItems / maxLength. Enough to pin
+ * every shape this product asks for, small enough to read in one sitting, and
+ * it brings no dependency onto the worker.
+ *
+ * THE SIZE BOUNDS WERE DECORATIVE UNTIL NOW, which is worse than absent. The
+ * idea generator's schema said `maxItems: 5` and its author reasonably
+ * believed that capped a run at five ideas. It capped nothing: this function
+ * ignored the keyword, and `response_format: {type:"json_object"}` is plain
+ * JSON mode, so the schema never reaches the provider either. Ten ideas would
+ * have validated on the first attempt and all ten been stored. A constraint
+ * that is written down, believed, and enforced nowhere is a trap for the next
+ * person to read the file.
  *
  * Returns a list of problems; empty means valid.
  */
@@ -206,8 +216,35 @@ export function validate(value: unknown, schema: Record<string, unknown>, path =
 
   if (type === "array") {
     if (!Array.isArray(value)) return [`${path}: expected array, got ${describe(value)}`];
+    const min = schema.minItems as number | undefined;
+    const max = schema.maxItems as number | undefined;
+    // Reported before the per-item errors so the retry message leads with the
+    // one problem the model can actually act on.
+    if (typeof min === "number" && value.length < min) {
+      problems.push(`${path}: expected at least ${min} items, got ${value.length}`);
+    }
+    if (typeof max === "number" && value.length > max) {
+      problems.push(`${path}: expected at most ${max} items, got ${value.length}`);
+    }
     const items = schema.items as Record<string, unknown> | undefined;
     if (items) value.forEach((v, i) => problems.push(...validate(v, items, `${path}[${i}]`)));
+    return problems;
+  }
+
+  if (type === "string") {
+    if (typeof value !== "string") {
+      return [`${path}: expected string, got ${describe(value)}`];
+    }
+    const maxLength = schema.maxLength as number | undefined;
+    if (typeof maxLength === "number" && value.length > maxLength) {
+      problems.push(`${path}: expected at most ${maxLength} characters, got ${value.length}`);
+    }
+    if (schema.enum) {
+      const allowed = schema.enum as unknown[];
+      if (!allowed.includes(value)) {
+        problems.push(`${path}: expected one of ${JSON.stringify(allowed)}, got ${JSON.stringify(value)}`);
+      }
+    }
     return problems;
   }
 

@@ -219,6 +219,31 @@ const SCHEMA = {
     (spaces.visionModel ?? spaces.model) === "m");
 }
 
+/* ---- Size bounds, which used to be decorative ----------------------------
+   IDEAS_SCHEMA carried maxItems:5 and capped nothing: validate() ignored the
+   keyword, and json_object mode never shows the schema to the provider. Ten
+   ideas would have validated first time and all ten been stored. */
+{
+  const arr = { type: "array", minItems: 2, maxItems: 3, items: { type: "string" } };
+  check("maxItems is enforced", validate(["a", "b", "c", "d"], arr).length === 1);
+  check("the message names both the bound and the actual",
+    /at most 3 items, got 4/.test(validate(["a", "b", "c", "d"], arr)[0]));
+  check("minItems is enforced", /at least 2 items, got 1/.test(validate(["a"], arr)[0]));
+  check("a length inside the bounds passes", validate(["a", "b"], arr).length === 0);
+
+  const str = { type: "string", maxLength: 5 };
+  check("maxLength is enforced", /at most 5 characters, got 8/.test(validate("abcdefgh", str)[0]));
+  check("a short enough string passes", validate("abc", str).length === 0);
+  check("a non-string is still caught by type",
+    /expected string/.test(validate(7, str)[0]));
+
+  // The enum path must survive being moved inside the string branch.
+  const en = { type: "string", enum: ["instagram", "tiktok"] };
+  check("a string enum still rejects the wrong case",
+    /expected one of/.test(validate("Instagram", en)[0]));
+  check("a string enum still accepts a listed value", validate("tiktok", en).length === 0);
+}
+
 /* ---- Multimodal content ---------------------------------------------------
    THE REGRESSION THIS FILE EXISTED WITHOUT.
 
