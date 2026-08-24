@@ -34,7 +34,25 @@ export type LlmConfig = {
   visionModel?: string;
 };
 
-export type LlmMessage = { role: "system" | "user"; content: string };
+/**
+ * One part of a multimodal message, in the OpenAI-compatible shape every
+ * major provider speaks.
+ *
+ * This type is the whole reason Route B never worked. `content` was typed
+ * `string`, so the vision handler built the right array and then
+ * JSON.stringify'd it to satisfy the type -- which sent a megabyte of base64
+ * as literal PROSE. The provider was never given an image, and nobody caught
+ * it because the kind had never once been drained. A type that forces callers
+ * to lie to it is not a safe type.
+ */
+export type LlmContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
+
+export type LlmMessage = {
+  role: "system" | "user";
+  content: string | LlmContentPart[];
+};
 
 /** Minimal transport: whatever performs the HTTP call. Injected for tests. */
 export type LlmTransport = (
@@ -112,7 +130,13 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): LlmConfig {
     ].filter(Boolean);
     throw new LlmError(`Missing ${missing.join(", ")}`, "config");
   }
-  return { baseUrl, apiKey, model, visionModel: env.LLM_VISION_MODEL };
+  // An UNSET GitHub secret interpolates to the empty string, not to nothing.
+  // Left raw, `cfg.visionModel ?? cfg.model` would then pick "" -- `??` only
+  // catches null and undefined -- and the request would go out with no model
+  // name at all. Normalising here means the optional override stays genuinely
+  // optional in CI.
+  const visionModel = env.LLM_VISION_MODEL?.trim();
+  return { baseUrl, apiKey, model, visionModel: visionModel || undefined };
 }
 
 /* ---- Input digest --------------------------------------------------------- */
@@ -242,6 +266,44 @@ export const HOUSE_RULES = [
   "outside the JSON, and no markdown fences.",
 ].join("\n");
 
+/**
+ * The preamble for the one call whose input is an IMAGE rather than a table.
+ *
+ * HOUSE_RULES opens "You are given a table of figures the system has already
+ * computed. Write ONLY about what is in that table." A screenshot reader is
+ * given no table, so a model obeying that literally has nothing it is allowed
+ * to say. Sending it anyway was not a cautious default -- it was an
+ * instruction to return empty, layered on top of an image the provider never
+ * received in the first place.
+ *
+ * The invariant is kept, not traded away. "Never supply a number that is not
+ * in front of you" is the same rule in both preambles; only the thing in
+ * front of the model changes, from a table to a picture. Arithmetic still
+ * belongs to the system -- parseMetricText expands "1.2k", never the model,
+ * because a model asked to expand it sometimes answers 12000.
+ */
+export const VISION_HOUSE_RULES = [
+  "You transcribe analytics figures from screenshots for a marketing agency's",
+  "internal tool.",
+  "",
+  "Report ONLY figures that are legibly visible in the image. Copy each number",
+  "as text EXACTLY as shown -- keep any k/m suffix, decimal point, comma or",
+  "percent sign. Never calculate, convert, expand, round, or infer a number,",
+  "and never read one off a chart or bar. The system does all arithmetic.",
+  "",
+  "If a figure is cropped, blurred, or you cannot tell which label it belongs",
+  "to, mark its confidence low or omit it. A person checks every value against",
+  "this image before it is stored, so an omission costs nothing and a guess",
+  "costs a great deal.",
+  "",
+  "Never describe replay or most-replayed data as 'retention', 'drop-off', or",
+  "'where viewers left'. Only figures explicitly labelled as retention may be",
+  "called retention.",
+  "",
+  "Respond with JSON only, matching the requested schema exactly. No prose",
+  "outside the JSON, and no markdown fences.",
+].join("\n");
+
 /* ---- The call ------------------------------------------------------------- */
 
 const defaultTransport: LlmTransport = async (cfg, body) => {
@@ -274,15 +336,23 @@ export async function callModel<T = unknown>({
   temperature = 0.2,
   transport = defaultTransport,
   model,
+  houseRules = HOUSE_RULES,
 }: {
   cfg: LlmConfig;
   system: string;
-  user: string;
+  /** A plain prompt, or content parts when an image rides along. */
+  user: string | LlmContentPart[];
   schema: Record<string, unknown>;
   maxTokens?: number;
   temperature?: number;
   transport?: LlmTransport;
   model?: string;
+  /**
+   * The preamble every call carries. Defaults to HOUSE_RULES and should stay
+   * there for anything narrating a table; see VISION_HOUSE_RULES for the one
+   * call whose input is an image instead.
+   */
+  houseRules?: string;
 }): Promise<LlmResult<T>> {
   const chosen = model ?? cfg.model;
 
@@ -329,7 +399,7 @@ export async function callModel<T = unknown>({
   };
 
   const messages: LlmMessage[] = [
-    { role: "system", content: `${HOUSE_RULES}\n\n${system}` },
+    { role: "system", content: `${houseRules}\n\n${system}` },
     { role: "user", content: user },
   ];
 

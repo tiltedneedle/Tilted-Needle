@@ -4,7 +4,7 @@
 //   node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/llm-test.mjs
 import {
   digestOf, validate, callModel, extractJson, budgetState, assertWithinBudget,
-  configFromEnv, HOUSE_RULES, LlmError,
+  configFromEnv, HOUSE_RULES, VISION_HOUSE_RULES, LlmError,
 } from "../src/lib/llm.ts";
 
 let pass = 0, fail = 0;
@@ -203,6 +203,76 @@ const SCHEMA = {
     LLM_BASE_URL: "https://x/v1", LLM_API_KEY: "k", LLM_MODEL: "m", LLM_VISION_MODEL: "v",
   });
   check("a complete environment builds a config", cfg.model === "m" && cfg.visionModel === "v");
+
+  // An unset GitHub secret interpolates to "", and `??` does not catch "".
+  // Left raw, the vision fallback would choose the empty string over the real
+  // model name and the request would go out with no model at all.
+  const blank = configFromEnv({
+    LLM_BASE_URL: "https://x/v1", LLM_API_KEY: "k", LLM_MODEL: "m", LLM_VISION_MODEL: "",
+  });
+  check("an empty LLM_VISION_MODEL falls back rather than blanking the model",
+    (blank.visionModel ?? blank.model) === "m");
+  const spaces = configFromEnv({
+    LLM_BASE_URL: "https://x/v1", LLM_API_KEY: "k", LLM_MODEL: "m", LLM_VISION_MODEL: "   ",
+  });
+  check("a whitespace-only LLM_VISION_MODEL falls back too",
+    (spaces.visionModel ?? spaces.model) === "m");
+}
+
+/* ---- Multimodal content ---------------------------------------------------
+   THE REGRESSION THIS FILE EXISTED WITHOUT.
+
+   `LlmMessage.content` was typed `string`, so the vision handler built the
+   right OpenAI content array and then JSON.stringify'd it to compile. A
+   megabyte of base64 went to the provider as PROSE; no image was ever
+   transmitted. Nothing caught it because vision_extract had never been
+   drained -- it was missing from every worker's --kinds list, so the one
+   model call a USER can trigger was also the only one never exercised.
+
+   The assertion is deliberately about the WIRE, not the types: tsc is happy
+   either way once the type is widened, but only the transport can prove an
+   array left as an array. */
+{
+  const seen = [];
+  const transport = async (_cfg, body) => {
+    seen.push(body);
+    return { ok: true, status: 200, json: {
+      choices: [{ message: { content: '{"ok":true}' } }],
+      usage: { prompt_tokens: 1, completion_tokens: 1 },
+    } };
+  };
+
+  const parts = [
+    { type: "text", text: "Read the analytics figures in this screenshot." },
+    { type: "image_url", image_url: { url: "data:image/png;base64,iVBORw0KGgo=" } },
+  ];
+  await callModel({
+    cfg: { baseUrl: "https://x/v1", apiKey: "k", model: "m" },
+    system: "s", user: parts, schema: { type: "object" }, transport,
+  });
+
+  const userMsg = seen[0].messages.find((m) => m.role === "user");
+  check("a content array reaches the transport as an array, not a string",
+    Array.isArray(userMsg.content));
+  check("the image part survives with its data URL intact",
+    userMsg.content[1]?.image_url?.url === "data:image/png;base64,iVBORw0KGgo=");
+  check("a plain string prompt is still sent as a plain string",
+    typeof seen[0].messages.find((m) => m.role === "system").content === "string");
+
+  // The vision preamble must not be the narration one: HOUSE_RULES opens by
+  // telling the model it was handed a table of figures, which is false for a
+  // screenshot and instructs it to report nothing.
+  seen.length = 0;
+  await callModel({
+    cfg: { baseUrl: "https://x/v1", apiKey: "k", model: "m" },
+    system: "s", user: parts, schema: { type: "object" },
+    houseRules: VISION_HOUSE_RULES, transport,
+  });
+  const sys = seen[0].messages.find((m) => m.role === "system").content;
+  check("houseRules overrides the narration preamble for image calls",
+    sys.includes("transcribe") && !sys.includes("table of figures"));
+  check("the vision preamble keeps the arithmetic rule",
+    /never calculate, convert, expand, round, or infer/i.test(sys));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

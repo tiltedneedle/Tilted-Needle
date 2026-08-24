@@ -10,7 +10,9 @@
  * key. It is deleted on confirmation, not here: deleting it before a human has
  * looked would leave them confirming numbers with nothing to check against.
  */
-import { configFromEnv, callModel, digestOf } from "../../src/lib/llm.ts";
+import {
+  configFromEnv, callModel, digestOf, VISION_HOUSE_RULES,
+} from "../../src/lib/llm.ts";
 import {
   VISION_PROMPT, VISION_SCHEMA, toExtractedValues, ownerOnlyCount,
 } from "../../src/lib/analysis/visionExtract.ts";
@@ -44,12 +46,18 @@ export async function visionExtract({ db, job, log }) {
     cfg,
     model,
     system: VISION_PROMPT,
-    // The image rides as an OpenAI-compatible content array; providers that
-    // speak that shape need no special-casing here.
-    user: JSON.stringify([
+    // The image rides as an OpenAI-compatible content array. This used to be
+    // wrapped in JSON.stringify, because LlmMessage typed `content` as a
+    // string and that was the only way to make it compile -- which sent the
+    // base64 as prose and meant no image was ever transmitted. The array is
+    // now the type, so it goes as an array.
+    user: [
       { type: "text", text: "Read the analytics figures in this screenshot." },
       { type: "image_url", image_url: { url: dataUrl } },
-    ]),
+    ],
+    // Not the narration preamble: that one opens by telling the model it was
+    // handed a table of figures, and here it was handed a picture.
+    houseRules: VISION_HOUSE_RULES,
     schema: VISION_SCHEMA,
     maxTokens: 800,
   });

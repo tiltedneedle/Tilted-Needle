@@ -48,18 +48,65 @@ export const VISION_SCHEMA = {
   },
 } as const;
 
+/**
+ * THE SHAPE IS SPELLED OUT HERE BECAUSE NOTHING ELSE TELLS THE MODEL IT.
+ *
+ * `callModel` sends `response_format: {type:"json_object"}` -- plain JSON
+ * mode, not structured outputs -- so VISION_SCHEMA never reaches the
+ * provider. It is a post-hoc validator, not a contract the model can see.
+ * Asked only for "JSON matching the requested schema", the model returned a
+ * perfectly reasonable flat map:
+ *
+ *     {"Views":"12,847","Accounts reached":"9,412","Impressions":"14.2K", ...}
+ *
+ * -- every figure transcribed correctly, and every one thrown away, because
+ * the validator wanted {platform, fields:[{name,rawText,confidence}]}. The
+ * extraction was right and the envelope was wrong.
+ *
+ * So the envelope is now shown rather than described, the label vocabulary is
+ * given as an explicit mapping (screens say "Accounts reached", the database
+ * says `reach`), and the enum values are written in the exact case the
+ * validator demands -- the first live run failed on "Instagram" for want of a
+ * lowercase i.
+ */
 export const VISION_PROMPT = [
   "Read the analytics figures visible in this screenshot.",
   "",
-  "Transcribe ONLY what is legibly on screen. For each figure give the label",
-  "it maps to and the text EXACTLY as shown, including any k/m suffix and any",
-  "decimal point — do not expand, round, or convert anything.",
+  "Transcribe ONLY what is legibly on screen. Give the text EXACTLY as shown,",
+  "including any k/m suffix, comma, colon, decimal point or percent sign — do",
+  "not expand, round, or convert anything.",
   "",
   "If a figure is cropped, blurred, or you are unsure which label it belongs",
   "to, mark its confidence low or leave it out entirely. Never estimate a",
   "number from a chart, and never infer one figure from another.",
   "Every value will be checked by a person against this image before it is",
   "stored, so an omission costs nothing and a guess costs a great deal.",
+  "",
+  "Reply with EXACTLY this shape and no other keys:",
+  "",
+  '{"platform":"instagram","fields":[',
+  '  {"name":"views","rawText":"12,847","confidence":"high"},',
+  '  {"name":"reach","rawText":"9,412","confidence":"high"}',
+  "]}",
+  "",
+  '"platform" is one of: instagram, tiktok, youtube, unknown — lowercase.',
+  '"confidence" is one of: low, medium, high — lowercase.',
+  '"name" MUST be one of these ten, whatever wording the screen uses:',
+  "",
+  "  views              Views, Plays, Video views",
+  "  reach              Reach, Accounts reached, Unique viewers",
+  "  impressions        Impressions, Total views",
+  "  likes              Likes",
+  "  comments           Comments",
+  "  shares             Shares, Sends, Reposts",
+  "  saves              Saves, Bookmarks",
+  "  ctrPercent         Click-through rate",
+  "  avgViewedPercent   Average percent watched",
+  "  avgViewSeconds     Average watch time, Average view duration",
+  "",
+  "Omit any of the ten that is not on screen. Never invent a name outside the",
+  "list, and never merge two on-screen figures into one entry. Reach and",
+  "impressions are different figures — if both are shown, report both.",
 ].join("\n");
 
 export type VisionField = {

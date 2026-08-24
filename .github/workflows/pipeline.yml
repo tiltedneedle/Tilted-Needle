@@ -8,9 +8,22 @@
 #
 # What runs here is deliberately only the SAFE half of the pipeline:
 #
-#   comments      official APIs (YouTube Data API, Apify)   -- IP-agnostic
-#   analyse       the LLM                                    -- IP-agnostic
-#   weekly_read   the LLM                                    -- IP-agnostic
+#   comments        official APIs (YouTube Data API, Apify) -- IP-agnostic
+#   analyse         the LLM                                  -- IP-agnostic
+#   weekly_read     the LLM                                  -- IP-agnostic
+#   describe        the LLM, over stored transcripts         -- IP-agnostic
+#   vision_extract  the LLM, over a stored screenshot        -- IP-agnostic
+#
+# vision_extract was missing from this list for its whole life, which made it
+# the only job kind a USER can queue from the UI and the only one nothing ever
+# drained. Pressing "Choose image" uploaded the screenshot, inserted the job,
+# and left it pending forever. It belongs here and nowhere else: the handler
+# downloads from Supabase Storage and POSTs to the model, both plain HTTPS,
+# with no yt-dlp, no ffmpeg and no sensitivity to the runner's address.
+#
+# Its latency is the honest cost of this arrangement -- someone is waiting at
+# a screen, and the cron is six-hourly. Fixable by dispatching this workflow
+# on demand; not fixable by leaving the kind unclaimed.
 #
 # Transcripts are NOT claimed here. They route through yt-dlp, which is
 # refused outright from datacenter ranges, and an Actions runner is about as
@@ -35,7 +48,7 @@ on:
       kinds:
         description: "Job kinds to drain (default: the IP-agnostic set)"
         required: false
-        default: "comments,analyse,weekly_read"
+        default: "comments,analyse,weekly_read,describe,vision_extract"
       enqueue_only:
         description: "Enqueue work but drain nothing"
         type: boolean
@@ -94,7 +107,7 @@ jobs:
         run: |
           node --experimental-strip-types --import ./scripts/register-alias.mjs \
             worker/index.mjs --once \
-            --kinds=${{ inputs.kinds || 'comments,analyse,weekly_read,describe' }}
+            --kinds=${{ inputs.kinds || 'comments,analyse,weekly_read,describe,vision_extract' }}
 
       # After the drain, so themes from posts analysed THIS run fold into the
       # client-level view immediately. Embeddings are cached by label text, so
