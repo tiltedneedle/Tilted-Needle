@@ -9,6 +9,8 @@ import FilterBar from "@/components/FilterBar";
 import { createClient } from "@/lib/supabase/server";
 import { selectAll } from "@/lib/selectAll";
 import { hookPerformance } from "@/lib/analysis/hookTypes";
+import { topicTrends, WINDOW_DAYS } from "@/lib/analysis/topicVelocity";
+import TopicVelocity from "@/components/TopicVelocity";
 import { requireSession } from "@/lib/workspace";
 import { canManage, one } from "@/lib/types";
 import { addDays, startOfWeek } from "@/lib/format";
@@ -412,6 +414,33 @@ async function InsightsReport() {
     }
   }
 
+  /* WHERE THE SLATE IS MOVING.
+     Workspace-wide rather than per client: topic_labels is a 17-value
+     vocabulary shared across clients, and per client most cells fall under
+     the 4-per-window floor immediately. The earliest post date is the video's
+     date -- a video re-posted later did not become newer. */
+  const { data: topicItems } = await selectAll<{ id: string; topic_labels: string[] | null }>(
+    () => supabase.from("content_items").select("id, topic_labels")
+      .eq("workspace_id", ws).order("id"),
+  );
+  const { data: datedPosts } = await selectAll<{ content_item_id: string; posted_at: string | null }>(
+    () => supabase.from("platform_posts").select("content_item_id, posted_at")
+      .eq("workspace_id", ws).order("id"),
+  );
+  const firstPosted = new Map<string, Date>();
+  for (const p of datedPosts ?? []) {
+    if (!p.posted_at || !p.content_item_id) continue;
+    const d = new Date(p.posted_at);
+    const cur = firstPosted.get(p.content_item_id);
+    if (!cur || d < cur) firstPosted.set(p.content_item_id, d);
+  }
+  const indexOfItem = new Map(overview.videos.map((v) => [v.id, v.bestIndex]));
+  const topics = topicTrends((topicItems ?? []).map((i) => ({
+    topicLabels: i.topic_labels,
+    postedAt: firstPosted.get(i.id) ?? null,
+    index: indexOfItem.get(i.id) ?? null,
+  })));
+
   /* Generated ideas awaiting a verdict. The latest outcome per suggestion
      decides whether it still needs one -- outcomes are insert-only events, so
      "latest" is the reading rule, and a decided idea leaves the queue. */
@@ -446,6 +475,11 @@ async function InsightsReport() {
 
   return (
     <>
+      <TopicVelocity
+        trends={topics.trends}
+        context={topics.context}
+        windowDays={WINDOW_DAYS}
+      />
       <ClientInsights
         entries={entries}
         themesByClient={themesByClient}
