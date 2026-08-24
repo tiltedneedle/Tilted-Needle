@@ -487,7 +487,12 @@ async function InsightsReport() {
         audienceByClient={audienceByClient}
         hooksByClient={hooksByClient}
       />
-      <IdeaReview ideas={ideas} />
+      <IdeaReview
+        ideas={ideas}
+        workspaceId={ws}
+        clients={overview.clients.map((c) => ({ id: c.id, name: c.name }))}
+        canGenerate={canManage(session.active.role)}
+      />
     </>
   );
 }

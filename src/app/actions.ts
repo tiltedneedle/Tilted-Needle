@@ -3725,6 +3725,82 @@ export async function setHookType(input: {
   return {};
 }
 
+/**
+ * Queue a fresh batch of ideas for one client.
+ *
+ * QUEUED, NOT RUN HERE. A model call over a hundred-row evidence table takes
+ * ten to twenty seconds; holding an HTTP request open for that is poor, and
+ * losing it to a serverless timeout halfway through a PAID call is worse.
+ * More importantly the queue is where this project's spend controls live --
+ * the worker checks the monthly ceiling and the per-kind budget at claim
+ * time, so a job that should not run is never started. Calling the model
+ * straight from an action would route around both.
+ *
+ * MANAGER ONLY, and enforced here rather than left to the row policies.
+ * ingest_jobs is written with the user's own client, so RLS decides whether
+ * the insert lands -- but "your role may not spend money" deserves a sentence
+ * a person can read, not a policy violation.
+ */
+export async function requestIdeas(input: {
+  workspaceId: string;
+  clientId: string;
+  count?: number;
+}): Promise<Result & { queued?: boolean }> {
+  const supabase = await createClient();
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth?.user) return { error: "Not signed in." };
+
+  const { data: membership } = await supabase
+    .from("memberships")
+    .select("role, is_active")
+    .eq("workspace_id", input.workspaceId)
+    .eq("user_id", auth.user.id)
+    .maybeSingle();
+  if (!membership?.is_active || !MANAGER_ROLES.includes(membership.role as WorkspaceRole)) {
+    return { error: "Only managers and above can generate ideas." };
+  }
+
+  const { data: client } = await supabase
+    .from("clients").select("id, name")
+    .eq("id", input.clientId).eq("workspace_id", input.workspaceId)
+    .is("deleted_at", null).maybeSingle();
+  if (!client) return { error: "That client was not found." };
+
+  /* One at a time per client. Two people pressing the button, or one person
+     pressing it twice, would otherwise queue two identical jobs -- and the
+     input-digest cache only stops the SECOND from spending, after the first
+     has already run. Better to refuse the duplicate up front and say why. */
+  const { data: existing } = await supabase
+    .from("ingest_jobs").select("id")
+    .eq("workspace_id", input.workspaceId).eq("kind", "ideas")
+    .eq("subject_id", input.clientId).in("status", ["pending", "running"])
+    .limit(1);
+  if (existing?.length) {
+    return { error: `Ideas for ${client.name} are already queued.` };
+  }
+
+  const { error } = await supabase.from("ingest_jobs").insert({
+    workspace_id: input.workspaceId,
+    kind: "ideas",
+    subject_id: input.clientId,
+    priority: 10, // someone is waiting at a screen for this one
+    payload: { count: Math.max(1, Math.min(20, input.count ?? 10)), pool: 100 },
+  });
+  if (error) return { error: error.message };
+
+  await logAudit(supabase, {
+    workspaceId: input.workspaceId,
+    actorId: auth.user.id,
+    action: "ideas.requested",
+    entityType: "clients",
+    entityId: input.clientId,
+    detail: { count: input.count ?? 10 },
+  });
+
+  revalidatePath("/reports");
+  return { queued: true };
+}
+
 /* ---- Vision extraction: screenshot -> draft -> confirmation ------------- */
 
 /**

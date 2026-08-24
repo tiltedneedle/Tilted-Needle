@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { recordIdeaOutcome } from "@/app/actions";
+import { recordIdeaOutcome, requestIdeas } from "@/app/actions";
+import Select from "@/components/ui/Select";
 
 /**
  * Generated ideas, awaiting a verdict.
@@ -30,15 +31,50 @@ export type IdeaCard = {
   disposition: "adopted" | "declined" | "expired" | null;
 };
 
-export default function IdeaReview({ ideas }: { ideas: IdeaCard[] }) {
+export default function IdeaReview({
+  ideas,
+  workspaceId,
+  clients = [],
+  canGenerate = false,
+}: {
+  ideas: IdeaCard[];
+  workspaceId?: string;
+  /** Clients this workspace can generate for. */
+  clients?: { id: string; name: string }[];
+  /** Managers only — the server enforces it too. */
+  canGenerate?: boolean;
+}) {
   const [decided, setDecided] = useState<Map<string, string>>(new Map());
   const [failed, setFailed] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const [target, setTarget] = useState("");
+  const [queued, setQueued] = useState<string | null>(null);
 
-  if (ideas.length === 0) return null;
+  const generator = canGenerate && workspaceId && clients.length > 0;
+
+  /* THE OLD EARLY RETURN WAS `ideas.length === 0 -> null`, which hid the whole
+     section when there was nothing to review. That is precisely the state in
+     which someone wants to generate: a workspace that has never run the
+     generator saw no ideas, no button, and no hint the feature existed. The
+     section now survives an empty list whenever the generator is available. */
+  if (ideas.length === 0 && !generator) return null;
 
   const open = ideas.filter((i) => !i.disposition && !decided.has(i.id));
   const done = ideas.length - open.length;
+
+  const generate = () => {
+    if (!target || !workspaceId) return;
+    startTransition(async () => {
+      const res = await requestIdeas({ workspaceId, clientId: target, count: 10 });
+      if (res.error) {
+        setFailed(res.error);
+        setQueued(null);
+        return;
+      }
+      setFailed(null);
+      setQueued(clients.find((c) => c.id === target)?.name ?? "that client");
+    });
+  };
 
   const decide = (id: string, disposition: "adopted" | "declined") => {
     startTransition(async () => {
@@ -59,11 +95,47 @@ export default function IdeaReview({ ideas }: { ideas: IdeaCard[] }) {
         <span className="text-xs text-[var(--muted)]">
           {open.length} awaiting a verdict{done > 0 ? `, ${done} decided` : ""}
         </span>
+
+        {/* Per client, because that is the unit ideas are generated in: the
+            evidence table is one client's findings and one client's top
+            videos, and a workspace-wide button would have to pick one
+            silently. */}
+        {generator && (
+          <span className="ml-auto flex flex-wrap items-center gap-2">
+            <Select
+              value={target}
+              onChange={setTarget}
+              disabled={pending}
+              ariaLabel="Client to generate ideas for"
+              placeholder="Choose a client…"
+              clearable={false}
+              options={clients.map((c) => ({ value: c.id, label: c.name }))}
+            />
+            <button
+              type="button"
+              className="btn"
+              disabled={!target || pending}
+              onClick={generate}
+            >
+              {pending ? "Queueing…" : "Generate 10 ideas"}
+            </button>
+          </span>
+        )}
       </div>
 
       {failed && (
-        <p className="mb-2 text-xs text-[var(--danger)]">
-          Could not record that: {failed}
+        <p className="mb-2 text-xs text-[var(--danger)]">{failed}</p>
+      )}
+
+      {/* "Queued", not "generated". The work runs on the worker, so claiming
+          it is done would be a lie the page cannot back up -- and the honest
+          version has to name the wait, or a user presses the button again in
+          ten seconds and gets told it is already queued with no idea why. */}
+      {queued && !failed && (
+        <p className="mb-2 text-xs text-[var(--muted)]">
+          Queued for <strong>{queued}</strong>. The worker picks this up on its
+          next pass — up to six hours on the schedule, sooner if the pipeline
+          is dispatched. New ideas appear here when it lands.
         </p>
       )}
 

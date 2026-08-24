@@ -13,6 +13,7 @@
 #   weekly_read     the LLM                                  -- IP-agnostic
 #   describe        the LLM, over stored transcripts         -- IP-agnostic
 #   vision_extract  the LLM, over a stored screenshot        -- IP-agnostic
+#   ideas           the LLM, over a client's own evidence    -- IP-agnostic
 #
 # vision_extract was missing from this list for its whole life, which made it
 # the only job kind a USER can queue from the UI and the only one nothing ever
@@ -48,7 +49,7 @@ on:
       kinds:
         description: "Job kinds to drain (default: the IP-agnostic set)"
         required: false
-        default: "comments,analyse,weekly_read,describe,vision_extract"
+        default: "comments,analyse,weekly_read,describe,vision_extract,ideas"
       enqueue_only:
         description: "Enqueue work but drain nothing"
         type: boolean
@@ -107,7 +108,7 @@ jobs:
         run: |
           node --experimental-strip-types --import ./scripts/register-alias.mjs \
             worker/index.mjs --once \
-            --kinds=${{ inputs.kinds || 'comments,analyse,weekly_read,describe,vision_extract' }}
+            --kinds=${{ inputs.kinds || 'comments,analyse,weekly_read,describe,vision_extract,ideas' }}
 
       # After the drain, so themes from posts analysed THIS run fold into the
       # client-level view immediately. Embeddings are cached by label text, so

@@ -21,6 +21,7 @@ import { analyse } from "./analyse.mjs";
 import { visionExtract } from "./visionExtract.mjs";
 import { weeklyRead } from "./weeklyRead.mjs";
 import { describe } from "./describe.mjs";
+import { ideas } from "./ideas.mjs";
 
 export const handlers = {
   comments,
@@ -40,4 +41,5 @@ export const handlers = {
   vision_extract: visionExtract,
   weekly_read: weeklyRead,
   describe,
+  ideas,
 };
