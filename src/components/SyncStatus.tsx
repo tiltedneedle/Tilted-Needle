@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { syncNow } from "@/app/actions";
+import { PLATFORM_LABEL } from "@/lib/types";
 
 export type PlatformSyncInfo = {
   slug: string;
@@ -173,7 +174,7 @@ export default function SyncStatus({
                 <div key={a.id} className="flex items-center gap-2 py-0.5 text-xs">
                   <span className="min-w-0 flex-1 truncate">
                     {a.handle}
-                    <span className="ml-1.5 capitalize text-[var(--muted)]">{a.platform}</span>
+                    <span className="ml-1.5 text-[var(--muted)]">{PLATFORM_LABEL[a.platform] ?? a.platform}</span>
                   </span>
                   {a.lastError ? (
                     <span className="max-w-[60%] truncate text-amber-500" title={a.lastError}>

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { SectionHeading } from "@/components/Stat";
+import { PLATFORM_LABEL } from "@/lib/types";
 import type { ClientEvidence } from "@/lib/analysis/clientEvidence";
 import type { HookPerformance } from "@/lib/analysis/hookTypes";
 
@@ -104,7 +105,7 @@ export default function ClientInsights({
                       className="rounded bg-[var(--bg-subtle)] px-2 py-1 text-xs"
                       title={`Best single post: ${p.peakIndex}× — shown separately because one hit is not the typical case`}
                     >
-                      <span className="capitalize">{p.platform}</span>{" "}
+                      <span>{PLATFORM_LABEL[p.platform] ?? p.platform}</span>{" "}
                       <span className="tabular font-medium">{p.medianIndex}×</span>{" "}
                       <span className="text-[var(--muted)]">
                         n={p.n} · peak {p.peakIndex}×

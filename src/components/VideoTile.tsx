@@ -11,7 +11,7 @@ import { assignRole, unassignRole } from "@/app/actions";
 import { useToast } from "@/components/ui/Toast";
 import { formatCount, formatDurationShort, formatRate, gainPerDay } from "@/lib/format";
 import { videoLabel } from "@/lib/contentLabels";
-import { PLATFORM_COLORS } from "@/lib/types";
+import { PLATFORM_COLORS, PLATFORM_LABEL } from "@/lib/types";
 import { totalsByPlatform, type PlatformTotals } from "@/lib/rollup";
 import { SHAPE_LABEL, SHAPE_HINT, type LifecycleShape } from "@/lib/lifecycle";
 import AttachByUrl from "@/components/AttachByUrl";
@@ -109,7 +109,7 @@ export function PlatformMetrics({
               className="size-2 shrink-0 rounded-full"
               style={{ background: PLATFORM_COLORS[t.platform] ?? "var(--muted)" }}
             />
-            <span className="capitalize text-[var(--muted)]">{t.platform}</span>
+            <span className="text-[var(--muted)]">{PLATFORM_LABEL[t.platform] ?? t.platform}</span>
           </span>
           <Metric icon={Eye} value={t.views} label={`views on ${t.platform}`} />
           <Metric icon={Heart} value={t.likes} label={`likes on ${t.platform}`} />

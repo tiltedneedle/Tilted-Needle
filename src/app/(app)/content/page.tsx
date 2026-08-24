@@ -623,28 +623,20 @@ export default async function ContentPage({
               : undefined
           }
         />
-        {/* WAS "Posts", and it could never say anything Videos had not.
-            Every video in this workspace carries exactly one post -- 467 of
-            467, nothing cross-posted -- so the card printed the same figure
-            as its neighbour, twice, in the same row. That is not a
-            coincidence to wait out: posts only diverge from videos when the
-            same video is published to a second platform, which nothing here
-            does yet.
+        {/* PLATFORMS and TIME INVESTED were here and are gone.
 
-            The count that DOES vary is how many platforms the population
-            spans, and it moves with the filters the way the other cards do.
-            Posts keep their place in the hint, alongside the ratio that
-            makes the two numbers legible together. */}
-        <Stat
-          icon={Layers}
-          label="Platforms"
-          value={String(platformsInView)}
-          hint={
-            t.posts === t.videos
-              ? `${t.posts.toLocaleString()} posts — one per video`
-              : `${t.posts.toLocaleString()} posts across ${t.videos.toLocaleString()} videos`
-          }
-        />
+            Platforms printed a 4 that never moved and a hint -- "541 posts,
+            one per video" -- restating the card beside it. It replaced a
+            "Posts" card for exactly that reason, and inherited the same
+            fault: the figure it showed was already on screen.
+
+            Time invested read "No time tracked against content yet" on every
+            load, because nobody logs hours against a video here. A card whose
+            only state is its empty state is a permanent apology. Hours live
+            on /hours and /timesheet, which is also where they left /home.
+
+            Videos and Still growing stay: one is the size of the library, the
+            other is the only figure on this row that changes on its own. */}
         <Stat
           icon={TrendingUp}
           label="Still growing"
@@ -668,13 +660,6 @@ export default async function ContentPage({
           }
           emptyText="Nothing has gained views since its previous reading"
           accent={gained > 0}
-        />
-        <Stat
-          icon={Timer}
-          label="Time invested"
-          value={t.trackedSeconds ? formatDurationShort(t.trackedSeconds) : null}
-          hint="tracked against content"
-          emptyText="No time tracked against content yet"
         />
         {/* The last figure the deleted client view had that this one did not.
             Peak single-platform views, never a sum across platforms -- and

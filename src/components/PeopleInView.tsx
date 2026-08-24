@@ -2,7 +2,7 @@ import Link from "next/link";
 import Avatar from "@/components/Avatar";
 import { SectionHeading } from "@/components/Stat";
 import { formatCount, formatDurationShort } from "@/lib/format";
-import { PLATFORM_COLORS } from "@/lib/types";
+import { PLATFORM_COLORS, PLATFORM_LABEL } from "@/lib/types";
 
 import type { PersonStats } from "@/lib/reports";
 
@@ -80,8 +80,26 @@ export default function PeopleInView({ people }: { people: PersonStats[] }) {
                       className="size-2 shrink-0 rounded-full"
                       style={{ background: PLATFORM_COLORS[pl.platform] ?? "var(--muted)" }}
                     />
-                    <span className="w-16 shrink-0 capitalize text-[var(--muted)]">
-                      {pl.platform}
+                    {/* PLATFORM_LABEL, not the raw slug with `capitalize`.
+                        CSS capitalisation cannot know that youtube_shorts is
+                        two words, so this rendered "Youtube_shorts" -- and
+                        got "Youtube" and "Tiktok" wrong in the same breath,
+                        since neither capitalises at the letter CSS does.
+
+                        w-24 with truncate, not w-16 with shrink-0. The label
+                        is fixed-width so the figures beside it line up in a
+                        column, but a fixed width that cannot shrink and
+                        cannot clip does not contain anything: "Youtube_shorts"
+                        simply drew straight over the number to its right, so
+                        the row read "Youtube_shor117k". Truncate is what makes
+                        the width a real boundary; w-24 is wide enough that
+                        the longest real label, "YouTube Shorts", does not
+                        need it. */}
+                    <span
+                      className="w-24 shrink-0 truncate text-[var(--muted)]"
+                      title={PLATFORM_LABEL[pl.platform] ?? pl.platform}
+                    >
+                      {PLATFORM_LABEL[pl.platform] ?? pl.platform}
                     </span>
                     <span className="tabular font-semibold">
                       {formatCount(pl.views)}

@@ -1,6 +1,7 @@
 import type { ClientReport, ReportPlatformSection } from "@/lib/buildClientReport";
 import { summaryFindings } from "@/lib/clientReport";
 import { templateClass } from "@/lib/reportTemplates";
+import ReportThumb from "@/components/ReportThumb";
 
 /**
  * The client report as a document, in the grammar the agency already uses.
@@ -375,10 +376,12 @@ function PlatformPage({
                   holds its width either way and simply stays empty rather than
                   letting one missing image shift a whole column. */}
               <div className="report-rank-thumb">
-                {t.thumbnailUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={t.thumbnailUrl} alt="" aria-hidden="true" loading="eager" />
-                ) : null}
+                {/* A client component, because this one is a server component
+                    and an <img> here had no way to notice its own failure.
+                    Signed TikTok and Instagram URLs expire and start
+                    answering 403, and the bare tag turned that into a
+                    broken-image glyph in the client's PDF. */}
+                <ReportThumb src={t.thumbnailUrl ?? null} />
               </div>
               <div className="report-rank-title">
                 {/* Verbatim, including typos, curly quotes and emoji: the
