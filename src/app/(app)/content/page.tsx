@@ -11,7 +11,7 @@ import { secondsByUserOnVideos } from "@/lib/reportData";
 import FilterBar from "@/components/FilterBar";
 import PlatformReach from "@/components/PlatformReach";
 import { Stat, StatGrid, SectionHeading } from "@/components/Stat";
-import { Clapperboard, Eye, MessageCircleQuestion, TrendingUp } from "lucide-react";
+import { Clapperboard, Eye, FileText, MessageCircleQuestion, TrendingUp } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { requireSession } from "@/lib/workspace";
 import { canManage, one, PLATFORM_LABEL } from "@/lib/types";
@@ -645,6 +645,30 @@ export default async function ContentPage({
     }
   }
 
+  /* HOW MUCH OF THIS THE ENGINE CAN ACTUALLY READ.
+     Every other figure on this page is a claim; this one is the caveat on
+     all of them. Themes, descriptors, hook analysis and the inference engine
+     all read TRANSCRIPTS -- a video without one is invisible to every
+     insight in the product, and nothing else on this page says how many of
+     those there are.
+
+     Deliberately the plainest possible framing: a count and its denominator,
+     not a grade. "61%" with no base invites reading a coverage gap as a
+     quality score, and the gap is not anybody's fault -- 74 of these videos
+     are TikTok-only, which no yt-dlp version can currently reach. */
+  let transcribedInView = 0;
+  {
+    const { data: tRows } = await selectAll<{ content_item_id: string }>(
+      () => supabase.from("video_transcripts").select("content_item_id")
+        .eq("workspace_id", ws).order("content_item_id"),
+    );
+    const seen = new Set<string>();
+    for (const t of tRows ?? []) {
+      if (inViewItemIds.has(t.content_item_id)) seen.add(t.content_item_id);
+    }
+    transcribedInView = seen.size;
+  }
+
   /* Freshness, so a fortnight-old figure cannot pass as "now" -- the exact
      reason staleDays is carried in the first place. */
   const stale = stillGrowing.map((v) => v.recentGain!.staleDays).filter((d) => d >= 0);
@@ -776,6 +800,20 @@ export default async function ContentPage({
             label="Questions asked"
             value={questionsAsked.toLocaleString()}
             hint={`of ${substantive.toLocaleString()} substantive comment${substantive === 1 ? "" : "s"} · unmet demand`}
+          />
+        )}
+
+        {/* Rendered whenever there are videos in view at all -- including
+            when the count is ZERO, which is the opposite rule to the
+            questions card above. A zero here is a real, actionable fact
+            ("nothing in this view has been transcribed"), whereas a zero
+            there was indistinguishable from "not analysed yet". */}
+        {inViewItemIds.size > 0 && (
+          <Stat
+            icon={FileText}
+            label="Analysis coverage"
+            value={`${Math.round((transcribedInView * 100) / inViewItemIds.size)}%`}
+            hint={`${transcribedInView.toLocaleString()} of ${inViewItemIds.size.toLocaleString()} transcribed — everything else is invisible to the insights`}
           />
         )}
 
