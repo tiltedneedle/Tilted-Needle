@@ -316,10 +316,22 @@ export default function ContentOverview({
                   <tr className="border-b border-[var(--border)] text-left text-[11px] uppercase tracking-wide text-[var(--muted)]">
                     <th className="px-3 py-2 font-medium">Client</th>
                     <th className="px-3 py-2 text-right font-medium">Videos</th>
-                    <th className="px-3 py-2 text-right font-medium">Posts</th>
+                    {/* POSTS and TIME are gone, for the reasons their
+                        matching stat cards went. Posts equalled Videos on
+                        every row -- 541 of 541, one post per video, nothing
+                        cross-posted -- so it printed the same figure twice in
+                        the same row. Time read "—" on every row, because
+                        nobody logs hours against a video here; a column whose
+                        only value is its empty value is width spent on
+                        nothing.
+
+                        Width is the point. Seven columns forced this table
+                        past the card on a phone, and since it lives in
+                        overflow-x-auto the surplus does not wrap -- it scrolls
+                        out of sight, so a narrow viewport showed CLIENT and a
+                        wall of blank. Five columns fit. */}
                     <th className="px-3 py-2 text-right font-medium">Engagement</th>
                     <th className="px-3 py-2 text-right font-medium">Growing</th>
-                    <th className="px-3 py-2 text-right font-medium">Time</th>
                     <th className="px-3 py-2 text-right font-medium">Reach by platform</th>
                   </tr>
                 </thead>
@@ -348,9 +360,6 @@ export default function ContentOverview({
                         </td>
                         <td className="tabular px-3 py-2.5 text-right">{c.videoCount}</td>
                         <td className="tabular px-3 py-2.5 text-right text-[var(--muted)]">
-                          {c.postCount}
-                        </td>
-                        <td className="tabular px-3 py-2.5 text-right text-[var(--muted)]">
                           {avg != null ? `${(avg * 100).toFixed(2)}%` : "—"}
                         </td>
                         <td className="tabular px-3 py-2.5 text-right">
@@ -361,9 +370,6 @@ export default function ContentOverview({
                           ) : (
                             <span className="text-[var(--muted)]">—</span>
                           )}
-                        </td>
-                        <td className="tabular px-3 py-2.5 text-right text-[var(--muted)]">
-                          {c.trackedSeconds ? formatDurationShort(c.trackedSeconds) : "—"}
                         </td>
                         <td className="px-3 py-2.5">
                           <PlatformChips
