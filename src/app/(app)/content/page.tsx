@@ -11,7 +11,7 @@ import { secondsByUserOnVideos } from "@/lib/reportData";
 import FilterBar from "@/components/FilterBar";
 import PlatformReach from "@/components/PlatformReach";
 import { Stat, StatGrid, SectionHeading } from "@/components/Stat";
-import { Clapperboard, Eye, FileText, MessageCircleQuestion, TrendingUp } from "lucide-react";
+import { Clapperboard, Eye, Layers, TrendingUp, Timer } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { requireSession } from "@/lib/workspace";
 import { canManage, one, PLATFORM_LABEL } from "@/lib/types";
@@ -561,36 +561,12 @@ export default async function ContentPage({
   const stillGrowing = overview.videos.filter(
     (v) => v.recentGain != null && v.recentGain.views > 0,
   );
-  /* SPLIT BY PLATFORM, NEVER POOLED.
-     This card used to print one figure: stillGrowing summed over
-     recentGain.views. The arithmetic was right and the number was not -- it
-     added Instagram views to YouTube views, four inches above a line that
-     says "Each platform counts a view differently — never summed". Measured
-     on this workspace the pooled 258,443 was 216,735 Instagram (84%) plus
-     three much smaller platforms, so the headline mostly said "Instagram
-     moved" while appearing to describe the whole library.
-
-     dashboards.ts admits it at the source: recentGain.views "pools it into
-     one number, which is fine for 'is this still moving' but useless to the
-     platform report". It was built as a yes/no signal and displayed as a
-     quantity.
-
-     So the biggest single-platform gain becomes the headline -- a real number
-     in one real unit -- and the rest are listed beside it, still separate. */
-  const growthByPlatform = new Map<string, number>();
-  for (const v of stillGrowing) {
-    for (const g of v.platformGains ?? []) {
-      if (g.views > 0) growthByPlatform.set(g.platform, (growthByPlatform.get(g.platform) ?? 0) + g.views);
-    }
-  }
-  const growthRanked = [...growthByPlatform.entries()].sort((a, b) => b[1] - a[1]);
-  const topGrowth = growthRanked[0] ?? null;
-  const gained = topGrowth ? topGrowth[1] : 0;
-
   /* How many platforms the filtered population actually spans. Derived from
      the same platformTotals the reach section renders, so the card and the
      table below it can never disagree. */
   const platformsInView = overview.platformTotals.filter((p) => p.posts > 0).length;
+
+  const gained = stillGrowing.reduce((s, v) => s + (v.recentGain?.views ?? 0), 0);
 
   /* The reference the growth figure was missing.
      A span rather than a mean: these gains are measured over each video's own
@@ -611,63 +587,6 @@ export default async function ContentPage({
         : Math.round(lo) === Math.round(hi)
           ? `over ${Math.round(hi)}d`
           : `over ${Math.round(lo)}–${Math.round(hi)}d`;
-
-  /* WHAT THE AUDIENCE ASKED FOR, which appears nowhere else on this page.
-     Every other figure here describes what WE published and how far it went.
-     This is the only one describing what came back, and it is the one a
-     strategist can act on directly: an unanswered question is the next
-     video's topic chosen by the audience rather than guessed.
-
-     Scoped to the videos in view, so it narrows with the filters like every
-     other card rather than quietly staying workspace-wide. */
-  const inViewItemIds = new Set(overview.videos.map((v) => v.id));
-  let questionsAsked = 0;
-  let substantive = 0;
-  {
-    const { data: postRows } = await selectAll<{ id: string; content_item_id: string }>(
-      () => supabase.from("platform_posts").select("id, content_item_id")
-        .eq("workspace_id", ws).order("id"),
-    );
-    const wanted = new Set(
-      (postRows ?? []).filter((p) => inViewItemIds.has(p.content_item_id)).map((p) => p.id),
-    );
-    if (wanted.size > 0) {
-      const { data: metricRows } = await selectAll<{
-        platform_post_id: string; question_count: number | null; analysed_count: number | null;
-      }>(() => supabase.from("post_comment_metrics")
-        .select("platform_post_id, question_count, analysed_count")
-        .eq("workspace_id", ws).order("platform_post_id"));
-      for (const m of metricRows ?? []) {
-        if (!wanted.has(m.platform_post_id)) continue;
-        questionsAsked += m.question_count ?? 0;
-        substantive += m.analysed_count ?? 0;
-      }
-    }
-  }
-
-  /* HOW MUCH OF THIS THE ENGINE CAN ACTUALLY READ.
-     Every other figure on this page is a claim; this one is the caveat on
-     all of them. Themes, descriptors, hook analysis and the inference engine
-     all read TRANSCRIPTS -- a video without one is invisible to every
-     insight in the product, and nothing else on this page says how many of
-     those there are.
-
-     Deliberately the plainest possible framing: a count and its denominator,
-     not a grade. "61%" with no base invites reading a coverage gap as a
-     quality score, and the gap is not anybody's fault -- 74 of these videos
-     are TikTok-only, which no yt-dlp version can currently reach. */
-  let transcribedInView = 0;
-  {
-    const { data: tRows } = await selectAll<{ content_item_id: string }>(
-      () => supabase.from("video_transcripts").select("content_item_id")
-        .eq("workspace_id", ws).order("content_item_id"),
-    );
-    const seen = new Set<string>();
-    for (const t of tRows ?? []) {
-      if (inViewItemIds.has(t.content_item_id)) seen.add(t.content_item_id);
-    }
-    transcribedInView = seen.size;
-  }
 
   /* Freshness, so a fortnight-old figure cannot pass as "now" -- the exact
      reason staleDays is carried in the first place. */
@@ -741,23 +660,31 @@ export default async function ContentPage({
               : undefined
           }
         />
-        {/* PLATFORMS and TIME INVESTED were here and are gone.
+        {/* WAS "Posts", and it could never say anything Videos had not.
+            Every video in this workspace carries exactly one post -- 467 of
+            467, nothing cross-posted -- so the card printed the same figure
+            as its neighbour, twice, in the same row. That is not a
+            coincidence to wait out: posts only diverge from videos when the
+            same video is published to a second platform, which nothing here
+            does yet.
 
-            Platforms printed a 4 that never moved and a hint -- "541 posts,
-            one per video" -- restating the card beside it. It replaced a
-            "Posts" card for exactly that reason, and inherited the same
-            fault: the figure it showed was already on screen.
-
-            Time invested read "No time tracked against content yet" on every
-            load, because nobody logs hours against a video here. A card whose
-            only state is its empty state is a permanent apology. Hours live
-            on /hours and /timesheet, which is also where they left /home.
-
-            Videos and Still growing stay: one is the size of the library, the
-            other is the only figure on this row that changes on its own. */}
+            The count that DOES vary is how many platforms the population
+            spans, and it moves with the filters the way the other cards do.
+            Posts keep their place in the hint, alongside the ratio that
+            makes the two numbers legible together. */}
+        <Stat
+          icon={Layers}
+          label="Platforms"
+          value={String(platformsInView)}
+          hint={
+            t.posts === t.videos
+              ? `${t.posts.toLocaleString()} posts — one per video`
+              : `${t.posts.toLocaleString()} posts across ${t.videos.toLocaleString()} videos`
+          }
+        />
         <Stat
           icon={TrendingUp}
-          label={topGrowth ? `Growing on ${PLATFORM_LABEL[topGrowth[0]] ?? topGrowth[0]}` : "Still growing"}
+          label="Still growing"
           value={gained ? `+${gained.toLocaleString()}` : null}
           /* "latest snapshots" told you nothing you could anchor the number
              to: gained since WHEN, and how current is it? Both facts are
@@ -771,52 +698,21 @@ export default async function ContentPage({
              imply a uniformity that is not there. Freshness is the newest
              reading in the set, because that is the most this figure can
              claim to be current to. */
-          /* The other platforms are named with their own figures rather than
-             folded in. A reader can add them up if they want a meaningless
-             number; the card will not do it for them. */
           hint={
             gained
-              ? [
-                  growthRanked
-                    .slice(1)
-                    .map(([p, n]) => `${PLATFORM_LABEL[p] ?? p} +${n.toLocaleString()}`)
-                    .join(" · "),
-                  `${growthWindow} · ${stillGrowing.length} video${stillGrowing.length === 1 ? "" : "s"} · newest ${freshness}`,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")
+              ? `${growthWindow} · ${stillGrowing.length} video${stillGrowing.length === 1 ? "" : "s"} · newest reading ${freshness}`
               : undefined
           }
           emptyText="Nothing has gained views since its previous reading"
           accent={gained > 0}
         />
-        {/* Rendered only when comments have actually been analysed. A zero
-            here would be indistinguishable from "nobody asked anything",
-            when the truth is almost always "these posts have no comment
-            analysis yet" -- the absence-versus-zero rule again. */}
-        {substantive > 0 && (
-          <Stat
-            icon={MessageCircleQuestion}
-            label="Questions asked"
-            value={questionsAsked.toLocaleString()}
-            hint={`of ${substantive.toLocaleString()} substantive comment${substantive === 1 ? "" : "s"} · unmet demand`}
-          />
-        )}
-
-        {/* Rendered whenever there are videos in view at all -- including
-            when the count is ZERO, which is the opposite rule to the
-            questions card above. A zero here is a real, actionable fact
-            ("nothing in this view has been transcribed"), whereas a zero
-            there was indistinguishable from "not analysed yet". */}
-        {inViewItemIds.size > 0 && (
-          <Stat
-            icon={FileText}
-            label="Analysis coverage"
-            value={`${Math.round((transcribedInView * 100) / inViewItemIds.size)}%`}
-            hint={`${transcribedInView.toLocaleString()} of ${inViewItemIds.size.toLocaleString()} transcribed — everything else is invisible to the insights`}
-          />
-        )}
-
+        <Stat
+          icon={Timer}
+          label="Time invested"
+          value={t.trackedSeconds ? formatDurationShort(t.trackedSeconds) : null}
+          hint="tracked against content"
+          emptyText="No time tracked against content yet"
+        />
         {/* The last figure the deleted client view had that this one did not.
             Peak single-platform views, never a sum across platforms -- and
             shown only for a single client, because "the most viewed video"
