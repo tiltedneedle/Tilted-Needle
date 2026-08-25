@@ -276,6 +276,14 @@ def meta():
         "timestamp": info.get("timestamp"),
         "description": (info.get("description") or "").strip() or None,
         "durationSeconds": info.get("duration"),
+        # The poster frame, which extract_info already had and this endpoint
+        # threw away. Instagram publishes one nowhere else a free route can
+        # reach: its own CDN links are signed and lapse, and there is no
+        # public oEmbed. yt-dlp reading it from a NON-DATACENTER address is
+        # the only free source, which is why it belongs on this box and not
+        # in the Actions runner. Signed and short-lived, so the caller must
+        # cache the bytes rather than store the url.
+        "thumbnail": info.get("thumbnail"),
         "tookMs": round((time.time() - started) * 1000),
     })
 

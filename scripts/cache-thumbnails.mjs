@@ -13,9 +13,12 @@
 //   DEAD   it 403s. TikTok's oEmbed will mint a FRESH signed url for the same
 //          video, so the poster is recoverable; that fresh url is then cached
 //          rather than stored, or we would be back here in a month.
-//          Instagram has no free re-derivation route, so those stay lost until
-//          the next metered discovery run repopulates them -- and that run now
-//          caches, so it only has to happen once.
+//          Instagram HAS a free re-derivation route after all, contrary to
+//          what an earlier version of this comment claimed: yt-dlp reads the
+//          poster straight off the post page, but only from an address
+//          Instagram will serve -- so it lives in
+//          scripts/instagram-thumbnails.py, on the desktop, and is run BEFORE
+//          this script. It writes a fresh signed url; this copies the bytes.
 //
 // YouTube is skipped by needsCaching: i.ytimg.com is derived from the video id
 // and never expires, so copying it would spend storage to make it worse.
@@ -97,4 +100,8 @@ for (const p of todo) {
 
 console.log(`\ncached from the stored url   ${cachedLive}`);
 console.log(`recovered via fresh oEmbed   ${cachedFresh}`);
-console.log(`still unrecoverable          ${lost}  (Instagram has no free re-derivation route)`);
+console.log(`still unrecoverable          ${lost}`);
+if (lost > 0) {
+  console.log("  For Instagram, run scripts/instagram-thumbnails.py first --");
+  console.log("  it re-derives a fresh poster url that this can then copy.");
+}
