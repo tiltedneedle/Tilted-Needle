@@ -15,6 +15,7 @@ import { parseContentUrl, tiktokPostedAtTs } from "@/lib/contentUrl";
 import { operatingDate } from "@/lib/tz";
 import { attachRefusal } from "@/lib/attachGuards";
 import { isHookType } from "@/lib/analysis/hookTypes";
+import { normaliseHandle } from "@/lib/analysis/competitors";
 import { fetchVideoDetails } from "@/lib/providers/youtube";
 import { verifyVideo as tiktokVerifyVideo } from "@/lib/providers/tiktok";
 import { MANAGER_ROLES, one, type WorkspaceRole } from "@/lib/types";
@@ -3799,6 +3800,108 @@ export async function setHookType(input: {
  * the insert lands -- but "your role may not spend money" deserves a sentence
  * a person can read, not a policy violation.
  */
+/* ---- Competitors: who a client is measured against ---------------------- */
+
+/* normaliseHandle lives in @/lib/analysis/competitors, not here. It is the
+   guard behind a UNIQUE (client, platform, handle) constraint, so a second
+   copy that drifts by one trim would let the same rival in twice -- and the
+   tests reach the shared one without pulling in Next's server runtime. */
+export async function addCompetitor(input: {
+  workspaceId: string;
+  clientId: string;
+  platformSlug: string;
+  handle: string;
+  displayName?: string | null;
+  note?: string | null;
+}): Promise<Result & { competitorId?: string }> {
+  const supabase = await createClient();
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth?.user) return { error: "Not signed in." };
+
+  const handle = normaliseHandle(input.handle);
+  if (!handle) return { error: "Enter a handle or a profile link." };
+  if (handle.length > 100) return { error: "That does not look like a handle." };
+
+  const { data: client } = await supabase
+    .from("clients").select("id").eq("id", input.clientId)
+    .eq("workspace_id", input.workspaceId).is("deleted_at", null).maybeSingle();
+  if (!client) return { error: "That client was not found." };
+
+  const { data: platform } = await supabase
+    .from("platforms").select("slug").eq("slug", input.platformSlug).maybeSingle();
+  if (!platform) return { error: "Unknown platform." };
+
+  const { data, error } = await supabase.from("competitors").insert({
+    workspace_id: input.workspaceId,
+    client_id: input.clientId,
+    platform_slug: input.platformSlug,
+    handle,
+    display_name: input.displayName?.trim() || null,
+    note: input.note?.trim() || null,
+    added_by: auth.user.id,
+  }).select("id").single();
+
+  if (error) {
+    // 23505 = unique_violation. The constraint is the real guard; this only
+    // turns it into a sentence, because "duplicate key value violates unique
+    // constraint" is not something anyone should have to read.
+    if (error.code === "23505") {
+      return { error: `@${handle} is already listed for this client.` };
+    }
+    return { error: error.message };
+  }
+
+  await logAudit(supabase, {
+    workspaceId: input.workspaceId,
+    actorId: auth.user.id,
+    action: "competitor.added",
+    entityType: "clients",
+    entityId: input.clientId,
+    detail: { platform: input.platformSlug, handle },
+  });
+
+  revalidatePath(`/clients/${input.clientId}`);
+  return { competitorId: data.id };
+}
+
+/**
+ * Archive rather than delete.
+ *
+ * The sampled posts hang off the competitor row, and a hard delete would take
+ * them with it -- including any that an idea has already cited. An idea whose
+ * evidence vanished is worse than a list with one stale entry on it.
+ */
+export async function archiveCompetitor(input: {
+  workspaceId: string;
+  competitorId: string;
+}): Promise<Result> {
+  const supabase = await createClient();
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth?.user) return { error: "Not signed in." };
+
+  const { data: row } = await supabase
+    .from("competitors").select("id, client_id, handle, platform_slug")
+    .eq("id", input.competitorId).eq("workspace_id", input.workspaceId).maybeSingle();
+  if (!row) return { error: "That competitor was not found." };
+
+  const { error } = await supabase.from("competitors")
+    .update({ is_archived: true })
+    .eq("id", input.competitorId).eq("workspace_id", input.workspaceId);
+  if (error) return { error: error.message };
+
+  await logAudit(supabase, {
+    workspaceId: input.workspaceId,
+    actorId: auth.user.id,
+    action: "competitor.archived",
+    entityType: "clients",
+    entityId: row.client_id,
+    detail: { platform: row.platform_slug, handle: row.handle },
+  });
+
+  revalidatePath(`/clients/${row.client_id}`);
+  return {};
+}
+
 export async function requestIdeas(input: {
   workspaceId: string;
   clientId: string;

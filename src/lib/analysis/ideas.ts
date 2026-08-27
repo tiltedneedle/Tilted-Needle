@@ -17,6 +17,7 @@
  */
 import { configFromEnv, callModel, digestOf, budgetState, llmMonthlyTokenLimit } from "@/lib/llm";
 import { validateIdeas } from "@/lib/analysis/provenance";
+import { relativeIndex, topByRelative } from "@/lib/analysis/competitors";
 
 export const IDEAS_PROMPT_VERSION = 2;
 
@@ -28,17 +29,36 @@ export type IdeaRunOptions = {
   pool?: number;
   /** Skip the input-digest cache check. */
   force?: boolean;
+  /**
+   * Build the evidence table and stop. Nothing is called, nothing is stored,
+   * nothing is charged.
+   *
+   * This lives HERE rather than in the CLI because that is where it broke.
+   * The old script implemented --dry-run itself; moving the logic into this
+   * function left the flag parsed and unused, so `--dry-run` quietly ran a
+   * full paid generation and stored ten ideas. A flag whose whole promise is
+   * "this spends nothing" must be honoured by the thing that does the
+   * spending.
+   */
+  dryRun?: boolean;
+  /** How many competitor breakouts to put in front of the model. */
+  rivalPool?: number;
   model?: string;
 };
 
 export type IdeaRunResult = {
-  status: "stored" | "cached" | "nothing_to_ground" | "none_survived" | "budget_exhausted";
+  status: "stored" | "cached" | "nothing_to_ground" | "none_survived"
+    | "budget_exhausted" | "dry_run";
+  /** Only on a dry run: the exact table the model would have been given. */
+  table?: string;
   clientName?: string;
   requested?: number;
   proposed?: number;
   kept?: number;
   poolSize?: number;
   candidates?: number;
+  /** Competitor breakouts offered as evidence, after the 1.5x floor. */
+  rivalCount?: number;
   dropped?: Record<string, number>;
   note?: string;
 };
@@ -108,6 +128,11 @@ export async function generateIdeasForClient(
 ): Promise<IdeaRunResult> {
   const count = clamp(opts.count ?? 10, 1, 20);
   const pool = clamp(opts.pool ?? 100, 1, 200);
+  /* Small on purpose. Competitor rows are a PROMPT, not a corpus: a handful
+     of genuine breakouts is inspiration, thirty of them crowds out the
+     client's own evidence and the model starts writing somebody else's
+     channel. */
+  const rivalPool = clamp(opts.rivalPool ?? 8, 0, 25);
   const MODEL = opts.model || process.env.IDEAS_MODEL || "gpt-4o-mini";
 
   const { data: client, error: clientErr } = await db
@@ -146,6 +171,58 @@ export async function generateIdeasForClient(
     : [];
   const transcribed = new Map(transcripts.map((t: any) => [t.content_item_id, t.full_text]));
 
+  /* COMPETITOR BREAKOUTS, indexed against their OWN median before they are
+     allowed near the prompt.
+
+     Raw view counts across accounts are follower counts wearing a
+     performance label -- a rival with ten times the audience wins every
+     comparison regardless of what they made. Each competitor is therefore
+     scored against themselves, exactly as perfIndex scores a client, and only
+     the ratio reaches the model. A row reading "6.0x their own normal" is a
+     claim about the video; "1,000,000 views" is a claim about their
+     follower count.
+
+     Only posts that genuinely broke out are offered. An average post from a
+     rival teaches nothing that the client's own average post does not. */
+  const rivals = rivalPool > 0
+    ? await selectAll(db, "competitors", "id, handle, platform_slug",
+        (q) => q.eq("client_id", client.id).eq("is_archived", false).order("id"))
+    : [];
+
+  let rivalCandidates: any[] = [];
+  if (rivals.length) {
+    const rivalPosts = await selectAll(db, "competitor_posts",
+      "id, competitor_id, title, caption, views, url",
+      (q) => q.in("competitor_id", rivals.map((r: any) => r.id)).order("id"));
+
+    const byRival = new Map<string, any[]>();
+    for (const p of rivalPosts) {
+      if (!byRival.has(p.competitor_id)) byRival.set(p.competitor_id, []);
+      byRival.get(p.competitor_id)!.push(p);
+    }
+
+    const scoredRivalPosts: any[] = [];
+    for (const r of rivals) {
+      const { scored } = relativeIndex(byRival.get(r.id) ?? []);
+      for (const p of scored) {
+        // BREAKOUTS ONLY. 1.5x their own median is the floor for "this did
+        // unusually well for them"; below it the post is just their Tuesday.
+        if (p.relIndex != null && p.relIndex >= 1.5) {
+          scoredRivalPosts.push({ ...p, handle: r.handle, platform: r.platform_slug });
+        }
+      }
+    }
+
+    rivalCandidates = topByRelative(scoredRivalPosts, rivalPool).map((p: any) => ({
+      type: "rival",
+      id: p.id,
+      figure: Number(p.relIndex.toFixed(3)),
+      label: (p.title || p.caption || "Untitled").slice(0, 90),
+      handle: p.handle,
+      platform: p.platform,
+    }));
+  }
+
   const candidates = [
     ...findings.map((f: any) => ({
       type: "finding", id: f.id, figure: Number(Number(f.multiplier).toFixed(3)),
@@ -156,6 +233,7 @@ export async function generateIdeasForClient(
       label: v.title, hookType: v.hook_type,
       hook: (v.hook ?? transcribed.get(v.id) ?? "").slice(0, 140),
     })),
+    ...rivalCandidates,
   ];
 
   if (!candidates.length) {
@@ -165,13 +243,25 @@ export async function generateIdeasForClient(
     };
   }
 
-  const table = candidates.map((c: any) =>
-    c.type === "finding"
-      ? `[${c.id}] FINDING ${c.label}: ${c.figure}x (${c.state})`
-      : `[${c.id}] VIDEO "${c.label}" scored ${c.figure}x baseline`
-        + (c.hookType ? ` [hook: ${c.hookType}]` : "")
-        + (c.hook ? ` -- opens: "${c.hook}"` : ""),
-  ).join("\n");
+  /* EVERY ROW SAYS WHOSE VIDEO IT IS, and that is not presentation.
+     A rival row rendered through the VIDEO branch reads "[id] VIDEO "..."
+     scored 3.125x baseline" -- indistinguishable from the client's own work,
+     against the client's own baseline, which is the exact contamination the
+     separate tables exist to prevent. It reached the model that way once,
+     because a formatting edit silently failed to apply and nothing downstream
+     could tell the two apart. The type is now branched explicitly. */
+  const table = candidates.map((c: any) => {
+    if (c.type === "finding") {
+      return `[${c.id}] FINDING ${c.label}: ${c.figure}x (${c.state})`;
+    }
+    if (c.type === "rival") {
+      return `[${c.id}] RIVAL @${c.handle} (${c.platform}) "${c.label}" `
+        + `did ${c.figure}x THEIR OWN median`;
+    }
+    return `[${c.id}] VIDEO "${c.label}" scored ${c.figure}x baseline`
+      + (c.hookType ? ` [hook: ${c.hookType}]` : "")
+      + (c.hook ? ` -- opens: "${c.hook}"` : "");
+  }).join("\n");
 
   const system = [
     "You propose short-form video ideas for a marketing client, grounded in the",
@@ -181,11 +271,30 @@ export async function generateIdeasForClient(
     "- Cite a row only when the idea genuinely builds on it.",
     "- Ideas should be shootable by a small team within a week.",
     "- Do not repeat an idea already in the table; propose the NEXT one.",
+    "- RIVAL rows are somebody else's video, shown as a multiple of THEIR own",
+    "  median. Treat them as evidence a FORMAT travels, never as a target to",
+    "  copy, and never imply the client should expect that competitor's reach.",
     "Respond with JSON only: {\"ideas\": [{\"title\", \"premise\", \"openingLine\", \"citations\": [{\"id\", \"figure\"}]}]}",
   ].join("\n");
 
   const user = `CLIENT: ${client.name}\n\nEVIDENCE TABLE:\n${table}\n\n`
     + `Propose exactly ${count} DISTINCT ideas, each citing at least one row above.`;
+
+  /* `user` carries the whole evidence table, RIVAL ROWS INCLUDED, so adding
+     or removing a competitor changes the digest and the cache correctly
+     misses. That falls out of digesting the prompt rather than a hand-built
+     key -- a key listing only clientId and count would have gone on serving
+     yesterday's ideas after the list changed. */
+  // Before the digest, the budget check and the call -- a dry run must not
+  // even read the ledger, let alone spend against it.
+  if (opts.dryRun) {
+    return {
+      status: "dry_run", clientName: client.name, requested: count,
+      poolSize: top.length, candidates: candidates.length,
+      rivalCount: rivalCandidates.length, table,
+      note: "nothing called, nothing stored, nothing charged",
+    };
+  }
 
   const digest = digestOf({ user, PROMPT_VERSION: IDEAS_PROMPT_VERSION, MODEL, COUNT: count });
 
@@ -252,6 +361,7 @@ export async function generateIdeasForClient(
     output: {
       requested: count, proposed: result.data.ideas.length,
       kept: kept.length, dropped, poolSize: top.length,
+      rivalPoolSize: rivalCandidates.length,
     },
     input_tokens: result.inputTokens,
     output_tokens: result.outputTokens,
@@ -287,7 +397,8 @@ export async function generateIdeasForClient(
   return {
     status: "stored", clientName: client.name,
     requested: count, proposed: result.data.ideas.length, kept: kept.length,
-    poolSize: top.length, candidates: candidates.length, dropped,
+    poolSize: top.length, candidates: candidates.length,
+    rivalCount: rivalCandidates.length, dropped,
     note: ledgerErr ? `WARNING: spend not ledgered: ${ledgerErr.message}` : undefined,
   };
 }

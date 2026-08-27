@@ -9,6 +9,9 @@ import { PLATFORM_COLORS, PLATFORM_LABEL, canManage } from "@/lib/types";
 import { createClient } from "@/lib/supabase/server";
 import { requireSession } from "@/lib/workspace";
 import { loadClientChannels } from "@/lib/channelDashboard";
+import CompetitorList, { type CompetitorRow } from "@/components/CompetitorList";
+import { relativeIndex } from "@/lib/analysis/competitors";
+import { selectAll } from "@/lib/selectAll";
 
 export default async function ClientChannelsPage({
   params,
@@ -35,6 +38,53 @@ export default async function ClientChannelsPage({
       .maybeSingle();
     contact = { email: row?.email ?? null, note: row?.note ?? null };
   }
+
+  /* COMPETITORS, and the one figure that is safe to show for them.
+     Sampled posts are indexed against THAT competitor's own median before
+     anything is displayed -- see lib/analysis/competitors. Raw view counts
+     across accounts measure follower count, not craft. */
+  const { data: compRows } = await supabase
+    .from("competitors")
+    .select("id, platform_slug, handle, display_name, note, last_scanned_at, last_scan_error")
+    .eq("workspace_id", ws).eq("client_id", id).eq("is_archived", false)
+    .order("platform_slug").order("handle");
+
+  const compIds = (compRows ?? []).map((c) => c.id);
+  const { data: compPosts } = compIds.length
+    ? await selectAll<{ competitor_id: string; views: number | null }>(
+        () => supabase.from("competitor_posts").select("competitor_id, views")
+          .eq("workspace_id", ws).in("competitor_id", compIds).order("id"),
+      )
+    : { data: [] };
+
+  const postsByCompetitor = new Map<string, { views: number | null }[]>();
+  for (const p of compPosts ?? []) {
+    if (!postsByCompetitor.has(p.competitor_id)) postsByCompetitor.set(p.competitor_id, []);
+    postsByCompetitor.get(p.competitor_id)!.push({ views: p.views });
+  }
+
+  const competitors: CompetitorRow[] = (compRows ?? []).map((c) => {
+    const posts = postsByCompetitor.get(c.id) ?? [];
+    const { scored } = relativeIndex(posts);
+    const best = scored.reduce<number | null>(
+      (m, p) => (p.relIndex != null && (m == null || p.relIndex > m) ? p.relIndex : m),
+      null,
+    );
+    return {
+      id: c.id,
+      platformSlug: c.platform_slug,
+      handle: c.handle,
+      displayName: c.display_name,
+      note: c.note,
+      sampled: posts.length,
+      bestRelIndex: best,
+      lastScannedAt: c.last_scanned_at,
+      lastScanError: c.last_scan_error,
+    };
+  });
+
+  const { data: platformRows } = await supabase
+    .from("platforms").select("slug, display_name").eq("is_enabled", true).order("sort_order");
 
   const live = data.channels.filter((c) => !c.isArchived);
 
@@ -68,6 +118,16 @@ export default async function ClientChannelsPage({
           />
         </div>
       )}
+
+      <div className="mb-5">
+        <CompetitorList
+          workspaceId={ws}
+          clientId={id}
+          competitors={competitors}
+          platforms={(platformRows ?? []).map((p) => ({ slug: p.slug, name: p.display_name }))}
+          canManage={manages}
+        />
+      </div>
 
       {live.length === 0 ? (
         <Empty>

@@ -45,6 +45,7 @@ try {
     count: Number(flag("count", 10)),
     pool: Number(flag("pool", 100)),
     force: process.argv.includes("--force"),
+    dryRun: process.argv.includes("--dry-run"),
   });
 } catch (e) {
   if (e instanceof LlmError) console.error(`model call failed (${e.kind}): ${e.message}`);
@@ -56,6 +57,11 @@ if (result.candidates != null) {
   console.log(`candidates      ${result.candidates} rows, ${result.poolSize} videos in the pool`);
 }
 console.log(`status          ${result.status}${result.note ? ` -- ${result.note}` : ""}`);
+if (result.status === "dry_run") {
+  const rivals = (result.table ?? "").split("\n").filter((l) => l.includes("] RIVAL "));
+  console.log(`rival rows      ${rivals.length}`);
+  for (const r of rivals) console.log("  " + r);
+}
 if (result.status === "stored") {
   console.log(`proposed        ${result.proposed} (asked for ${result.requested})`);
   console.log(`stored          ${result.kept}  (dropped: ${JSON.stringify(result.dropped)})`);
