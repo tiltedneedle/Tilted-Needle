@@ -397,6 +397,7 @@ async function InsightsReport() {
   );
   const hookOfItem = new Map((hookRows ?? []).map((r) => [r.id, r.hook_type]));
 
+  const hookProgressByClient = new Map<string, { tagged: number; total: number }>();
   const hooksByClient = new Map<string, ReturnType<typeof hookPerformance>>();
   {
     const byClient = new Map<string, { hookType: string | null; index: number | null }[]>();
@@ -409,6 +410,10 @@ async function InsightsReport() {
       });
     }
     for (const [clientId, videos] of byClient) {
+      hookProgressByClient.set(clientId, {
+        tagged: videos.filter((v) => v.hookType).length,
+        total: videos.length,
+      });
       const perf = hookPerformance(videos);
       if (perf.length) hooksByClient.set(clientId, perf);
     }
@@ -486,6 +491,7 @@ async function InsightsReport() {
         themeDenominators={themeDenominators}
         audienceByClient={audienceByClient}
         hooksByClient={hooksByClient}
+        hookProgressByClient={hookProgressByClient}
       />
       <IdeaReview
         ideas={ideas}

@@ -42,6 +42,7 @@ export default function ClientInsights({
   themeDenominators = new Map(),
   audienceByClient = new Map(),
   hooksByClient = new Map(),
+  hookProgressByClient = new Map(),
 }: {
   entries: { clientId: string; clientName: string; evidence: ClientEvidence }[];
   /** Client-level audience themes, merged across posts by the embedding
@@ -53,6 +54,12 @@ export default function ClientInsights({
   audienceByClient?: Map<string, AudienceCounts>;
   /** Hand-tagged hook types, scored against their siblings. */
   hooksByClient?: Map<string, HookPerformance[]>;
+  /**
+   * How far tagging has got, per client. Separate from hooksByClient because
+   * "nothing tagged" and "tagged but not enough to rank" are different states
+   * and the reader needs to be told which one they are looking at.
+   */
+  hookProgressByClient?: Map<string, { tagged: number; total: number }>;
 }) {
   if (entries.length === 0) {
     return (
@@ -262,13 +269,49 @@ export default function ClientInsights({
                 unmarked would invite reading a 3-video hook as a finding.
                 Neither is descriptive, and this is a descriptive table -- it
                 runs no test, so it must not look like the engine's output. */}
-            {(hooksByClient.get(clientId)?.length ?? 0) > 0 && (
+            {/* RENDERED EVEN WITH NOTHING TAGGED, deliberately.
+
+                It used to be hidden entirely until a client had tagged hooks,
+                which made the whole feature undiscoverable: you opened
+                Insights, saw no hooks section, and reasonably concluded there
+                wasn't one. The same empty-state fault that hid the ideas
+                generator. A section that explains what it needs is worth more
+                than a section that isn't there. */}
+            {(() => {
+              const rows = hooksByClient.get(clientId) ?? [];
+              const prog = hookProgressByClient.get(clientId);
+              if (!rows.length && !prog?.total) return null;
+              return (
               <div className="mt-3 border-t border-[var(--border)] pt-3">
-                <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-[var(--muted)]">
+                <p className="mb-1.5 flex items-baseline gap-2 text-[11px] font-medium uppercase tracking-wide text-[var(--muted)]">
                   Which hooks land
+                  {prog && (
+                    <span className="normal-case tracking-normal opacity-80">
+                      {prog.tagged} of {prog.total} tagged
+                    </span>
+                  )}
                 </p>
+                {rows.length === 0 ? (
+                  <p className="text-xs text-[var(--muted)]">
+                    {/* Straight to the WORKLIST, not the client's whole
+                        library. ?status=untagged is a filter parseFilters
+                        accepts but nothing surfaces -- the status dropdown was
+                        deliberately retired, and reinstating it to expose one
+                        value would undo that decision. A link from the place
+                        the gap is felt is the smaller answer. */}
+                    No hooks tagged yet.{" "}
+                    <Link
+                      href={`/content?client=${clientId}&status=untagged`}
+                      className="text-[var(--accent)] hover:underline"
+                    >
+                      Tag the untagged videos
+                    </Link>{" "}
+                    — pick what each one&apos;s first three seconds do. A hook
+                    needs 8 scored videos before a figure appears here.
+                  </p>
+                ) : (<>
                 <div className="flex flex-col gap-1">
-                  {hooksByClient.get(clientId)!.map((h) => (
+                  {rows.map((h) => (
                     <div
                       key={h.hookType}
                       className={`flex items-baseline justify-between gap-3 text-xs ${
@@ -302,9 +345,23 @@ export default function ClientInsights({
                 <p className="mt-1.5 text-[11px] text-[var(--muted)]">
                   Against this client&apos;s other tagged hooks. Descriptive —
                   no significance test, so treat a gap as a lead, not a finding.
+                  {prog && prog.tagged < prog.total && (
+                    <>
+                      {" "}
+                      <Link
+                        href={`/content?client=${clientId}&status=untagged`}
+                        className="text-[var(--accent)] hover:underline"
+                      >
+                        {prog.total - prog.tagged} still untagged
+                      </Link>
+                      .
+                    </>
+                  )}
                 </p>
+                </>)}
               </div>
-            )}
+              );
+            })()}
 
             {/* What the AUDIENCE says, merged across this client's posts.
                 Each per-post analysis invents its own labels, so "how much is

@@ -98,7 +98,11 @@ export function parseFilters(
     // module is dependency-free and cannot know a workspace's roles.
     roleSlugs: parseIdList(sp.role),
     platform: sp.platform?.trim() || null,
-    status: ["published", "unpublished", "boosting"].includes(sp.status ?? "")
+    // "untagged" = no hook_type yet. Tagging is the one input this product
+    // asks a human for, and without a way to LIST what still needs it the
+    // job is "open all 570 videos and check" -- which is the same as not
+    // shipping the feature.
+    status: ["published", "unpublished", "boosting", "untagged"].includes(sp.status ?? "")
       ? sp.status!
       : null,
     q: sp.q?.trim() || null,

@@ -68,7 +68,7 @@ async function loadRaw(ws: string): Promise<RawContentData> {
       db
         .from("content_items")
         .select(
-          "id, title, produced_at, length_seconds, client_id, review_state, client:clients(id, name)",
+          "id, title, produced_at, length_seconds, client_id, review_state, hook_type, client:clients(id, name)",
         )
         .eq("workspace_id", ws)
         .order("produced_at", { ascending: false, nullsFirst: false })
@@ -114,7 +114,12 @@ async function loadRaw(ws: string): Promise<RawContentData> {
   };
 }
 
-const cached = unstable_cache(loadRaw, ["content-raw-v1"], {
+/* v2: hook_type joined the select. The key MUST move whenever the cached
+   SHAPE changes -- a stale v1 payload has no hook_type at all, so every video
+   reads as untagged and the ?status=untagged filter silently returns
+   everything. That is exactly what it did until this was bumped: 100 videos
+   before tagging one, 100 after. The suffix is not decoration. */
+const cached = unstable_cache(loadRaw, ["content-raw-v2"], {
   // "content" is busted by revalidateTeam() and by the sync route, alongside
   // "rankings" -- the two caches read overlapping tables and go stale on the
   // same events, so invalidating one without the other would leave the page

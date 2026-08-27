@@ -77,6 +77,8 @@ export type VideoSummary = {
   trackedSeconds: number;
   /** Highest boost index across this video's posts, when it has been scored. */
   bestIndex: number | null;
+  /** Controlled hook vocabulary, or null when nobody has tagged it yet. */
+  hookType: string | null;
   postCount: number;
   /**
    * Who is credited on this video, in which role. Carried on every video the
@@ -532,6 +534,7 @@ export async function loadContentOverview(
     postCode: codeByItem.get(i.id) ?? null,
     trackedSeconds: secondsByItem.get(i.id) ?? 0,
     bestIndex: bestIndexByItem.get(i.id) ?? null,
+    hookType: (i as { hook_type?: string | null }).hook_type ?? null,
     postCount: postsByItem.get(i.id) ?? 0,
     accountIds: accountsByItem.get(i.id) ?? [],
     credits: creditsByItem.get(i.id) ?? [],
@@ -576,6 +579,7 @@ export async function loadContentOverview(
 
   if (filters.status === "published") videos = videos.filter((v) => v.postCount > 0);
   else if (filters.status === "unpublished") videos = videos.filter((v) => v.postCount === 0);
+  else if (filters.status === "untagged") videos = videos.filter((v) => !v.hookType);
   else if (filters.status === "boosting")
     videos = videos.filter((v) => v.bestIndex != null && v.bestIndex >= 2);
 
