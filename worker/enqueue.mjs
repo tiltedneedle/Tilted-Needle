@@ -531,6 +531,10 @@ export const SUBJECT_TYPE = {
   // The exception, and the reason this table is worth keeping: weeklyRead
   // looks its subject up in `clients`, not `content_items`.
   weekly_read: "client",
+  // A third subject table. competitorScan looks its subject up in
+  // `competitors`, so anything validating a job's subject against
+  // content_items would reject every one of these as orphaned.
+  competitor_scan: "competitor",
 };
 
 /**
@@ -691,6 +695,51 @@ async function planDescribe() {
   return { kind, count: await insert(kind, wanted, subjects), cap };
 }
 
+/**
+ * One scan per live competitor, at most one in flight per rival.
+ *
+ * Re-sampling a rival more often than they post buys nothing -- the sample is
+ * the same list with the same view counts -- so a competitor scanned inside
+ * the cooldown is skipped rather than queued. COMPETITOR_COOLDOWN_HOURS makes
+ * that a decision rather than a constant buried here.
+ */
+async function planCompetitorScan() {
+  const cooldownHours = Number(process.env.COMPETITOR_COOLDOWN_HOURS ?? 24);
+  const cutoff = new Date(Date.now() - cooldownHours * 3600_000).toISOString();
+
+  // Paged for the same reason every read here is: an unbounded select stops
+  // at 1000 rows in silence, and a planner that cannot see a job it already
+  // created duplicates work.
+  const competitors = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await db
+      .from("competitors")
+      .select("id, workspace_id, handle, platform_slug, last_scanned_at")
+      .eq("is_archived", false).order("id").range(from, from + 999);
+    if (error) throw new Error(`competitors: ${error.message}`);
+    if (!data?.length) break;
+    competitors.push(...data);
+    if (data.length < 1000) break;
+  }
+  if (!competitors.length) return { kind: "competitor_scan", count: 0, considered: 0 };
+
+  // Same two guards every other planner uses: never duplicate work already
+  // queued, and never re-queue something that settled terminally.
+  const queued = await inFlight("competitor_scan");
+  const done = await settled("competitor_scan");
+
+  /* Re-sampling a rival more often than they post buys nothing -- the same
+     list with the same view counts -- so a competitor scanned inside the
+     cooldown is skipped. Named via env rather than buried as a literal. */
+  const due = competitors.filter((c) =>
+    !queued.has(c.id) && !done.has(c.id)
+    && (!c.last_scanned_at || c.last_scanned_at < cutoff));
+
+  const workspaceBySubject = new Map(competitors.map((c) => [c.id, c.workspace_id]));
+  const count = await insert("competitor_scan", due.map((c) => c.id), workspaceBySubject);
+  return { kind: "competitor_scan", count, considered: competitors.length };
+}
+
 const PLANNERS = {
   comments: planComments,
   transcript: planTranscript,
@@ -698,6 +747,7 @@ const PLANNERS = {
   analyse: planAnalyse,
   weekly_read: planWeeklyRead,
   describe: planDescribe,
+  competitor_scan: planCompetitorScan,
 };
 
 const chosen = only ?? Object.keys(PLANNERS);

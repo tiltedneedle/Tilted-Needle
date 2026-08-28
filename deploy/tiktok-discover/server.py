@@ -288,6 +288,100 @@ def meta():
     })
 
 
+@app.route("/profile", methods=["GET"])
+def profile():
+    """
+    Recent posts from any public profile, by URL, with view counts.
+
+    Feeds competitor sampling. Deliberately generic across platforms rather
+    than a second TikTok-shaped endpoint: the caller passes a profile URL and
+    yt-dlp picks the extractor.
+
+    MEASURED 2026-08-25, and the honest state of it:
+      youtube     WORKS -- id, title, view_count, duration, url.
+      instagram   BROKEN upstream. "Unable to extract data" on the user page,
+                  though SINGLE-post extraction still works.
+      tiktok      BROKEN upstream. "Unable to extract secondary user ID."
+
+    A broken extractor returns 502 with extractorBroken, exactly as the
+    transcript path does, so the caller can record "unreachable" rather than
+    "this rival posted nothing". Those are different facts and only one of
+    them is about the competitor.
+
+    extract_flat keeps this to ONE profile fetch instead of one request per
+    video, which is what makes sampling a rival cheap enough to do on a
+    schedule.
+    """
+    if not authorised(request):
+        return jsonify({"error": "Unauthorised."}), 401
+
+    url = (request.args.get("url") or "").strip()
+    if not url:
+        return jsonify({"error": "url query param is required."}), 400
+    try:
+        limit = min(MAX_LIMIT, max(1, int(request.args.get("limit", DEFAULT_LIMIT))))
+    except ValueError:
+        return jsonify({"error": "limit must be an integer."}), 400
+
+    opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "extract_flat": "in_playlist",
+        "playlistend": limit,
+        "skip_download": True,
+    }
+    _with_cookies(opts)
+
+    started = time.time()
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=False) or {}
+    except yt_dlp.utils.DownloadError as e:
+        msg = str(e)
+        low = msg.lower()
+        if "unable to extract" in low or "unexpected response" in low:
+            return jsonify({
+                "error": f"yt-dlp's {_platform_of(url)} profile extractor is broken upstream",
+                "extractorBroken": True,
+                "posts": [],
+            }), 502
+        if "private" in low or "unable to find user" in low or "not found" in low:
+            return jsonify({"url": url, "available": False,
+                            "reason": "no such public profile", "posts": []}), 200
+        return jsonify({"error": f"Extraction failed: {msg}"}), 502
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"error": f"Unexpected error: {e}"}), 500
+
+    posts = []
+    for e in (info.get("entries") or []):
+        if not e:
+            continue
+        posts.append({
+            "externalId": str(e.get("id") or ""),
+            "url": e.get("url") or e.get("webpage_url"),
+            "title": (e.get("title") or "").strip() or None,
+            "description": (e.get("description") or "").strip() or None,
+            # NULL rather than 0 when the extractor did not report one. A
+            # missing view count is not a video nobody watched, and storing
+            # zero would drag the competitor's median down and flatter every
+            # other post against it.
+            "views": e.get("view_count"),
+            "likes": e.get("like_count"),
+            "comments": e.get("comment_count"),
+            "durationSeconds": e.get("duration"),
+            "thumbnail": e.get("thumbnail"),
+            "timestamp": e.get("timestamp"),
+        })
+
+    return jsonify({
+        "url": url,
+        "available": True,
+        "profileName": info.get("title") or info.get("uploader"),
+        "posts": posts,
+        "tookMs": round((time.time() - started) * 1000),
+    })
+
+
 @app.route("/transcript", methods=["GET"])
 def transcript():
     """

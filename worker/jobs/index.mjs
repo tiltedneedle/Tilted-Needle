@@ -22,6 +22,7 @@ import { visionExtract } from "./visionExtract.mjs";
 import { weeklyRead } from "./weeklyRead.mjs";
 import { describe } from "./describe.mjs";
 import { ideas } from "./ideas.mjs";
+import { competitorScan } from "./competitorScan.mjs";
 
 export const handlers = {
   comments,
@@ -42,4 +43,10 @@ export const handlers = {
   weekly_read: weeklyRead,
   describe,
   ideas,
+  /* NOT in the GitHub Actions kind list, and that is the point. This talks to
+     the local yt-dlp service, which is on a residential address; a runner
+     asking a platform for a profile listing gets the same refusal that keeps
+     transcripts off CI. Measured today it is YouTube-only anyway -- Instagram
+     and TikTok profile extractors are both broken upstream. */
+  competitor_scan: competitorScan,
 };

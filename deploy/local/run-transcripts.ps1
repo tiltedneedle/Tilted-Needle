@@ -14,7 +14,14 @@
 # WHAT IT DOES, in order:
 #   1. starts the local yt-dlp service if it is not already listening
 #   2. enqueues any content item still missing a transcript
-#   3. drains ONLY transcript jobs -- everything else belongs to GitHub Actions
+#   3. drains transcript AND competitor_scan jobs -- everything else belongs
+#      to GitHub Actions
+#
+# competitor_scan is here for the same reason transcripts are: it asks a
+# platform for a profile listing, and a datacenter address gets refused.
+# Measured 2026-08-25, yt-dlp profile extractors: YouTube works, Instagram and
+# TikTok are both broken upstream -- so today this samples YouTube rivals and
+# records the other two as unreachable rather than as empty.
 #
 # Safe to run on a timer: every stage is idempotent, jobs are leased so two
 # overlapping runs cannot double-process, and a video with no caption track is
@@ -60,10 +67,10 @@ foreach ($name in @("NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_SECRET_KEY",
 $env:DISCOVER_SECRET = $env:TIKTOK_DISCOVER_SECRET
 
 Write-Output "enqueuing outstanding transcript work"
-node worker/enqueue.mjs --kinds=transcript
+node worker/enqueue.mjs --kinds=transcript,competitor_scan
 
 Write-Output "draining transcript jobs"
 node --experimental-strip-types --import ./scripts/register-alias.mjs `
-    worker/index.mjs --once --kinds=transcript
+    worker/index.mjs --once --kinds=transcript,competitor_scan
 
 Write-Output "done $(Get-Date -Format o)"
