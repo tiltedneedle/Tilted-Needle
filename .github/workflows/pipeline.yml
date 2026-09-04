@@ -169,6 +169,23 @@ jobs:
           node --experimental-strip-types --import ./scripts/register-alias.mjs \
             scripts/verify-pipeline.mjs | tee -a "$GITHUB_STEP_SUMMARY"
 
+      # Where the money went and where work is being routed. Runs ALWAYS,
+      # including after a failed drain -- a run that died is exactly when you
+      # want to know whether it died of an exhausted account.
+      #
+      # This lives here rather than in a scheduled cloud routine because the
+      # tokens are secrets: the only two places that hold them are the
+      # developer's machine and this environment. A cloud routine would fail
+      # every run.
+      - name: Apify budget and routing
+        if: always()
+        shell: bash
+        env:
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+          APIFY_TIKTOK_TOKEN: ${{ secrets.APIFY_TIKTOK_TOKEN }}
+        run: |
+          node --experimental-strip-types --import ./scripts/register-alias.mjs             scripts/apify-status.mjs | tee -a "$GITHUB_STEP_SUMMARY"
+
       # Runs even when draining failed: a run that dies mid-queue is exactly
       # when the depth matters, and a summary only written on success is a
       # summary you cannot trust.

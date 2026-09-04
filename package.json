@@ -77,7 +77,8 @@
     "test:topicvelocity": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/topic-velocity-test.mjs",
     "test:attribution": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/video-attribution-test.mjs",
     "test:competitors": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/competitor-test.mjs",
-    "test:apifyrouting": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/apify-routing-test.mjs"
+    "test:apifyrouting": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/apify-routing-test.mjs",
+    "apify:status": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/apify-status.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.3",
