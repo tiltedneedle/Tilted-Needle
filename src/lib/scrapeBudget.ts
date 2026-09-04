@@ -16,14 +16,27 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Db = SupabaseClient<any>;
 
-export type BudgetPool = "auto" | "discovery" | "manual";
+/**
+ * "transcription" is RING-FENCED, and that is the whole reason it exists as a
+ * pool rather than a slice of discovery. Sharing meant a busy discovery month
+ * silently stopped transcribing, and the symptom is a corpus that quietly
+ * stops growing while every dashboard still looks healthy. Transcripts are the
+ * input the entire analysis layer reads.
+ */
+export type BudgetPool = "auto" | "discovery" | "manual" | "transcription";
 
 export type BudgetStatus = {
   periodStart: string;
   periodEnd: string;
-  limits: { auto: number; discovery: number; manual: number };
-  used: { auto: number; discovery: number; manual: number };
-  remaining: { auto: number; discovery: number; manual: number };
+  limits: { auto: number; discovery: number; manual: number; transcription: number };
+  used: { auto: number; discovery: number; manual: number; transcription: number };
+  remaining: { auto: number; discovery: number; manual: number; transcription: number };
+  /**
+   * The day this platform's budget resets, matching the Apify account that
+   * funds it -- 11th for TikTok (palatial_lemongrass), 28th for the rest
+   * (tilted_Needle). Null means the old calendar-month behaviour.
+   */
+  cycleAnchorDay: number | null;
   /** Days until the counters reset, for the UI to show alongside the count. */
   daysUntilReset: number;
 };
@@ -116,7 +129,10 @@ export async function refund(
 ): Promise<void> {
   if (count <= 0) return;
   const column =
-    pool === "auto" ? "used_auto" : pool === "discovery" ? "used_discovery" : "used_manual";
+    pool === "auto" ? "used_auto"
+      : pool === "discovery" ? "used_discovery"
+        : pool === "transcription" ? "used_transcription"
+          : "used_manual";
   const { data: row } = await db
     .from("scrape_budgets")
     .select(`id, ${column}`)
@@ -161,11 +177,16 @@ export async function status(
     auto: data?.limit_auto ?? 1400,
     discovery: data?.limit_discovery ?? 200,
     manual: data?.limit_manual ?? 200,
+    // Zero, not a guess. A platform with no configured transcription
+    // allowance should transcribe nothing rather than quietly spend against
+    // an invented default.
+    transcription: data?.limit_transcription ?? 0,
   };
   const used = {
     auto: data?.used_auto ?? 0,
     discovery: data?.used_discovery ?? 0,
     manual: data?.used_manual ?? 0,
+    transcription: data?.used_transcription ?? 0,
   };
 
   return {
@@ -177,7 +198,9 @@ export async function status(
       auto: Math.max(0, limits.auto - used.auto),
       discovery: Math.max(0, limits.discovery - used.discovery),
       manual: Math.max(0, limits.manual - used.manual),
+      transcription: Math.max(0, limits.transcription - used.transcription),
     },
+    cycleAnchorDay: data?.cycle_anchor_day ?? null,
     daysUntilReset: Math.max(
       0,
       Math.ceil((new Date(end).getTime() - Date.now()) / 86400000),
