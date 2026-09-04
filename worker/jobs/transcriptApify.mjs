@@ -7,11 +7,17 @@
  * kind is IP-agnostic and belongs in the GitHub Actions drain list beside
  * comments and analyse.
  *
- * BUDGET IS CLAIMED BEFORE THE VENDOR IS CALLED, and only the granted amount
- * is spent -- the same ordering scrapeBudget documents for every metered
- * read. Claiming afterwards means a crash mid-run leaves credit spent and
- * unrecorded, and on accounts that BLOCK rather than bill, an unrecorded
- * overspend is what silently stops the pipeline for the rest of the cycle.
+ * BUDGET IS CLAIMED BEFORE THE VENDOR IS CALLED, the same ordering every
+ * metered read in this project uses. Claiming afterwards means a crash
+ * mid-run leaves credit spent and unrecorded, and on accounts that BLOCK
+ * rather than bill, an unrecorded overspend silently stops the pipeline for
+ * the rest of the cycle.
+ *
+ * ONE POOL FOR EVERY PLATFORM, HELD IN MICRO-DOLLARS. transcription_budget
+ * replaced four per-platform item pools because an "item" is not a unit here:
+ * a TikTok transcript is $0.001 and an Instagram one $0.005. Each fetch
+ * debits its own measured price, so the pool means the same thing whatever
+ * mix of platforms turns up.
  *
  * A REFUSED CLAIM IS NOT A FAILURE. Running out of transcription budget is
  * the system working: the job goes back to pending with no attempt spent, and
@@ -60,14 +66,28 @@ export async function transcriptApify({ db, job, log }) {
     return { unavailable: true, note: "no platform on this video has a transcript actor" };
   }
 
-  const { claim, refund } = await import("../../src/lib/scrapeBudget.ts");
-  const granted = await claim(db, item.workspace_id, candidate.platform, "transcription", 1);
-  if (granted < 1) {
-    const err = new Error(
-      `transcription budget exhausted for ${candidate.platform} this cycle`,
-    );
+  /* ONE POOL, DENOMINATED IN MONEY, for every platform.
+     A shared pool counting ITEMS would be dishonest here: a TikTok transcript
+     costs $0.001 and an Instagram one $0.005, so "500 transcriptions" means
+     anywhere between $0.50 and $2.50 depending which platforms come up. Each
+     fetch therefore debits its own measured price and the ledger holds
+     micro-dollars. */
+  const actor = TRANSCRIPT_ACTORS[candidate.platform];
+  // Unpriced actors are charged at the most expensive one we have measured,
+  // never at zero -- an unknown price must cost the budget MORE caution, not
+  // less, or an undisclosed event drains the pool for free.
+  const micros = Math.round((actor.unitUsd ?? 0.005) * 1_000_000);
+
+  const { data: granted, error: claimErr } = await db.rpc("claim_transcription_budget", {
+    p_workspace_id: item.workspace_id,
+    p_micros: micros,
+  });
+  if (claimErr) throw new Error(`claiming transcription budget: ${claimErr.message}`);
+  if (!granted || Number(granted) < micros) {
+    const err = new Error("transcription budget exhausted for this cycle");
     // The signal the worker understands: cool the kind, leave the job
-    // pending, spend no attempt. Budget returns on a known date.
+    // pending, spend no attempt. Running out before the cycle ends is a
+    // NORMAL outcome here by design -- the queue simply waits for the reset.
     err.blocked = true;
     throw err;
   }
@@ -78,7 +98,9 @@ export async function transcriptApify({ db, job, log }) {
     /* NOTHING WAS FETCHED, SO THE CLAIM IS HANDED BACK. Without this a run of
        vendor errors burns the cycle's whole transcription allowance without
        storing a single transcript. */
-    await refund(db, item.workspace_id, candidate.platform, "transcription", granted);
+    await db.rpc("refund_transcription_budget", {
+      p_workspace_id: item.workspace_id, p_micros: micros,
+    });
 
     if (res.hitCeiling) {
       // Our own per-run ceiling stopped it. That is a configuration answer,
