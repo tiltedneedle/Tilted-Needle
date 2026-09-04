@@ -95,22 +95,37 @@ export async function transcriptApify({ db, job, log }) {
   const res = await fetchTranscript(candidate.platform, candidate.url);
 
   if (!res.ok) {
-    /* NOTHING WAS FETCHED, SO THE CLAIM IS HANDED BACK. Without this a run of
-       vendor errors burns the cycle's whole transcription allowance without
-       storing a single transcript. */
-    await db.rpc("refund_transcription_budget", {
-      p_workspace_id: item.workspace_id, p_micros: micros,
-    });
+    /* REFUND ONLY WHAT THE VENDOR DID NOT CHARGE FOR, and that is a narrower
+       set than "anything that failed".
+
+       The first version refunded every failure, which made the ledger a
+       fiction. Measured over one backlog drain: our pool recorded $0.266
+       while Apify billed ~$0.72 across the two accounts -- 2.7x under. The
+       gap was 148 jobs that settled "no transcript for this video", each of
+       which RAN, and each of which was charged for. Instagram bills $0.005
+       for a run that returns nothing; that is spent money and the pool has to
+       carry it or the budget stops describing reality.
+
+       So a completed run is never refunded, whatever it returned. Only a call
+       that never reached a billable run is: a rejected input, a transport
+       failure, a timeout before the actor started. */
+    const chargedAnyway = /no transcript/i.test(res.note ?? "");
+    if (!chargedAnyway) {
+      await db.rpc("refund_transcription_budget", {
+        p_workspace_id: item.workspace_id, p_micros: micros,
+      });
+    }
 
     if (res.hitCeiling) {
       // Our own per-run ceiling stopped it. That is a configuration answer,
       // not a video problem, and retrying changes nothing.
       return { unavailable: true, note: `charge ceiling hit: ${res.note}` };
     }
-    if (/no transcript/i.test(res.note ?? "")) {
+    if (chargedAnyway) {
       // The actor answered and this video has no captions. Terminal and
-      // NORMAL -- the same shape as "no caption tracks published".
-      return { unavailable: true, note: res.note };
+      // NORMAL -- the same shape as "no caption tracks published" -- but it
+      // COST money, so the pool keeps the debit and the note says so.
+      return { unavailable: true, note: `${res.note} (charged)` };
     }
     throw new Error(res.note ?? "transcript fetch failed");
   }
