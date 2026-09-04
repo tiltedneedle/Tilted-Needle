@@ -4,6 +4,7 @@ import DataPanel, { type PanelAccount } from "@/components/DataPanel";
 import AnalyticsImport from "@/components/AnalyticsImport";
 import PeriodSheet from "@/components/PeriodSheet";
 import PipelineHealth from "@/components/PipelineHealth";
+import { cachedApifyUsage } from "@/lib/apifyUsage";
 import { loadPipelineStatus } from "@/lib/pipelineStatus";
 import { Stat, StatGrid, SectionHeading } from "@/components/Stat";
 import { Database, RefreshCw, AlertTriangle, Wallet } from "lucide-react";
@@ -267,7 +268,12 @@ export default async function DataPage() {
         />
       </StatGrid>
 
-      <PipelineHealth status={await loadPipelineStatus(supabase, ws)} />
+      <PipelineHealth
+        status={{
+          ...(await loadPipelineStatus(supabase, ws)),
+          apify: await cachedApifyUsage(),
+        }}
+      />
 
       {/* Owner-only figures arrive here, by export rather than by credential
           (PRD-video-intelligence §2). Placed above the platform panel because

@@ -1,4 +1,5 @@
 import { SectionHeading } from "@/components/Stat";
+import type { ApifyAccountUsage } from "@/lib/apifyUsage";
 
 /**
  * Whether the machine is actually running (PRD-video-intelligence §8.5).
@@ -19,6 +20,13 @@ export type PipelineStatus = {
   workers: { id: string; secondsAgo: number; detail: Record<string, unknown> }[];
   queue: { kind: string; pending: number; running: number; failed: number; unavailable: number }[];
   tokens: { used: number; limit: number } | null;
+  /**
+   * What Apify says each account has spent. Read from THEIR meter, not
+   * estimated from ours -- scrapeBudget models cost by multiplying a row
+   * count by a hard-coded price and has never been checked against the
+   * provider.
+   */
+  apify?: ApifyAccountUsage[];
   transcripts: { withText: number; total: number };
   analytics: { clientName: string; videos: number; withOwnerData: number }[];
 };
@@ -194,6 +202,68 @@ export default function PipelineHealth({ status }: { status: PipelineStatus }) {
               <span className="text-[var(--fg)]">no ceiling set</span>
             )}
           </span>
+
+          {/* APIFY, PER ACCOUNT, NEVER SUMMED. The two tokens are different
+              Apify accounts on different billing cycles, so a combined
+              "$1.40 of $10" would be a quantity that does not exist -- neither
+              can spend the other's credit and they reset on different days.
+
+              The PROJECTION is the number shown in the tooltip, because the
+              balance misleads. Measured: both accounts sat at ~$4.3 remaining
+              while one was heading for $3.20 with 24 days to run and the
+              other for $0.98 with 7.6 days left. */}
+          {(status.apify ?? []).map((a) => (
+            <span key={a.tokenName} className="text-[var(--muted)]">
+              {a.account ?? a.tokenName}{" "}
+              {a.error ? (
+                // Never $0. A failed read looks exactly like a quiet account.
+                <span className="text-[var(--danger)]" title={a.error}>
+                  unreadable
+                </span>
+              ) : (
+                <>
+                  <span
+                    className={`tabular ${
+                      a.projectedUsd != null && a.maxMonthlyUsd != null
+                      && a.projectedUsd >= a.maxMonthlyUsd
+                        ? "text-[var(--danger)]"
+                        : a.projectedUsd != null && a.maxMonthlyUsd != null
+                          && a.projectedUsd >= a.maxMonthlyUsd * 0.8
+                          ? "text-[var(--warning)]"
+                          : "text-[var(--fg)]"
+                    }`}
+                    title={[
+                      `Burn ${a.burnPerDayUsd != null ? `$${a.burnPerDayUsd.toFixed(3)}/day` : "unknown"}`,
+                      a.projectedUsd != null
+                        ? `On track for $${a.projectedUsd.toFixed(2)} by cycle end`
+                        : null,
+                      a.spareAfterBaselineUsd != null
+                        ? `$${a.spareAfterBaselineUsd.toFixed(2)} spare after normal running`
+                        : null,
+                      `Token ${a.tokenName}`,
+                    ].filter(Boolean).join(" · ")}
+                  >
+                    ${a.usedUsd.toFixed(2)}
+                    {a.maxMonthlyUsd != null ? ` / $${a.maxMonthlyUsd}` : ""}
+                  </span>{" "}
+                  {a.cycleEnd && (
+                    <span className="text-[var(--muted)]">
+                      {/* EXPLICIT LOCALE. `undefined` takes the SERVER's, and
+                          this file's own neighbours already carry a comment
+                          about that: an unqualified toLocale* in a server
+                          component resolved to UTC on Vercel and printed a
+                          time an hour off from the viewer's clock. en-GB is
+                          what the rest of the product formats in, so the
+                          reset date reads the same here as everywhere else. */}
+                      resets {new Date(a.cycleEnd).toLocaleDateString("en-GB", {
+                        day: "numeric", month: "short", timeZone: "UTC",
+                      })}
+                    </span>
+                  )}
+                </>
+              )}
+            </span>
+          ))}
 
           <span className="text-[var(--muted)]">
             Transcripts{" "}
