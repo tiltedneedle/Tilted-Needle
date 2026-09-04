@@ -17,7 +17,7 @@
  */
 import { configFromEnv, callModel, digestOf, budgetState, llmMonthlyTokenLimit } from "@/lib/llm";
 import { validateIdeas } from "@/lib/analysis/provenance";
-import { relativeIndex, topByRelative } from "@/lib/analysis/competitors";
+import { relativeIndex, topByRelative, scaleVerdict } from "@/lib/analysis/competitors";
 
 export const IDEAS_PROMPT_VERSION = 2;
 
@@ -59,6 +59,8 @@ export type IdeaRunResult = {
   candidates?: number;
   /** Competitor breakouts offered as evidence, after the 1.5x floor. */
   rivalCount?: number;
+  /** Rivals excluded for being outside SCALE_BAND of the client. */
+  rivalsOutOfScale?: number;
   dropped?: Record<string, number>;
   note?: string;
 };
@@ -185,26 +187,74 @@ export async function generateIdeasForClient(
      Only posts that genuinely broke out are offered. An average post from a
      rival teaches nothing that the client's own average post does not. */
   const rivals = rivalPool > 0
-    ? await selectAll(db, "competitors", "id, handle, platform_slug",
+    ? await selectAll(db, "competitors", "id, handle, platform_slug, median_views",
         (q) => q.eq("client_id", client.id).eq("is_archived", false).order("id"))
     : [];
 
+  /* THE CLIENT'S OWN MEDIAN VIEWS, so a rival can be checked for being in the
+     same league at all.
+
+     VIEWS, not perfIndex. A first pass took the median of `index` -- which is
+     a RATIO against the account's own baseline, hovering near 1.0 by
+     construction -- and was about to divide a competitor's raw view median by
+     it. That is a units error: 110,000,000 / 1.02 is not a scale ratio, it is
+     nonsense that happens to be a number. Both sides of this comparison have
+     to be raw views.
+
+     Per video we take the BEST platform's views rather than a sum, for the
+     reason the whole product repeats: a view means something different on
+     each platform and adding them is not a quantity. Best-platform is the
+     same choice bestIndex already makes. */
+  const clientMedianViews = await (async () => {
+    const ids = scored.map((v: any) => v.id);
+    if (!ids.length) return null;
+    const posts = await selectAll(db, "platform_posts",
+      "id, content_item_id, metrics:post_current_metrics(views)",
+      (q) => q.in("content_item_id", ids).order("id"));
+    const bestByItem = new Map<string, number>();
+    for (const p of posts as any[]) {
+      const m = Array.isArray(p.metrics) ? p.metrics[0] : p.metrics;
+      const v = m?.views;
+      if (typeof v !== "number" || v <= 0) continue;
+      bestByItem.set(p.content_item_id, Math.max(bestByItem.get(p.content_item_id) ?? 0, v));
+    }
+    const vals = [...bestByItem.values()].sort((a, b) => a - b);
+    if (!vals.length) return null;
+    const m = vals.length >> 1;
+    return vals.length % 2 ? vals[m] : (vals[m - 1] + vals[m]) / 2;
+  })();
+
+  /* SCALE GATE. rel_index makes a rival's NUMBERS comparable; it says nothing
+     about whether their TACTICS transfer, and those are different questions.
+     A channel whose median is 9,000x the client's is not a competitor, it is
+     a different sport -- its breakout was "Last To Leave Grocery Store, Wins
+     $250,000", offered beside a rule asking for something a small team could
+     shoot in a week.
+
+     Out-of-band rivals are EXCLUDED from the prompt, not silently dropped
+     from the product: they stay listed on the client page, labelled with how
+     far out they are, because the user put them there deliberately and a list
+     that quietly discards entries is worse than one that explains itself. */
+  const inBand = rivals.filter((r: any) =>
+    scaleVerdict(r.median_views, clientMedianViews).comparable);
+  const outOfBand = rivals.length - inBand.length;
+
   let rivalCandidates: any[] = [];
-  if (rivals.length) {
+  if (inBand.length) {
     const rivalPosts = await selectAll(db, "competitor_posts",
       "id, competitor_id, title, caption, views, url",
-      (q) => q.in("competitor_id", rivals.map((r: any) => r.id)).order("id"));
+      (q) => q.in("competitor_id", inBand.map((r: any) => r.id)).order("id"));
 
     const byRival = new Map<string, any[]>();
-    for (const p of rivalPosts) {
+    for (const p of rivalPosts as any[]) {
       if (!byRival.has(p.competitor_id)) byRival.set(p.competitor_id, []);
       byRival.get(p.competitor_id)!.push(p);
     }
 
     const scoredRivalPosts: any[] = [];
-    for (const r of rivals) {
-      const { scored } = relativeIndex(byRival.get(r.id) ?? []);
-      for (const p of scored) {
+    for (const r of inBand as any[]) {
+      const { scored: rs } = relativeIndex(byRival.get(r.id) ?? []);
+      for (const p of rs) {
         // BREAKOUTS ONLY. 1.5x their own median is the floor for "this did
         // unusually well for them"; below it the post is just their Tuesday.
         if (p.relIndex != null && p.relIndex >= 1.5) {
@@ -361,7 +411,7 @@ export async function generateIdeasForClient(
     output: {
       requested: count, proposed: result.data.ideas.length,
       kept: kept.length, dropped, poolSize: top.length,
-      rivalPoolSize: rivalCandidates.length,
+      rivalPoolSize: rivalCandidates.length, rivalsOutOfScale: outOfBand,
     },
     input_tokens: result.inputTokens,
     output_tokens: result.outputTokens,
@@ -398,7 +448,7 @@ export async function generateIdeasForClient(
     status: "stored", clientName: client.name,
     requested: count, proposed: result.data.ideas.length, kept: kept.length,
     poolSize: top.length, candidates: candidates.length,
-    rivalCount: rivalCandidates.length, dropped,
+    rivalCount: rivalCandidates.length, rivalsOutOfScale: outOfBand, dropped,
     note: ledgerErr ? `WARNING: spend not ledgered: ${ledgerErr.message}` : undefined,
   };
 }

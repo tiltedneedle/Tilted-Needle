@@ -135,9 +135,16 @@ export async function competitorScan({ db, job, log }) {
       .update({ rel_index: p.relIndex }).eq("id", p.id);
   }
 
+  /* Store the baseline the scan just computed. It was discarded before, which
+     left nothing to answer "is this account even in our league" -- so a
+     channel with a 110,000,000 median sat in the list looking exactly like a
+     peer. rel_index makes their numbers comparable; this is what makes their
+     RELEVANCE checkable. */
   await db.from("competitors").update({
     last_scanned_at: new Date().toISOString(),
     last_scan_error: null,
+    median_views: baseline,
+    sample_size: (all ?? []).length,
   }).eq("id", comp.id);
 
   log("info", "competitor_sampled", {

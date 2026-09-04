@@ -25,6 +25,30 @@
 /** Below this a median is not a baseline, it is one of two numbers. */
 export const MIN_POSTS_FOR_BASELINE = 5;
 
+/**
+ * How far apart two accounts can be and still teach each other anything.
+ *
+ * rel_index makes the NUMBERS comparable across any gap -- a rival's post
+ * against their own median is the same kind of statement as ours against
+ * ours. It says nothing about whether the TACTIC transfers, and that is a
+ * separate question with a separate answer.
+ *
+ * Measured, and the reason this exists: MrBeast sampled at a 110,000,000
+ * median against a client median of ~12,000. His best post was a legitimate
+ * 1.70x his own norm and arrived in the idea prompt as "Last To Leave Grocery
+ * Store, Wins $250,000" -- beside an instruction asking for something a small
+ * team could shoot within a week. The arithmetic was correct and the output
+ * was useless.
+ *
+ * TEN TIMES EITHER WAY is the band, and it is a judgement rather than a
+ * derivation. An account 10x bigger is doing recognisably the same job with
+ * more resource; one 100x bigger has different economics, different formats
+ * and different physics. Ten is where "I could do a version of that" stops
+ * being true. Both directions matter: an account 100x SMALLER is not a peer
+ * either, and copying up from one is survivorship bias with extra steps.
+ */
+export const SCALE_BAND = 10;
+
 export type CompetitorPostLike = { views: number | null };
 
 /**
@@ -90,6 +114,46 @@ export function relativeIndex<T extends CompetitorPostLike>(
           ? p.views / baseline
           : null,
     })),
+  };
+}
+
+export type ScaleVerdict = {
+  /** competitor median / client median. Null when either is unknown. */
+  ratio: number | null;
+  /** Inside SCALE_BAND either way. Null ratio is UNKNOWN, never comparable. */
+  comparable: boolean;
+  /** Plain words for the UI. Never a bare number. */
+  label: string;
+};
+
+/**
+ * Is this account in the same league as the client?
+ *
+ * Unknown is NOT comparable. A competitor with too few sampled posts to have
+ * a median gets `comparable: false` and says so -- the alternative is
+ * treating "we have not measured them" as "they are fine", which is how an
+ * unvetted account ends up shaping a client's content plan.
+ */
+export function scaleVerdict(
+  competitorMedian: number | null | undefined,
+  clientMedian: number | null | undefined,
+): ScaleVerdict {
+  if (!competitorMedian || !clientMedian || competitorMedian <= 0 || clientMedian <= 0) {
+    return { ratio: null, comparable: false, label: "scale unknown" };
+  }
+  const ratio = competitorMedian / clientMedian;
+  if (ratio > SCALE_BAND) {
+    return { ratio, comparable: false, label: `${Math.round(ratio)}× your scale` };
+  }
+  if (ratio < 1 / SCALE_BAND) {
+    return { ratio, comparable: false, label: `${Math.round(1 / ratio)}× smaller than you` };
+  }
+  return {
+    ratio,
+    comparable: true,
+    label: ratio >= 1
+      ? `${ratio.toFixed(1)}× your scale`
+      : `${(1 / ratio).toFixed(1)}× smaller`,
   };
 }
 

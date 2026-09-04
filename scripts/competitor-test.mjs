@@ -1,7 +1,7 @@
 // Competitor handle normalisation and per-competitor relative indexing.
 //   node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/competitor-test.mjs
 import { normaliseHandle } from "../src/lib/analysis/competitors.ts";
-import { relativeIndex, topByRelative, MIN_POSTS_FOR_BASELINE } from "../src/lib/analysis/competitors.ts";
+import { relativeIndex, topByRelative, scaleVerdict, MIN_POSTS_FOR_BASELINE, SCALE_BAND } from "../src/lib/analysis/competitors.ts";
 
 let pass = 0, fail = 0;
 const check = (name, ok, detail = "") => {
@@ -86,6 +86,41 @@ const check = (name, ok, detail = "") => {
   check("an unscored post is never ranked above a scored one",
     topByRelative([unscored, a], 2)[0].id === "a");
   check("limit is respected", topByRelative([a, b, unscored], 1).length === 1);
+}
+
+
+/* ---- Scale: is this account even in the same league? ---------------------
+   rel_index makes the NUMBERS comparable at any size. It says nothing about
+   whether the TACTICS transfer, and conflating the two is what let a
+   110,000,000-median channel sit in a small client's idea prompt beside a
+   rule asking for something a small team could shoot in a week. */
+{
+  const client = 12000;
+  check("a peer is comparable", scaleVerdict(14000, client).comparable);
+  check("10x up is still in band", scaleVerdict(client * SCALE_BAND, client).comparable);
+  check("10x down is still in band", scaleVerdict(client / SCALE_BAND, client).comparable);
+
+  const huge = scaleVerdict(110000000, client);
+  check("a channel 9000x larger is NOT comparable", huge.comparable === false);
+  check("and the label says how far out it is", /your scale/.test(huge.label), huge.label);
+  check("the ratio is the real multiple", Math.round(huge.ratio) === 9167, String(huge.ratio));
+
+  const tiny = scaleVerdict(50, client);
+  check("a channel far smaller is not a peer either", tiny.comparable === false);
+  check("the smaller case reads as smaller", /smaller/.test(tiny.label), tiny.label);
+
+  // UNKNOWN IS NOT COMPARABLE. Treating "not measured yet" as "fine" is how
+  // an unvetted account ends up shaping a client's content plan.
+  check("an unscanned competitor is not comparable",
+    scaleVerdict(null, client).comparable === false
+    && scaleVerdict(undefined, client).comparable === false);
+  check("nor is a client with no median", scaleVerdict(14000, null).comparable === false);
+  check("unknown says so rather than showing a number",
+    scaleVerdict(null, client).label === "scale unknown"
+    && scaleVerdict(null, client).ratio === null);
+  check("zero medians are unknown, not infinite",
+    scaleVerdict(0, client).comparable === false
+    && scaleVerdict(14000, 0).comparable === false);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

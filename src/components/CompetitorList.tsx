@@ -17,6 +17,9 @@ export type CompetitorRow = {
   sampled: number;
   /** Best relative performer among the sampled posts, or null. */
   bestRelIndex: number | null;
+  /** Their own median views, and how that compares to the client's. */
+  scaleLabel: string;
+  scaleComparable: boolean;
   lastScannedAt: string | null;
   lastScanError: string | null;
 };
@@ -185,6 +188,22 @@ export default function CompetitorList({
                     best <span className="font-medium text-[var(--fg)]">
                       {c.bestRelIndex.toFixed(1)}×
                     </span> their norm
+                  </span>
+                )}
+                {/* THE SCALE GATE, said out loud. rel_index makes a rival's
+                    numbers comparable at any size; it says nothing about
+                    whether their tactics transfer. A channel 9,000x larger is
+                    not a competitor, it is a different sport -- and without
+                    this line it sat in the list looking exactly like a peer. */}
+                {c.sampled > 0 && (
+                  <span
+                    className={`tabular ${c.scaleComparable ? "text-[var(--muted)]" : "text-[var(--danger)]"}`}
+                    title={c.scaleComparable
+                      ? "Within 10x of this client either way, so their tactics plausibly transfer."
+                      : "Outside 10x of this client. Their breakouts are excluded from idea generation — different budget, different formats, different physics."}
+                  >
+                    {c.scaleLabel}
+                    {!c.scaleComparable && " · not used for ideas"}
                   </span>
                 )}
                 <span className="tabular text-[var(--muted)]">

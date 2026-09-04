@@ -10,7 +10,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireSession } from "@/lib/workspace";
 import { loadClientChannels } from "@/lib/channelDashboard";
 import CompetitorList, { type CompetitorRow } from "@/components/CompetitorList";
-import { relativeIndex } from "@/lib/analysis/competitors";
+import { relativeIndex, scaleVerdict } from "@/lib/analysis/competitors";
 import { selectAll } from "@/lib/selectAll";
 
 export default async function ClientChannelsPage({
@@ -45,7 +45,7 @@ export default async function ClientChannelsPage({
      across accounts measure follower count, not craft. */
   const { data: compRows } = await supabase
     .from("competitors")
-    .select("id, platform_slug, handle, display_name, note, last_scanned_at, last_scan_error")
+    .select("id, platform_slug, handle, display_name, note, last_scanned_at, last_scan_error, median_views")
     .eq("workspace_id", ws).eq("client_id", id).eq("is_archived", false)
     .order("platform_slug").order("handle");
 
@@ -62,6 +62,40 @@ export default async function ClientChannelsPage({
     if (!postsByCompetitor.has(p.competitor_id)) postsByCompetitor.set(p.competitor_id, []);
     postsByCompetitor.get(p.competitor_id)!.push({ views: p.views });
   }
+
+  /* THE CLIENT'S OWN MEDIAN VIEWS, the denominator of the scale check.
+
+     Raw VIEWS on both sides, deliberately. rel_index is a ratio and would be
+     meaningless here -- dividing a competitor's 110,000,000 median by a
+     client's ~1.0 index is a units error that produces a number rather than
+     an answer. Best platform per video, never a sum: a view means something
+     different on each platform, which is why nothing in this product adds
+     them. */
+  const clientMedianViews = await (async () => {
+    const { data: items } = await selectAll<{ id: string }>(
+      () => supabase.from("content_items").select("id")
+        .eq("workspace_id", ws).eq("client_id", id).order("id"),
+    );
+    const ids = (items ?? []).map((i) => i.id);
+    if (!ids.length) return null;
+    const { data: posts } = await selectAll<{
+      content_item_id: string;
+      metrics: { views: number | null } | { views: number | null }[] | null;
+    }>(() => supabase.from("platform_posts")
+      .select("content_item_id, metrics:post_current_metrics(views)")
+      .eq("workspace_id", ws).in("content_item_id", ids).order("id"));
+    const best = new Map<string, number>();
+    for (const p of posts ?? []) {
+      const m = Array.isArray(p.metrics) ? p.metrics[0] : p.metrics;
+      const v = m?.views;
+      if (typeof v !== "number" || v <= 0) continue;
+      best.set(p.content_item_id, Math.max(best.get(p.content_item_id) ?? 0, v));
+    }
+    const vals = [...best.values()].sort((a, b) => a - b);
+    if (!vals.length) return null;
+    const mid = vals.length >> 1;
+    return vals.length % 2 ? vals[mid] : (vals[mid - 1] + vals[mid]) / 2;
+  })();
 
   const competitors: CompetitorRow[] = (compRows ?? []).map((c) => {
     const posts = postsByCompetitor.get(c.id) ?? [];
@@ -80,6 +114,10 @@ export default async function ClientChannelsPage({
       bestRelIndex: best,
       lastScannedAt: c.last_scanned_at,
       lastScanError: c.last_scan_error,
+      ...(() => {
+        const v = scaleVerdict(c.median_views, clientMedianViews);
+        return { scaleLabel: v.label, scaleComparable: v.comparable };
+      })(),
     };
   });
 
