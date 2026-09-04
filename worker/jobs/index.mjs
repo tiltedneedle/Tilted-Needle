@@ -23,6 +23,7 @@ import { weeklyRead } from "./weeklyRead.mjs";
 import { describe } from "./describe.mjs";
 import { ideas } from "./ideas.mjs";
 import { competitorScan } from "./competitorScan.mjs";
+import { transcriptApify } from "./transcriptApify.mjs";
 
 export const handlers = {
   comments,
@@ -49,4 +50,9 @@ export const handlers = {
      transcripts off CI. Measured today it is YouTube-only anyway -- Instagram
      and TikTok profile extractors are both broken upstream. */
   competitor_scan: competitorScan,
+  /* IP-AGNOSTIC, unlike `transcript` and `transcript_asr` directly above.
+     Apify fetches on its own infrastructure, so this one runs anywhere --
+     including CI, which is the whole point: it is the transcript lane that
+     does not need a desk. */
+  transcript_apify: transcriptApify,
 };

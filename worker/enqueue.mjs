@@ -535,6 +535,9 @@ export const SUBJECT_TYPE = {
   // `competitors`, so anything validating a job's subject against
   // content_items would reject every one of these as orphaned.
   competitor_scan: "competitor",
+  // Same subject as the other transcript kinds -- it IS transcript work; the
+  // kind differs only in who does the fetching and therefore where it can run.
+  transcript_apify: "content_item",
 };
 
 /**
@@ -740,6 +743,67 @@ async function planCompetitorScan() {
   return { kind: "competitor_scan", count, considered: competitors.length };
 }
 
+/**
+ * Videos with no transcript that Apify could fetch one for.
+ *
+ * The ONLY route that does not need a residential address, so this is what
+ * keeps the corpus growing when nothing is switched on. It deliberately does
+ * not care whether the desktop lane could also do the job: a video with no
+ * transcript is a gap, and whichever lane closes it first wins -- the handler
+ * re-checks for an existing transcript before spending anything.
+ *
+ * Bounded per run by TRANSCRIPT_APIFY_BATCH. The budget pool is the real
+ * ceiling, but queueing 500 jobs that will all be refused just fills the
+ * queue with work the ledger has already declined.
+ */
+async function planTranscriptApify() {
+  const { TRANSCRIPT_ACTORS } = await import("../src/lib/providers/apifyTranscripts.ts");
+  const servable = new Set(Object.keys(TRANSCRIPT_ACTORS));
+  const cap = Number(process.env.TRANSCRIPT_APIFY_BATCH ?? 25);
+
+  /* Paged, all three. PostgREST caps an unbounded select at 1000 rows in
+     silence, and a planner that cannot see a transcript it already has will
+     queue -- and pay for -- the same video again. */
+  const page = async (table, select) => {
+    const out = [];
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await db.from(table).select(select).order("id")
+        .range(from, from + 999);
+      if (error) throw new Error(`${table}: ${error.message}`);
+      out.push(...(data ?? []));
+      if ((data ?? []).length < 1000) break;
+    }
+    return out;
+  };
+
+  const items = await page("content_items", "id, workspace_id");
+  const have = new Set(
+    (await page("video_transcripts", "content_item_id")).map((t) => t.content_item_id),
+  );
+  const posts = await page(
+    "platform_posts", "content_item_id, url, account:accounts(platform_slug)");
+
+  // Which items sit on at least one platform we have an actor for.
+  const reachable = new Set();
+  for (const p of posts) {
+    if (!p.url) continue;
+    const slug = Array.isArray(p.account) ? p.account[0]?.platform_slug : p.account?.platform_slug;
+    if (slug && servable.has(slug)) reachable.add(p.content_item_id);
+  }
+
+  const queued = await inFlight("transcript_apify");
+  const done = await settled("transcript_apify");
+
+  const due = items
+    .filter((i) => !have.has(i.id) && reachable.has(i.id)
+      && !queued.has(i.id) && !done.has(i.id))
+    .slice(0, cap);
+
+  const workspaceBySubject = new Map(items.map((i) => [i.id, i.workspace_id]));
+  const count = await insert("transcript_apify", due.map((i) => i.id), workspaceBySubject);
+  return { kind: "transcript_apify", count, missing: items.length - have.size };
+}
+
 const PLANNERS = {
   comments: planComments,
   transcript: planTranscript,
@@ -748,6 +812,7 @@ const PLANNERS = {
   weekly_read: planWeeklyRead,
   describe: planDescribe,
   competitor_scan: planCompetitorScan,
+  transcript_apify: planTranscriptApify,
 };
 
 const chosen = only ?? Object.keys(PLANNERS);

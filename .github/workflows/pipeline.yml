@@ -14,6 +14,15 @@
 #   describe        the LLM, over stored transcripts         -- IP-agnostic
 #   vision_extract  the LLM, over a stored screenshot        -- IP-agnostic
 #   ideas           the LLM, over a client's own evidence    -- IP-agnostic
+#   transcript_apify  Apify fetches the captions               -- IP-agnostic
+#
+# transcript_apify is the reason the phrase "Transcripts are NOT claimed here"
+# below is now only half true, and the distinction is worth stating. The
+# `transcript` and `transcript_asr` kinds route through yt-dlp and still
+# cannot run here. transcript_apify asks APIFY to do the fetching, on their
+# infrastructure and their addresses, so the runner's own IP never touches a
+# platform. That is what turns transcription from a desk-bound job into an
+# autonomous one -- the corpus keeps growing when nothing is switched on.
 #
 # vision_extract was missing from this list for its whole life, which made it
 # the only job kind a USER can queue from the UI and the only one nothing ever
@@ -49,7 +58,7 @@ on:
       kinds:
         description: "Job kinds to drain (default: the IP-agnostic set)"
         required: false
-        default: "comments,analyse,weekly_read,describe,vision_extract,ideas"
+        default: "comments,analyse,weekly_read,describe,vision_extract,ideas,transcript_apify"
       enqueue_only:
         description: "Enqueue work but drain nothing"
         type: boolean
@@ -100,6 +109,11 @@ jobs:
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
           APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+          # The TikTok transcript actor bills the OTHER Apify account, which
+          # has its own $5 cap and its own cycle. Without this the kind fails
+          # with "APIFY_TIKTOK_TOKEN is not set" -- and it would look like a
+          # broken actor rather than a missing secret.
+          APIFY_TIKTOK_TOKEN: ${{ secrets.APIFY_TIKTOK_TOKEN }}
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
           LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
           LLM_MODEL: ${{ secrets.LLM_MODEL }}
@@ -108,7 +122,7 @@ jobs:
         run: |
           node --experimental-strip-types --import ./scripts/register-alias.mjs \
             worker/index.mjs --once \
-            --kinds=${{ inputs.kinds || 'comments,analyse,weekly_read,describe,vision_extract,ideas' }}
+            --kinds=${{ inputs.kinds || 'comments,analyse,weekly_read,describe,vision_extract,ideas,transcript_apify' }}
 
       # After the drain, so themes from posts analysed THIS run fold into the
       # client-level view immediately. Embeddings are cached by label text, so
