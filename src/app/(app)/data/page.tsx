@@ -4,7 +4,7 @@ import DataPanel, { type PanelAccount } from "@/components/DataPanel";
 import AnalyticsImport from "@/components/AnalyticsImport";
 import PeriodSheet from "@/components/PeriodSheet";
 import PipelineHealth from "@/components/PipelineHealth";
-import { cachedApifyUsage } from "@/lib/apifyUsage";
+import { cachedApifyUsage } from "@/lib/apifyUsageCached";
 import { loadPipelineStatus } from "@/lib/pipelineStatus";
 import { Stat, StatGrid, SectionHeading } from "@/components/Stat";
 import { Database, RefreshCw, AlertTriangle, Wallet } from "lucide-react";

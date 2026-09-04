@@ -31,6 +31,8 @@
  * EVENT, so only the second can bound an actor that charges per segment.
  */
 
+import { routeAccount } from "@/lib/apifyRouting";
+
 export type TranscriptActor = {
   actorId: string;
   /** Published unit price, or null when the actor does not disclose one. */
@@ -97,6 +99,9 @@ export const TRANSCRIPT_ACTORS: Record<string, TranscriptActor> = {
 
 export type TranscriptFetch = {
   ok: boolean;
+  /** Which account actually paid, and why. Null when routing never ran. */
+  routedTo?: string;
+  routingReason?: string;
   text: string | null;
   /** What Apify actually charged, read back from the run, not assumed. */
   costUsd: number | null;
@@ -209,11 +214,25 @@ export async function fetchTranscript(
       note: "no transcript actor configured for " + platformSlug,
     };
   }
-  const token = process.env[actor.tokenEnv];
+  /* WHICH ACCOUNT PAYS. actor.tokenEnv is the default, not the answer: both
+     accounts can run all three actors, and their credit expires on different
+     days. The router prefers whichever has more spare PER REMAINING DAY, so
+     credit about to lapse gets used before credit with three weeks to run.
+     Falls back to the default whenever the live picture is unreadable. */
+  const route = await routeAccount(actor.tokenEnv);
+  let token = process.env[route.tokenEnv];
+  let usedEnv: string = route.tokenEnv;
+
+  // The routed account may simply not be configured on this host. Falling
+  // back beats failing: the work matters more than which card pays for it.
+  if (!token && route.tokenEnv !== actor.tokenEnv) {
+    token = process.env[actor.tokenEnv];
+    usedEnv = actor.tokenEnv;
+  }
   if (!token) {
     return {
       ok: false, text: null, costUsd: null, runId: null, hitCeiling: false,
-      note: actor.tokenEnv + " is not set",
+      note: usedEnv + " is not set",
     };
   }
 
@@ -273,6 +292,8 @@ export async function fetchTranscript(
       costUsd,
       runId,
       hitCeiling: false,
+      routedTo: usedEnv,
+      routingReason: route.reason,
       note: text ? null : "actor returned no transcript for this video",
     };
   } catch (e) {

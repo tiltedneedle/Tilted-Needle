@@ -152,19 +152,8 @@ export async function readApifyUsage(now: Date = new Date()): Promise<ApifyAccou
   ]);
 }
 
-/* ---- Cached, because this is a live call on a page render ----------------
-   /data is opened repeatedly while someone watches a sync, and each open
-   would otherwise make two HTTP calls per account against a provider that
-   rate-limits. Five minutes is far finer than the thing being measured -- a
-   monthly budget moves in cents per day -- and the cache is keyed by version
-   so a shape change cannot serve a stale payload the way content-raw-v1 did.
-
-   `unstable_cache` and not `revalidate` on the page: this is one widget on a
-   page whose other reads must stay live. */
-import { unstable_cache } from "next/cache";
-
-export const cachedApifyUsage = unstable_cache(
-  async () => readApifyUsage(),
-  ["apify-usage-v1"],
-  { revalidate: 300, tags: ["apify-usage"] },
-);
+/* The `unstable_cache` wrapper lives in apifyUsageCached.ts, NOT here.
+   This module is imported by the WORKER, which runs outside Next entirely --
+   importing next/cache from it fails with ERR_MODULE_NOT_FOUND before a
+   single line runs. Keeping the reader runtime-agnostic is what lets the
+   same code serve a page render and a queue job. */
