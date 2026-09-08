@@ -126,25 +126,70 @@ if (toEmbed.length && !DRY) {
   const base = (env.LLM_BASE_URL ?? "https://api.openai.com/v1").replace(/\/$/, "");
   if (!key) throw new Error("LLM_API_KEY is required to embed new labels");
 
-  for (let i = 0; i < toEmbed.length; i += 100) {
-    const batch = toEmbed.slice(i, i + 100);
-    const res = await fetch(`${base}/embeddings`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: EMBED_MODEL,
-        input: batch,
-        // THE API PARAMETER, not client-side truncation: the API re-normalises
-        // at the requested dimension. A client-side slice leaves unnormalised
-        // vectors and silently wrong cosine distances.
-        dimensions: DIMENSIONS,
-      }),
-    });
-    if (!res.ok) throw new Error(`embeddings HTTP ${res.status}: ${(await res.text()).slice(0, 160)}`);
-    const body = await res.json();
+  /* BATCHED AND PACED, because the embedding endpoint is metered per REQUEST
+     and a compatibility layer may fan one call out into as many requests as
+     the batch has inputs. Measured 2026-09-08: a single call carrying 100
+     labels came straight back 429 "exceeded your current quota" against a
+     provider whose documented embedding ceiling is 100 requests per minute --
+     one apparent request, one hundred real ones.
+
+     Smaller batches plus backoff is the fix that works whichever reading is
+     right. If the wall is per-minute, waiting clears it. If it is a hard
+     quota, no batch size helps and the error is reported in full rather than
+     truncated to a first line that says the same thing for both. */
+  const BATCH = Number(env.EMBED_BATCH ?? 20);
+  const MAX_ATTEMPTS = 6;
+
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  for (let i = 0; i < toEmbed.length; i += BATCH) {
+    const batch = toEmbed.slice(i, i + BATCH);
+    let body = null;
+
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      const res = await fetch(`${base}/embeddings`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: EMBED_MODEL,
+          input: batch,
+          // THE API PARAMETER, not client-side truncation: the API re-normalises
+          // at the requested dimension. A client-side slice leaves unnormalised
+          // vectors and silently wrong cosine distances.
+          dimensions: DIMENSIONS,
+        }),
+      });
+
+      if (res.ok) { body = await res.json(); break; }
+
+      const text = await res.text().catch(() => "");
+      const retryable = res.status === 429 || res.status >= 500;
+      if (!retryable || attempt === MAX_ATTEMPTS) {
+        // FULL body, not a 160-character slice. The slice is what made this
+        // failure ambiguous for a day: "exceeded your current quota" reads
+        // identically for a per-minute limit and an exhausted plan, and the
+        // part that distinguishes them sits past the cut.
+        throw new Error(
+          `embeddings HTTP ${res.status} after ${attempt} attempt(s): ${text}`,
+        );
+      }
+
+      /* Honour Retry-After when the server sends one; otherwise exponential
+         with jitter. Jitter matters even single-threaded: a fixed schedule
+         re-collides with a per-minute window that resets on a fixed boundary. */
+      const header = Number(res.headers.get("retry-after"));
+      const wait = Number.isFinite(header) && header > 0
+        ? header * 1000
+        : Math.min(60000, 2 ** attempt * 1000) + Math.floor(Math.random() * 1000);
+      console.log(`  rate limited (${res.status}), waiting ${Math.round(wait / 1000)}s ` +
+                  `before attempt ${attempt + 1}/${MAX_ATTEMPTS}`);
+      await sleep(wait);
+    }
+
     for (let j = 0; j < batch.length; j++) {
       wanted.set(batch[j], body.data[j].embedding);
     }
+    console.log(`  embedded ${Math.min(i + BATCH, toEmbed.length)}/${toEmbed.length}`);
   }
 
   // Cache them. subject_id for a label is derived from the label text so the
