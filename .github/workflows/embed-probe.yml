@@ -1,0 +1,29 @@
+# TEMPORARY. Asks the configured LLM provider what it can do for embeddings.
+#
+# Deleted as soon as the answer is encoded in scripts/merge-themes.mjs. It
+# exists only because the Gemini credentials live here and nowhere else, so
+# the question cannot be answered from a developer machine.
+#
+# Manual only, and the probe exits 0 whatever it finds -- a red run emails the
+# repository owner, and "this model is unsupported" is a successful diagnosis,
+# not a failure.
+
+name: embed-probe
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Probe embedding models
+        env:
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
+        run: node scripts/embed-probe.mjs | tee -a "$GITHUB_STEP_SUMMARY"
