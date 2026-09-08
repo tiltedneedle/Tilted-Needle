@@ -188,6 +188,49 @@ export function cheapModel(
   return "gpt-4o-mini";
 }
 
+/**
+ * Which embedding model this provider serves, and at what width.
+ *
+ * SAME LESSON AS cheapModel(), with a sharper edge. A wrong CHAT model 404s
+ * loudly. A wrong EMBEDDING model can succeed and still be wrong, because
+ * vectors from two different models are not comparable: cosine distance
+ * between them is arithmetic over unrelated coordinate systems. It returns a
+ * number, the number means nothing, and the clustering built on it merges
+ * unrelated themes while looking entirely healthy.
+ *
+ * So the model is chosen from the provider, never assumed, and the caller is
+ * expected to record it alongside every stored vector and refuse to reuse a
+ * cached vector produced by a different one.
+ *
+ * 512 DIMENSIONS IS A DATABASE CONSTRAINT, not a preference: the column is
+ * halfvec(512), sized so the whole corpus fits a 500 MB tier. Both supported
+ * providers can produce 512 on request -- OpenAI natively, and
+ * gemini-embedding-001 truncates from 3072 when asked (measured 2026-09-08
+ * against the live endpoint; `dimensions: 512` is honoured).
+ *
+ * An unrecognised provider is an ERROR rather than a guess. Guessing here
+ * produces the silent-wrongness described above, and EMBED_MODEL exists so
+ * the answer can be supplied when we cannot infer it.
+ */
+export const EMBED_DIMENSIONS = 512;
+
+export function embeddingModel(env: NodeJS.ProcessEnv = process.env): string {
+  const explicit = env.EMBED_MODEL?.trim();
+  if (explicit) return explicit;
+  let host = "";
+  try { host = new URL(env.LLM_BASE_URL ?? "").hostname.toLowerCase(); } catch { host = ""; }
+  if (host === "api.openai.com" || host.endsWith(".api.openai.com")) return "text-embedding-3-small";
+  if (host === "generativelanguage.googleapis.com" || host.endsWith(".googleapis.com")) {
+    return "gemini-embedding-001";
+  }
+  throw new LlmError(
+    `Cannot infer an embedding model for LLM_BASE_URL host "${host || "(unset)"}". `
+    + "Set EMBED_MODEL explicitly -- guessing would store vectors that compare "
+    + "meaninglessly against the ones already cached.",
+    "config",
+  );
+}
+
 /* ---- Input digest --------------------------------------------------------- */
 
 /**

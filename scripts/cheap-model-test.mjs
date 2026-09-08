@@ -5,7 +5,7 @@
 // that is not OpenAI. Measured in CI against a Gemini OpenAI-compatible
 // endpoint -- "models/gpt-4o-mini is not found for API version v1main" -- on
 // every describe job the pipeline claimed.
-import { cheapModel } from "../src/lib/llm.ts";
+import { cheapModel, embeddingModel, EMBED_DIMENSIONS } from "../src/lib/llm.ts";
 
 let pass = 0, fail = 0;
 const check = (name, ok, detail = "") => {
@@ -46,6 +46,35 @@ check("a subdomain of OpenAI still counts",
 check("an unparseable base URL falls back rather than throwing",
   cheapModel(undefined, { LLM_BASE_URL: "not a url", LLM_MODEL: "some-model" }) === "some-model");
 check("no environment at all still yields a usable name", cheapModel(undefined, {}) === "gpt-4o-mini");
+
+/* ---- Embedding model: wrong here is SILENT, not a 404 ------------------- */
+{
+  check("OpenAI gets its own embedding model",
+    embeddingModel(openai) === "text-embedding-3-small");
+
+  /* Measured against the live endpoint 2026-09-08: gemini-embedding-001 is
+     natively 3072 and honours `dimensions: 512`. The other Gemini embedding
+     names (text-embedding-004, embedding-001) all 404 on that endpoint. */
+  check("Gemini gets the model that can actually produce 512 dimensions",
+    embeddingModel(gemini) === "gemini-embedding-001");
+
+  check("the width is fixed by the halfvec(512) column", EMBED_DIMENSIONS === 512);
+
+  check("an explicit EMBED_MODEL wins",
+    embeddingModel({ ...gemini, EMBED_MODEL: "custom-embed" }) === "custom-embed");
+
+  /* THROWS rather than guessing. A wrong chat model 404s; a wrong embedding
+     model returns numbers that compare meaninglessly against cached vectors,
+     merging unrelated themes with no error anywhere. */
+  let threw = false;
+  try { embeddingModel({ LLM_BASE_URL: "https://llm.example.com/v1", LLM_MODEL: "x" }); }
+  catch { threw = true; }
+  check("an unknown provider refuses to guess an embedding model", threw);
+
+  let threwUnset = false;
+  try { embeddingModel({}); } catch { threwUnset = true; }
+  check("and so does no configuration at all", threwUnset);
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

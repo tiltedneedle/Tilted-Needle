@@ -11,6 +11,7 @@
 import { readFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
 import { mergeThemes, MERGE_DISTANCE } from "../src/lib/analysis/themeMerge.ts";
+import { embeddingModel, EMBED_DIMENSIONS } from "../src/lib/llm.ts";
 
 /* .env.local on the desktop, process.env on CI -- the pipeline runs this after
    each drain so freshly analysed posts fold into the client-level themes
@@ -31,13 +32,21 @@ if (!env.NEXT_PUBLIC_SUPABASE_URL || !env.SUPABASE_SECRET_KEY) {
 const db = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SECRET_KEY);
 const DRY = process.argv.includes("--dry-run");
 
-const EMBED_MODEL = "text-embedding-3-small";
-const DIMENSIONS = 512;
+/* CHOSEN FROM THE PROVIDER, never hard-coded. The previous literal
+   "text-embedding-3-small" 404d against CI's Gemini endpoint, which is why
+   merged_themes sat empty and this script failed every scheduled run. See
+   embeddingModel() in src/lib/llm.ts for why a wrong embedding model is more
+   dangerous than a wrong chat model. */
+const EMBED_MODEL = embeddingModel(env);
+const DIMENSIONS = EMBED_DIMENSIONS;
 
-async function all(table, select, orderBy = "id") {
+/* `where` narrows the query BEFORE pagination. Filtering after the fetch
+   would page through rows we do not want and still stop at the cap. */
+async function all(table, select, orderBy = "id", where = (q) => q) {
   const out = [];
   for (let from = 0; ; from += 1000) {
-    const { data, error } = await db.from(table).select(select).order(orderBy).range(from, from + 999);
+    const { data, error } = await where(db.from(table).select(select))
+      .order(orderBy).range(from, from + 999);
     if (error) throw new Error(`${table}: ${error.message}`);
     if (!data?.length) break;
     out.push(...data);
@@ -86,11 +95,24 @@ for (const { themes } of byClient.values()) {
   for (const t of themes) wanted.set(t.label, null);
 }
 
-const cached = await all("embeddings", "subject_id, content, embedding", "id")
-  .then((rows) => rows.filter(() => true));
-const { data: cachedTheme } = await db.from("embeddings")
-  .select("content, embedding").eq("kind", "theme_label");
-for (const row of cachedTheme ?? []) {
+/* ONLY VECTORS FROM THE MODEL WE ARE USING NOW.
+   The table records `model` and `dimensions` per row precisely so a provider
+   change is a backfill rather than a migration, but this read used to ignore
+   both -- it matched on label text alone. Switching providers would then have
+   mixed OpenAI and Gemini vectors in one clustering run and merged themes by
+   comparing unrelated coordinate systems: no error, no warning, just wrong
+   groupings. Rows from another model are left alone and simply re-embedded;
+   the upsert below replaces them, keyed on the same (kind, subject_id).
+
+   Paginated, because an unfiltered PostgREST select silently stops at 1000
+   rows. Harmless at today's 174 and a real bug the first time it is not. */
+const cachedTheme = await all(
+  "embeddings",
+  "content, embedding",
+  "id",
+  (q) => q.eq("kind", "theme_label").eq("model", EMBED_MODEL).eq("dimensions", DIMENSIONS),
+);
+for (const row of cachedTheme) {
   if (wanted.has(row.content)) {
     // pgvector returns halfvec as a string "[0.1,0.2,...]".
     wanted.set(row.content, JSON.parse(row.embedding));
