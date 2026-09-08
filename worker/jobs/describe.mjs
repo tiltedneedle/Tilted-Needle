@@ -13,14 +13,16 @@
  * be able to discard paid work.
  */
 import {
-  configFromEnv, callModel, digestOf, LlmError, llmMonthlyTokenLimit,
+  configFromEnv, callModel, digestOf, LlmError, llmMonthlyTokenLimit, cheapModel,
 } from "../../src/lib/llm.ts";
 import {
   DESCRIPTOR_SCHEMA, DESCRIPTOR_SYSTEM_PROMPT, DESCRIPTOR_PROMPT_VERSION,
   descriptorInput, renderHookDescriptorText,
 } from "../../src/lib/analysis/descriptors.ts";
 
-const CHEAP_MODEL = process.env.DESCRIBE_MODEL || "gpt-4o-mini";
+// Provider-aware: an OpenAI model name is a 404 on a Gemini endpoint.
+// See cheapModel() in src/lib/llm.ts.
+const CHEAP_MODEL = cheapModel(process.env.DESCRIBE_MODEL);
 
 async function monthTokens(db, workspaceId) {
   const since = new Date();

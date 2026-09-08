@@ -15,7 +15,7 @@
  * earned by citing a real finding; everything else is labelled craft. The
  * model proposes, the code disposes.
  */
-import { configFromEnv, callModel, digestOf, budgetState, llmMonthlyTokenLimit } from "@/lib/llm";
+import { configFromEnv, callModel, digestOf, budgetState, llmMonthlyTokenLimit, cheapModel } from "@/lib/llm";
 import { validateIdeas } from "@/lib/analysis/provenance";
 import { relativeIndex, topByRelative, scaleVerdict } from "@/lib/analysis/competitors";
 
@@ -135,7 +135,8 @@ export async function generateIdeasForClient(
      client's own evidence and the model starts writing somebody else's
      channel. */
   const rivalPool = clamp(opts.rivalPool ?? 8, 0, 25);
-  const MODEL = opts.model || process.env.IDEAS_MODEL || "gpt-4o-mini";
+  // Provider-aware default: see cheapModel() in src/lib/llm.ts.
+  const MODEL = opts.model?.trim() || cheapModel(process.env.IDEAS_MODEL);
 
   const { data: client, error: clientErr } = await db
     .from("clients").select("id, name, workspace_id")

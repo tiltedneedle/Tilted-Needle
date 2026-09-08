@@ -139,6 +139,55 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): LlmConfig {
   return { baseUrl, apiKey, model, visionModel: visionModel || undefined };
 }
 
+/**
+ * The model for high-volume, low-difficulty calls (descriptors, idea drafts).
+ *
+ * WHY THIS IS NOT JUST `?? "gpt-4o-mini"`, WHICH IS WHAT IT USED TO BE.
+ *
+ * This module's contract, stated at the top of the file, is that the provider
+ * is chosen entirely by environment: base URL, key and model name. Hard-coding
+ * an OpenAI model name as the default quietly broke that contract, and the
+ * breakage was invisible for as long as one worker happened to hold OpenAI
+ * credentials.
+ *
+ * Measured 2026-09-08, in CI, whose LLM_BASE_URL is a Gemini
+ * OpenAI-compatible endpoint:
+ *
+ *   models/gpt-4o-mini is not found for API version v1main
+ *
+ * Every `describe` job the pipeline claimed failed on that 404, while the same
+ * jobs succeeded on a second worker configured against OpenAI. Retiring that
+ * worker would have left the kind entirely dead, and the queue would have
+ * reported it as a model problem rather than a naming one.
+ *
+ * So the fallback is provider-aware. An explicit override always wins. Failing
+ * that, "gpt-4o-mini" is used ONLY when the configured base URL is actually
+ * OpenAI's -- the one provider whose cheap tier we can name without being told
+ * -- and on anything else we fall back to LLM_MODEL, which is the only model
+ * name we KNOW the configured provider serves.
+ *
+ * The trade is deliberate: on a non-OpenAI provider the cheap lane costs the
+ * same as the main one until someone sets the override. A call that works and
+ * costs more beats a call that 404s.
+ */
+export function cheapModel(
+  override?: string | null,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const explicit = override?.trim();
+  if (explicit) return explicit;
+  // Hostname, not a substring of the whole URL: a proxy at
+  // "example.com/?upstream=api.openai.com" is not OpenAI.
+  let host = "";
+  try { host = new URL(env.LLM_BASE_URL ?? "").hostname.toLowerCase(); } catch { host = ""; }
+  if (host === "api.openai.com" || host.endsWith(".api.openai.com")) return "gpt-4o-mini";
+  const configured = env.LLM_MODEL?.trim();
+  if (configured) return configured;
+  // No provider information at all. configFromEnv throws on this path anyway;
+  // returning the historical default keeps the error it raises the useful one.
+  return "gpt-4o-mini";
+}
+
 /* ---- Input digest --------------------------------------------------------- */
 
 /**
