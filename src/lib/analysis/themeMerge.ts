@@ -54,6 +54,50 @@ export type MergedTheme = {
  */
 export const MERGE_DISTANCE = 0.35;
 
+/**
+ * The cut is a property of the EMBEDDING SPACE, not of this algorithm.
+ *
+ * 0.35 above was tuned against text-embedding-3-small. Nothing about it
+ * transfers: two models place "the same" pair of labels at different
+ * distances, so reusing one model's threshold in another's space silently
+ * changes what counts as the same theme.
+ *
+ * Measured on the real 338 labels after moving to gemini-embedding-001 at 512
+ * dimensions (56,953 pairs). That space is COMPRESSED -- p1 0.293, median
+ * 0.495 -- and the distribution is smooth, with no valley to cut at, so the
+ * boundary is a judgement read off the pairs themselves:
+ *
+ *   0.06 - 0.18   unambiguous paraphrase. "Business Inquiry" ~ "Business
+ *                 Inquiries" 0.134, "Content Requests" ~ "Requests for
+ *                 Content" 0.119, "Appreciation for Content" ~ "Praise for
+ *                 Content" 0.150.
+ *   0.18 - 0.25   still sound, mostly hierarchical: "Specific Requests" ~
+ *                 "Requests" 0.179.
+ *   0.25 - 0.35   MIXED, and this is where 0.35 was doing damage: "Audio
+ *                 Issues" ~ "Performance Issues" 0.297, "User Questions" ~
+ *                 "Industry Questions" 0.300, "Floor Plan Suggestions" ~
+ *                 "Car Suggestions" 0.300. Distinctions a marketer would act
+ *                 on, dissolved into one row.
+ *
+ * 0.25 is therefore the cut for this space, chosen in the cautious direction
+ * the module header already argues for: an unmerged duplicate is visible and
+ * fixable, an over-merged mush is neither.
+ */
+const MERGE_DISTANCE_BY_MODEL: Record<string, number> = {
+  "text-embedding-3-small": 0.35,
+  "gemini-embedding-001": 0.25,
+};
+
+/**
+ * An UNKNOWN model gets the tightest cut we have measured, never the loosest.
+ * Under-merging leaves visible duplicates; over-merging quietly destroys the
+ * distinction the whole table exists to report.
+ */
+export function mergeDistanceFor(model: string): number {
+  return MERGE_DISTANCE_BY_MODEL[model]
+    ?? Math.min(...Object.values(MERGE_DISTANCE_BY_MODEL));
+}
+
 export function cosineDistance(a: number[], b: number[]): number {
   let dot = 0, na = 0, nb = 0;
   for (let i = 0; i < a.length; i++) {
@@ -107,13 +151,17 @@ export function agglomerate(vectors: number[][], cut: number): number[][] {
  * Merge one client's themes given embeddings for each label.
  * `vectors[i]` embeds `themes[i].label`.
  */
-export function mergeThemes(themes: SourceTheme[], vectors: number[][]): MergedTheme[] {
+export function mergeThemes(
+  themes: SourceTheme[],
+  vectors: number[][],
+  cut: number = MERGE_DISTANCE,
+): MergedTheme[] {
   if (themes.length !== vectors.length) {
     throw new Error(`${themes.length} themes but ${vectors.length} vectors`);
   }
   if (!themes.length) return [];
 
-  const clusters = agglomerate(vectors, MERGE_DISTANCE);
+  const clusters = agglomerate(vectors, cut);
 
   return clusters.map((members) => {
     const mine = members.map((i) => themes[i]);

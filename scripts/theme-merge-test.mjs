@@ -14,7 +14,7 @@
 // stand-ins with known geometry, because what is under test is the machinery
 // rather than the model.
 import {
-  mergeThemes, agglomerate, cosineDistance, MERGE_DISTANCE,
+  mergeThemes, agglomerate, cosineDistance, MERGE_DISTANCE, mergeDistanceFor,
 } from "../src/lib/analysis/themeMerge.ts";
 
 let pass = 0, fail = 0;
@@ -139,6 +139,36 @@ const theme = (label, ids, post = "p1", sentiment = null) => ({
   check("results are ordered largest first",
     sorted[0].commentCount >= sorted[1].commentCount);
 }
+
+/* ---- The cut belongs to the embedding space, not to the algorithm ------- */
+{
+  check("the OpenAI space keeps the threshold it was tuned against",
+    mergeDistanceFor("text-embedding-3-small") === 0.35);
+
+  /* Measured on the real 338 labels, 56,953 pairs: the Gemini space is
+     compressed (p1 0.293, median 0.495), so 0.35 there merged "Audio Issues"
+     with "Performance Issues" and "User Questions" with "Industry
+     Questions" -- distinctions the table exists to preserve. */
+  check("the Gemini space gets its own, tighter cut",
+    mergeDistanceFor("gemini-embedding-001") === 0.25);
+
+  check("a different space really does get a different answer",
+    mergeDistanceFor("gemini-embedding-001") < mergeDistanceFor("text-embedding-3-small"));
+
+  /* Unknown models take the TIGHTEST known cut. Under-merging leaves a
+     visible duplicate; over-merging silently destroys a distinction. */
+  check("an unknown model errs tight, never loose",
+    mergeDistanceFor("some-future-model") === 0.25);
+
+  // The cut is a real parameter now, so passing one must actually change the
+  // clustering rather than being ignored in favour of the constant.
+  const v = (deg) => [Math.cos((deg * Math.PI) / 180), Math.sin((deg * Math.PI) / 180)];
+  const wide = agglomerate([v(0), v(40)], 0.35);
+  const tight = agglomerate([v(0), v(40)], 0.05);
+  check("a looser cut merges what a tighter one keeps apart",
+    wide.length === 1 && tight.length === 2, `${wide.length} vs ${tight.length}`);
+}
+
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

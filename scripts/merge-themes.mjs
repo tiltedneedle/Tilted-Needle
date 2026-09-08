@@ -10,7 +10,7 @@
 // hundredth of a cent. The digest cache makes re-runs free.
 import { readFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
-import { mergeThemes, MERGE_DISTANCE } from "../src/lib/analysis/themeMerge.ts";
+import { mergeThemes, mergeDistanceFor } from "../src/lib/analysis/themeMerge.ts";
 import { embeddingModel, EMBED_DIMENSIONS } from "../src/lib/llm.ts";
 
 /* .env.local on the desktop, process.env on CI -- the pipeline runs this after
@@ -39,6 +39,8 @@ const DRY = process.argv.includes("--dry-run");
    dangerous than a wrong chat model. */
 const EMBED_MODEL = embeddingModel(env);
 const DIMENSIONS = EMBED_DIMENSIONS;
+// The cut belongs to the embedding SPACE, so it moves with the model.
+const CUT = mergeDistanceFor(EMBED_MODEL);
 
 /* `where` narrows the query BEFORE pagination. Filtering after the fetch
    would page through rows we do not want and still stop at the cap. */
@@ -229,7 +231,7 @@ for (const [clientId, { ws, themes }] of byClient) {
     throw new Error(`missing embedding for a label of client ${clientId}`);
   }
 
-  const merged = mergeThemes(themes, vectors);
+  const merged = mergeThemes(themes, vectors, CUT);
   totalMerged += merged.length;
   preview.push({ clientId, from: themes.length, to: merged.length, top: merged[0] });
 
@@ -250,7 +252,7 @@ for (const [clientId, { ws, themes }] of byClient) {
   }
 }
 
-console.log(`\nmerged          ${sourceThemes} source themes -> ${totalMerged} client-level (cut ${MERGE_DISTANCE})`);
+console.log(`\nmerged          ${sourceThemes} source themes -> ${totalMerged} client-level (cut ${CUT}, ${EMBED_MODEL})`);
 for (const p of preview.slice(0, 6)) {
   console.log(`  client ${p.clientId.slice(0, 8)}: ${p.from} -> ${p.to}`
     + (p.top ? ` | top: "${p.top.label}" (${p.top.commentCount} comments over ${p.top.postCount} posts, merged ${p.top.memberLabels.length} labels)` : ""));
