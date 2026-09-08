@@ -91,19 +91,36 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-        run: node worker/enqueue.mjs
+        # THE ALIAS LOADER IS NOT OPTIONAL HERE. enqueue.mjs dynamically imports
+        # TypeScript (findings.ts, apifyTranscripts.ts), and apifyTranscripts
+        # imports `@/lib/apifyRouting`. Plain `node` cannot resolve `@/`, so the
+        # import throws, the kind reports enqueue_failed, and the script exits 1.
+        #
+        # That is not hypothetical: it broke the pipeline for six consecutive
+        # scheduled runs after routing was added, and because this step is first,
+        # the failure skipped the DRAIN as well -- the queue stopped moving
+        # entirely while every run went red for a reason that named a package
+        # rather than a missing flag.
+        run: |
+          node --experimental-strip-types --import ./scripts/register-alias.mjs worker/enqueue.mjs
 
       # Before draining, not after: a job whose cause was fixed by a deploy
       # should get its next chance in THIS run rather than waiting six hours
       # for the following one.
+      # `!cancelled()` rather than a plain success gate: enqueueing and draining
+      # are independent, and work already in the queue should keep moving even
+      # when discovery of NEW work fails. The run still goes red and alert.yml
+      # still files an issue -- what changes is that a broken enqueue costs one
+      # red tick instead of six hours of a frozen queue.
       - name: Requeue recoverable failures
+        if: ${{ !cancelled() }}
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
         run: node worker/requeue.mjs
 
       - name: Drain the safe queue
-        if: ${{ !inputs.enqueue_only }}
+        if: ${{ !cancelled() && !inputs.enqueue_only }}
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
@@ -184,7 +201,7 @@ jobs:
           APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
           APIFY_TIKTOK_TOKEN: ${{ secrets.APIFY_TIKTOK_TOKEN }}
         run: |
-          node --experimental-strip-types --import ./scripts/register-alias.mjs             scripts/apify-status.mjs | tee -a "$GITHUB_STEP_SUMMARY"
+          node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/apify-status.mjs | tee -a "$GITHUB_STEP_SUMMARY"
 
       # Runs even when draining failed: a run that dies mid-queue is exactly
       # when the depth matters, and a summary only written on success is a
