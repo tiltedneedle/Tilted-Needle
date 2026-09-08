@@ -1,15 +1,18 @@
 # Fetch outstanding transcripts, unattended, from this machine.
 #
-# WHY THIS EXISTS. Transcripts are the one job that cannot run on shared cloud
-# infrastructure: YouTube answers a GitHub runner with "Sign in to confirm
-# you're not a bot" (proven, workflow run 31432973678), and Oracle's Singapore
-# region has no Always Free capacity in any fault domain at any permitted size.
+# WHY THIS EXISTS, AND WHY IT IS NO LONGER THE MAIN ROUTE. The yt-dlp
+# transcript lanes cannot run on shared cloud infrastructure: YouTube answers
+# a GitHub runner with "Sign in to confirm you're not a bot" (proven, workflow
+# run 31432973678), and a rented VM is the same kind of address -- the Oracle
+# instance bought for this completed zero of them before being retired.
 #
-# But this desktop's IP is not datacenter-flagged, and every transcript in the
-# corpus was fetched from it. The fragile half therefore does not need Oracle
-# to become autonomous -- it needs a scheduler on a machine that already works.
-# Oracle remains the better long-term home because it does not depend on a
-# desktop being switched on; this closes the gap until then.
+# This desktop's IP is not datacenter-flagged, which is why every early
+# transcript in the corpus came from it. The shipped system no longer depends
+# on that: transcription runs through Apify, unattended, from the pipeline.
+#
+# This script remains the ONLY way to drain the `transcript` and
+# `transcript_asr` kinds, which have no host in the shipped system. Run it if
+# you want those; nothing breaks if you never do.
 #
 # WHAT IT DOES, in order:
 #   1. starts the local yt-dlp service if it is not already listening

@@ -26,7 +26,7 @@ import { createClient } from "@supabase/supabase-js";
    broke" when the truth is "nobody could look".
 
    CI is DELIBERATELY credential-less for this step, so there it skips. These
-   assertions read the live production tables, which the Oracle worker and any
+   assertions read the live production tables, which the pipeline and any
    parallel session write to continuously -- a fixture row inserted by another
    session mid-run already produced one false "invariant broken" here. Live
    invariants belong where an operator can act on them, not gating unrelated

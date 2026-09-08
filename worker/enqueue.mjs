@@ -378,7 +378,7 @@ async function planTranscript() {
 
    A SEPARATE KIND, NOT A BRANCH OF planTranscript. Kinds here are split by IP
    reputation, and audio falls on the opposite side of that line from captions:
-   measured from the Oracle box, Instagram serves it an audio stream while
+   measured from a datacenter host, Instagram serves it an audio stream while
    YouTube refuses the same address outright. One shared kind would force the
    worse of both worlds -- enable it there and the first YouTube job earns a bot
    challenge, which cools the whole kind for two hours and stalls 146 Instagram

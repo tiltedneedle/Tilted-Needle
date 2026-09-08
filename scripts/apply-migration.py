@@ -13,8 +13,8 @@ password:
   1. THE DIRECT HOST IS IPv6-ONLY. `db.<ref>.supabase.co` resolves to a AAAA
      record and nothing else, so on an IPv4-only desktop it does not resolve at
      all -- "Name or service not known", which reads like a typo rather than a
-     protocol gap. The Oracle box resolves it fine, which is a red herring: it
-     has IPv6 DNS, not necessarily IPv6 routing.
+     protocol gap. A host with IPv6 DNS resolves it fine, which is a red
+     herring: resolving it is not the same as routing to it.
 
   2. THE POOLER TAKES A DIFFERENT USERNAME. It is `postgres.<project-ref>`, not
      `postgres`. Get it wrong against the right region and the server answers

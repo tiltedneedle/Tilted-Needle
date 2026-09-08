@@ -32,8 +32,8 @@ export const handlers = {
      platforms publish no caption track to the audio lane, so this kind adds a
      routing rule and no second implementation.
 
-     It exists because kinds here are split by IP REPUTATION: measured from the
-     Oracle box, Instagram hands it an audio stream while YouTube refuses the
+     It exists because kinds here are split by IP REPUTATION: measured from a
+     datacenter host, Instagram hands it an audio stream while YouTube refuses the
      same address outright. One shared kind would mean either enabling captions
      on a host that cannot fetch them -- where the first bot challenge cools the
      whole kind for two hours and stalls 146 Instagram items -- or leaving the

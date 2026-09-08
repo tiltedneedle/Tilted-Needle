@@ -1,10 +1,16 @@
 # The autonomous pipeline.
 #
-# Why GitHub Actions and not the Oracle box: the box does not exist yet.
-# Oracle's single Singapore availability domain has refused every capacity
-# request across two multi-hour watch runs, and the project should not stay
-# manual until that changes. This repository is public, so Actions minutes are
-# unlimited and free -- a real scheduler, already authenticated, at no cost.
+# Why GitHub Actions and not a host of our own: we tried, and a host cannot do
+# the one job it was wanted for. The only kinds that need a machine rather
+# than a runner are the yt-dlp transcript lanes, and yt-dlp is refused from
+# datacenter ranges -- which is what any rented box is. The Oracle instance
+# provisioned for exactly this completed zero yt-dlp transcripts in its whole
+# life while faithfully duplicating work this workflow was already doing, and
+# it has been retired. Transcription goes through Apify instead, which fetches
+# on the vendor's infrastructure and so needs no address of ours at all.
+#
+# This repository is public, so Actions minutes are unlimited and free -- a
+# real scheduler, already authenticated, at no cost.
 #
 # What runs here is deliberately only the SAFE half of the pipeline:
 #
@@ -145,7 +151,7 @@ jobs:
       # client-level view immediately. Embeddings are cached by label text, so
       # a run with nothing new costs nothing.
       - name: Merge comment themes
-        if: ${{ !inputs.enqueue_only }}
+        if: ${{ !cancelled() && !inputs.enqueue_only }}
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
@@ -160,7 +166,7 @@ jobs:
       # reason to let them go stale, and a marker change is a re-run rather
       # than a migration.
       - name: Recompute comment diagnostics
-        if: ${{ !inputs.enqueue_only }}
+        if: ${{ !cancelled() && !inputs.enqueue_only }}
         shell: bash
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
@@ -177,7 +183,7 @@ jobs:
       #
       # `shell: bash` for -eo pipefail, same reason as the inference workflow.
       - name: Verify the pipeline end to end
-        if: ${{ !inputs.enqueue_only }}
+        if: ${{ !cancelled() && !inputs.enqueue_only }}
         shell: bash
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}

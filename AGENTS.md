@@ -55,102 +55,45 @@ Never run `gh auth login`, never modify stored credentials, and never enter a pa
 <!-- END:git-push-rules -->
 
 <!-- BEGIN:oracle-always-free -->
-# Oracle Cloud: Always Free only. This is a hard rule.
+# Oracle Cloud: retired. Do not provision anything there.
 
-The tenancy `tiltedneedletools` (`ap-singapore-1`) exists to run this project
-at **zero cost, permanently**. Nothing may be provisioned that is not Always
-Free eligible — not temporarily, not "just to test", not "we'll delete it
-after". The whole point of the platform is that the only recurring bill is the
-LLM API.
+This project no longer uses Oracle Cloud, and the provisioning toolkit that
+used to live in `deploy/oracle/` has been removed along with the
+`oracle-capacity` workflow that hunted for Always Free capacity every thirty
+minutes.
 
-**The ceilings, which are the whole rule:**
+**Why it went.** The box was only ever wanted for one thing: the `transcript`
+and `transcript_asr` kinds, which run through yt-dlp and are refused from
+datacenter ranges. An Oracle instance is a datacenter range, so it could never
+actually do the job it was provisioned for -- measured, it completed zero
+yt-dlp transcripts in its entire life. Everything else it ran (`comments`,
+`analyse`, `describe`, `vision_extract`, `weekly_read`) is IP-agnostic and
+already runs in GitHub Actions. Transcription is now Apify's job, which fetches
+on the vendor's own infrastructure and therefore needs no host of ours at all.
 
-| Resource | Always Free ceiling |
-|---|---|
-| Ampere A1 compute | **2 OCPU and 12 GB RAM in total**, across all A1 instances |
-| AMD compute | 2 × `VM.Standard.E2.1.Micro` (1 OCPU / 1 GB each) |
-| Block storage | 200 GB total, 2 volumes |
-| Outbound transfer | 10 TB / month |
+**The tenancy still exists, and this is the part that matters.** It converted
+to Pay As You Go on 2026-08-19 and **cannot be downgraded** -- Oracle offers no
+path back. On the old trial, anything past the free allowance was refused. Now
+the same request succeeds and is billed, silently, with no hard stop anywhere.
+The guards that used to catch that were in `deploy/oracle/`, and they are gone.
 
-The formal limit is **1,500 OCPU-hours and 9,000 GB-hours per month** — the
-2 OCPU / 12 GB above is that run continuously, with about 12 OCPU-hours of
-slack in a 31-day month. Two instances overlapping for a day can therefore
-exceed the monthly allowance while never breaching the point-in-time shape
-check. Halved from 4 OCPU / 24 GB on **2026-06-15**.
+So the rule is now simpler and stricter than the ceilings it replaces:
 
-**The trap that makes this easy to get wrong.** The console and the limits API
-report far more than the ceiling — this tenancy showed **41 A1 OCPUs and
-277 GB** under trial quota. That headroom was never yours.
+> **Provision nothing in the `tiltedneedletools` tenancy.** Not a compute
+> instance, not a volume, not "just to test", not because a shape is labelled
+> Always Free. There is no longer anything in this repo that would notice.
 
-**And the trap changed shape on 2026-08-19, when this tenancy converted to Pay
-As You Go.** On the trial, anything past the allowance was refused or
-reclaimed: the account could not really overspend. Now the same request
-succeeds and is **billed**, silently, with no hard stop. Oracle charges
-nothing for Always Free resources on a paid account — but nothing prevents
-provisioning past them either. Every guard in `deploy/oracle/` stopped being a
-belt-and-braces duplicate of Oracle's own refusal and became the only thing
-between this project and an invoice.
+The one guard that survives is outside this repo and does not depend on it
+guessing Oracle's price list: a budget alarm on the tenancy root
+(`tn-always-free-guard`, $1/month) that emails on the first cent charged. **A
+budget alerts; it does not cap.**
 
-**Rules:**
-
-1. Only create shapes the console labels **"Always Free Eligible"**.
-2. The account is already Pay As You Go and **cannot be downgraded** — Oracle
-   offers no path back. So the old rule ("never upgrade") is spent; the rule
-   now is that overage bills silently and only our own guards stop it.
-3. Never raise the ceiling constants. They live in **three** files —
-   `provision.py`, `audit.py` and `probe_capacity.py` — and that duplication
-   has already failed once: the audit sat at 4 OCPU / 24 GB, double the real
-   ceiling, while the other two were correct. Change all three or none.
-4. Never provision Autonomous Databases, Load Balancers, or anything else
-   "because it is also free" — free tiers change, and the only resources this
-   project needs are one compute instance and its boot volume.
-5. **Never create a compute capacity reservation.** It looks like the
-   PAY-AS-YOU-GO-native answer to Singapore's chronic "out of host capacity",
-   and it bills from creation at ~85% of on-demand whether or not anything
-   runs in it. `audit.py` looks for one.
-6. Keep block volumes at **Balanced (10 VPU/GB)**. Performance is billed
-   separately from capacity, so a faster volume costs money while still
-   sitting inside the 200 GB allowance.
-7. Stay in the home region. The 200 GB is home-region-only; a volume in
-   another subscribed region bills from the first GB.
-8. There is a **budget alarm** on the tenancy root (`tn-always-free-guard`,
-   $1/month) that emails on the first cent charged and on any forecast to
-   spend. It is the only guard that does not depend on this repo guessing
-   Oracle's price list correctly — every other check infers billability from
-   the resource list, and one of those inferences was already wrong once.
-   Recreate with `python deploy/oracle/budget.py --email …`. **A budget
-   alerts; it does not cap.** Oracle offers no hard spend stop anywhere.
-9. Before and after any provisioning work, run the audit:
+If Oracle is ever genuinely needed again, recover the deleted tooling from git
+history rather than writing it fresh -- it encodes several expensive lessons,
+including that the console reports far more headroom than the Always Free
+ceiling and that capacity reservations bill from creation whether or not
+anything runs in them:
 
 ```bash
-python deploy/oracle/audit.py
+git show b83d73e:deploy/oracle/audit.py   # last commit that still had it
 ```
-
-It fails loudly if anything in the tenancy sits outside Always Free.
-
-**Chasing a region with capacity does not work, and here is the quote.**
-Always Free compute is HOME REGION ONLY — *"You must create the Always Free
-compute instances in your home region"* — and the home region is fixed:
-*"Oracle assigns your home region and you can't change it."* Subscribing to
-another region does not help (an instance there is billed at normal rates),
-and it is irreversible: *"You can't unsubscribe from a region."* So the only
-thing that would actually move the constraint is a NEW tenancy signed up
-with a different home region. Also permanently excluded by policy: A1
-Always Free is unavailable in `ap-chuncheon-1`.
-
-Two claims that circulate and do not survive contact with this project:
-Pay As You Go does NOT buy capacity — ours is PAYG and out — and
-`VM.Standard.E2.1.Micro` is not "almost always available"; measured
-2026-08-20 it was out in both our regions. Neither region has more than one
-availability domain either, so "rotate the AD" is not a lever we have.
-
-**Capacity is not a reason to break this.** `ap-singapore-1` has a single
-availability domain and A1 capacity is frequently exhausted — still true on
-Pay As You Go, which buys queue priority, not inventory. Verified 2026-08-19:
-every size and every fault domain reported `OUT_OF_HOST_CAPACITY`.
-
-The answer is `provision.py --watch` — never a paid shape, never a bigger one,
-never a reservation. It now asks `CreateComputeCapacityReport` first, which
-answers the capacity question for free and outside the launch rate limit, and
-only spends a launch attempt when the report says there is room.
-<!-- END:oracle-always-free -->

@@ -11,9 +11,8 @@ import type { ApifyAccountUsage } from "@/lib/apifyUsage";
  * clients still owe an export.
  *
  * The heartbeat is the load-bearing one. All state lives in Supabase and the
- * worker is disposable, so "the Oracle instance was reclaimed" shows up here
- * as an ageing timestamp within minutes rather than as data that quietly
- * stops updating.
+ * worker is disposable, so a host going away shows up here as an ageing
+ * timestamp within minutes rather than as data that quietly stops updating.
  */
 
 export type PipelineStatus = {
@@ -51,8 +50,9 @@ function ago(seconds: number): string {
  * that SUCCEEDED.
  *
  * Long-lived workers are the ones whose silence means something. Those are
- * named deliberately (tn-worker-oracle, tn-worker-desktop); the ephemeral
- * ones are counted, not listed.
+ * named deliberately (tn-worker-desktop and the like); the ephemeral ones are
+ * counted, not listed. The shipped pipeline runs entirely on the ephemeral
+ * kind, so "scheduled runs, last 2h ago" is normally the whole story here.
  */
 const isEphemeral = (id: string) => id.startsWith("gha-");
 

@@ -1,8 +1,15 @@
 /**
  * The Tilted Needle ingest worker.
  *
- * Runs on an Oracle Always Free instance and does everything the app cannot:
- * work that is slow, blockable, or needs a real scheduler.
+ * Runs wherever a real scheduler exists -- in the shipped system that is
+ * GitHub Actions (see .github/workflows/pipeline.yml) -- and does everything
+ * the app cannot: work that is slow, blockable, or needs a scheduler.
+ *
+ * It is also runnable as a long-lived process on any host, which is what the
+ * `while (!stopping)` loop at the bottom is for. Nothing does that today: the
+ * only jobs that NEED a persistent host are the yt-dlp transcript kinds, and
+ * those are refused from datacenter ranges, so a hosted worker could never do
+ * the one thing hosting it was for. Transcription goes through Apify instead.
  *
  * It exposes NO HTTP endpoint. It polls `ingest_jobs`, does the work, writes
  * results back, and publishes a heartbeat. That is the whole contract, and it
@@ -213,9 +220,10 @@ async function finish(job, status, note) {
  * Two retentions, because the two kinds of worker mean opposite things by
  * going quiet.
  *
- * A PERSISTENT worker (tn-worker-oracle, tn-worker-desktop) is supposed to
+ * A PERSISTENT worker (a named host such as tn-worker-desktop) is supposed to
  * keep beating, so its silence is the signal and the row has to outlive the
- * outage long enough for somebody to notice. A week.
+ * outage long enough for somebody to notice. A week. The shipped system runs
+ * none of these -- the retention stays because the mode still exists.
  *
  * An EPHEMERAL one is a scheduled CI run: it checks in under a one-off
  * `gha-<run_id>`, finishes its work and exits on purpose. Its row is dead on
@@ -421,10 +429,11 @@ if (ONCE) {
   process.exit(0);
 }
 
-// The deployed mode: a continuous loop rather than a cron that fires and
-// exits. Oracle stops Always Free instances judged idle over a 7-day window,
-// and a process that sleeps 23 hours a day looks exactly like one. The
-// heartbeat this loop publishes is also the liveness signal /data reads.
+// The long-lived mode: a continuous loop rather than a cron that fires and
+// exits, for a host that is meant to stay up. Unused in the shipped system,
+// which runs `--once` from GitHub Actions; kept because running the worker on
+// a box you already own is still a legitimate way to use it. The heartbeat
+// this loop publishes is the liveness signal /data reads.
 while (!stopping) {
   try {
     await pass();
