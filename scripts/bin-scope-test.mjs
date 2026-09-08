@@ -26,6 +26,17 @@ const ROOT = "src";
 // Reads that SHOULD see binned clients, each for a stated reason.
 const ALLOW = [
   ["src/app/actions.ts", "binClient / restoreClient / listBinnedClients own the bin itself"],
+  /* The audit log RESOLVES ids it already holds; it never enumerates clients.
+     The query is `.in("id", list)` where list comes from ids already present
+     in audit rows the viewer can see, so it cannot surface a client they
+     could not already see a row about.
+
+     It must see binned clients for the log to stay honest. The log is
+     append-only history, and binning a client does not retract what was done
+     to it. Filtering deleted_at here would leave those entries rendering a
+     raw UUID in place of a name -- the record intact but unreadable, which is
+     the failure mode an audit log exists to prevent. */
+  ["src/app/(app)/audit-log/page.tsx", "label lookup over ids already in the log; history must not lose names when a client is binned"],
 ];
 
 function walk(dir) {
