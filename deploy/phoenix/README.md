@@ -50,3 +50,26 @@ audio route). Logs: `journalctl -u tn-worker -f`.
 - Node 22 is a tarball at `/opt/node-v22`; the system Node 18 runs the
   arcade's Strike server and is not touched.
 - The worker's heartbeat shows on the /data page as `tn-worker-phoenix`.
+
+## Measured in the first hour (2026-09-13)
+
+- **Most of the "backlog" was stale.** Of 58 pending TikTok `transcript`
+  jobs, 40 were for items Apify had already transcribed while those jobs
+  waited for a host. The handler now checks for an existing transcript
+  first (the Apify lane always did). Real TikTok work was 18 items.
+- **Instagram ASR had nothing to do**: of 199 Instagram-only items, 160 had
+  transcripts (the desktop's earlier run), 20 belong to archived clients, 14
+  are unapproved. The lane is live and picks up new posts as they are approved.
+- **Region-locked posts** answer "Your IP address is blocked from accessing
+  this post" (a German eye clinic, from a US address). Classified as a
+  transport failure, retried on bounded backoff, then failed; the Apify
+  planner targets the item independently. 1 of 17 fetches. The box's own IP
+  is not blocked -- verified against a post that worked an hour earlier.
+- **Pacing is by request, not by claim.** `transcript` is metered at 30/hour
+  (a burst of ~90 once earned a throttle). Tokens are refunded for skips and
+  stale settles, so those churn at ~2.5 s each; real fetches keep the 30/hour.
+- **The box is still idle by Oracle's reckoning** -- load 0.03, memory 7 %.
+  Fetching is I/O-bound. Reclamation needs CPU, network AND memory all under
+  20 % for 7 days. A local Whisper (OpenAI-compatible endpoint on loopback,
+  `ASR_BASE_URL` pointed at it) would be real work, free ASR, and >20 % memory
+  resident -- the natural next step if reclamation becomes a concern.
