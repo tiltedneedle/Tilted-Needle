@@ -251,7 +251,7 @@ export async function transcript({ db, job, log }) {
   const { data: existing } = await db
     .from("video_transcripts").select("content_item_id")
     .eq("content_item_id", job.subject_id).maybeSingle();
-  if (existing) return { unavailable: true, note: "already transcribed" };
+  if (existing) return { unavailable: true, noRequest: true, note: "already transcribed" };
 
   const { data: allPosts, error } = await db
     .from("platform_posts")

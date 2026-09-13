@@ -165,7 +165,7 @@ async function runJob(job) {
         updated_at: new Date().toISOString(),
       }).eq("id", job.id);
       log("info", "job_skipped", { kind: job.kind, id: job.id, note: result.note ?? null });
-      return;
+      return { noRequest: true };
     }
 
     // A handler may report that the subject genuinely has nothing to fetch --
@@ -177,6 +177,7 @@ async function runJob(job) {
       ...(result?.stats ?? {}),
       ...(result?.unavailable ? { unavailable: true } : {}),
     });
+    return { noRequest: Boolean(result?.noRequest) };
   } catch (err) {
     const msg = String(err?.message ?? err).slice(0, 500);
     if (err?.blocked) {
@@ -341,7 +342,8 @@ async function pass() {
      claimableKinds() on every kind merely offered. See hasToken(). */
   for (const job of jobs ?? []) {
     spendToken(job.kind);
-    await runJob(job);
+    const outcome = await runJob(job);
+    if (outcome?.noRequest) refundToken(job.kind);
   }
   return (jobs ?? []).length;
 }
@@ -427,6 +429,21 @@ function spendToken(kind) {
   if (b !== null) b.tokens -= 1;
 }
 
+/**
+ * Give the token back when the job made no request.
+ *
+ * The rate exists to protect a third party's patience (or our bill) and is
+ * charged at claim time because a handler may die mid-request. But a job
+ * skipped for the wrong platform, or settled because another lane already
+ * transcribed it, touches nothing but our own database. Charging those at
+ * 30/hour turned ~220 queued transcript jobs on the Phoenix box, most of
+ * them a single write, into a seven-hour crawl that protected nobody.
+ */
+function refundToken(kind) {
+  const b = refill(kind);
+  if (b !== null) b.tokens += 1;
+}
+
 /** Kinds this worker may ask for right now: not cooling down, and in budget. */
 function claimableKinds() {
   const all = KINDS ?? Object.keys(handlers);
@@ -466,15 +483,17 @@ while (!stopping) {
   } catch (err) {
     log("error", "pass_threw", { error: String(err?.message ?? err) });
   }
-  /* Sleep only when the queue looked empty. A full batch means there is more
-     behind it, and pausing anyway throttles work that made no request at all
+  /* Sleep only when the queue looked empty. Anything claimed means there may
+     be more behind it -- and metered kinds claim ONE at a time, so "a full
+     batch" is not a condition they can ever meet. Pausing after every claim
+     throttled work that made no request at all
      -- a job skipped for the wrong platform or settled as already
      transcribed costs one database write, and on the Phoenix box 220 of
      them sat behind a 30-second nap per three. The fetches that do touch a
      platform are sequential and take ~30 s each, so a busy loop does not
      raise the rate any provider sees; it only stops the cheap work from
      waiting on the clock. Same rule the --once drain has always used. */
-  if (claimed < BATCH) await new Promise((r) => setTimeout(r, POLL_MS));
+  if (claimed === 0) await new Promise((r) => setTimeout(r, POLL_MS));
 }
 
 log("info", "worker_stopped");
