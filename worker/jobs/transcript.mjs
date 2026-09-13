@@ -206,8 +206,11 @@ async function viaAsr(postUrl, log) {
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${secret}` },
     // Generous: this downloads media and waits on a transcription API, where
-    // /transcript only fetches a few tens of KB of text.
-    signal: AbortSignal.timeout(300_000),
+    // /transcript only fetches a few tens of KB of text. Overridable because
+    // a host running a LOCAL model on two ARM cores needs longer than a
+    // hosted API -- the Phoenix box sets this to sit just under its
+    // 15-minute job lease.
+    signal: AbortSignal.timeout(Number(process.env.ASR_FETCH_TIMEOUT_MS ?? 300_000)),
   });
 
   if (res.status === 501) {

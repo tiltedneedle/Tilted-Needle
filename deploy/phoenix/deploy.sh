@@ -62,19 +62,40 @@ if [ ! -x "$VENV/bin/python" ]; then python3 -m venv "$VENV"; fi
 "$VENV/bin/pip" -q install -U yt-dlp curl_cffi flask 2>&1 | grep -v -i notice | tail -1 || true
 echo "   yt-dlp $("$VENV/bin/yt-dlp" --version), ffmpeg $(ffmpeg -version 2>/dev/null | head -1 | cut -d' ' -f3)"
 
+echo "== local whisper (whisper.cpp) =="
+WHISPER=/opt/whisper.cpp
+MODEL=ggml-large-v3-turbo.bin
+if [ ! -x "$WHISPER/build/bin/whisper-server" ]; then
+  sudo apt-get install -y -qq cmake build-essential >/dev/null 2>&1
+  sudo mkdir -p "$WHISPER" && sudo chown ubuntu:ubuntu "$WHISPER"
+  [ -d "$WHISPER/.git" ] || git clone -q --depth 1 https://github.com/ggml-org/whisper.cpp "$WHISPER"
+  ( cd "$WHISPER" && cmake -B build -DCMAKE_BUILD_TYPE=Release -DWHISPER_BUILD_TESTS=OFF >/dev/null \
+      && cmake --build build --config Release -j2 --target whisper-server >/dev/null )   # ~10 min on 2 cores
+fi
+mkdir -p "$WHISPER/models"
+[ -s "$WHISPER/models/$MODEL" ] || curl -sfL -o "$WHISPER/models/$MODEL" "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/$MODEL"
+echo "   $(du -h "$WHISPER/models/$MODEL" | cut -f1) $MODEL"
+
 echo "== units =="
-for u in tn-transcript.service tn-worker.service tn-enqueue-asr.service tn-enqueue-asr.timer; do
+for u in tn-whisper.service tn-transcript.service tn-worker.service tn-enqueue-asr.service tn-enqueue-asr.timer; do
   sudo install -m 0644 "$WORKER/deploy/phoenix/$u" "/etc/systemd/system/$u"
 done
 sudo systemctl daemon-reload
-sudo systemctl enable -q tn-transcript.service tn-worker.service tn-enqueue-asr.timer
+sudo systemctl enable -q tn-whisper.service tn-transcript.service tn-worker.service tn-enqueue-asr.timer
+# Restart whisper only when its unit changed: loading 1.5 GB is not free, and
+# a code deploy should not interrupt a transcription in flight for no reason.
+if ! cmp -s "$WORKER/deploy/phoenix/tn-whisper.service" /etc/systemd/system/.tn-whisper.applied 2>/dev/null; then
+  sudo systemctl restart tn-whisper.service
+  sudo cp "$WORKER/deploy/phoenix/tn-whisper.service" /etc/systemd/system/.tn-whisper.applied
+fi
 sudo systemctl restart tn-transcript.service
 sleep 3
 sudo systemctl restart tn-worker.service
 sudo systemctl start tn-enqueue-asr.timer
 
 echo "== state =="
-systemctl is-active tn-transcript tn-worker tn-enqueue-asr.timer | paste - - - | sed 's/^/   transcript worker timer: /'
+systemctl is-active tn-whisper tn-transcript tn-worker tn-enqueue-asr.timer | paste - - - - | sed 's/^/   whisper transcript worker timer: /'
+free -m | awk '/Mem/{printf "   memory used: %d%% (Oracle reclaims an A1 idle 7 days with CPU, network AND memory all under 20%%)\n", $3*100/$2}'
 # Health: the service's own view of its routes. `asr` and `ffmpeg` both true
 # is what asrReady() in enqueue.mjs requires before it will plan ASR work.
 SECRET=$(sudo sed -n 's/^DISCOVER_SECRET=//p' "$ENVFILE")

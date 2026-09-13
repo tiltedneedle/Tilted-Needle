@@ -443,11 +443,35 @@ async function planTranscriptAsr() {
     if (p.url) hasUrl.add(p.content_item_id);
   }
 
+  /* A TIKTOK WITH NO CAPTION TRACK HAS ONE ROUTE LEFT: the audio.
+     The caption lane records that answer as a no_captions_published verdict
+     and settles -- correct, since retrying a caption lookup changes nothing.
+     But it used to be the end of the line for the video, because ASR was
+     metered per minute at a hosted API and a caption track, when one
+     exists, beats it. Now that ASR runs locally for free, the audio is
+     simply the next thing to try. YouTube-bearing items stay out: the box
+     that runs this lane cannot fetch YouTube audio at all. */
+  const noCaptions = new Set();
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await db
+      .from("enrichment_state")
+      .select("subject_id")
+      .eq("kind", "transcript")
+      .eq("subject_type", "content_item")
+      .eq("state", "no_captions_published")
+      .order("subject_id")
+      .range(from, from + 999);
+    if (error) throw new Error(`enrichment_state: ${error.message}`);
+    for (const r of data ?? []) noCaptions.add(r.subject_id);
+    if ((data ?? []).length < 1000) break;
+  }
+
   const eligible = [...platformsOf.entries()]
     .filter(([id, slugs]) =>
       slugs.size > 0 &&
       hasUrl.has(id) &&                                   // the lane needs a URL
-      ![...slugs].some((s) => isYouTubeLike(s) || s === "tiktok"))
+      ![...slugs].some(isYouTubeLike) &&
+      (!slugs.has("tiktok") || noCaptions.has(id)))
     .map(([id]) => id);
 
   const have = await pageAll("video_transcripts", "content_item_id");

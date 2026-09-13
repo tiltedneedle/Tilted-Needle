@@ -124,6 +124,12 @@ ASR_BASE_URL = (
     or "https://api.openai.com/v1"
 )
 ASR_MODEL = os.environ.get("ASR_MODEL") or "whisper-1"
+# How long to wait on the transcription endpoint. 180 s was sized for a
+# hosted API that answers in seconds. A LOCAL model on two ARM cores runs
+# well below realtime -- measured 2026-09-14, large-v3-turbo with language
+# auto-detection: a 52 s clip in ~190 s -- so the box that runs one sets
+# this to fit its longest clip (p99 137 s, max 210 s in this library).
+ASR_TIMEOUT_SECONDS = int(os.environ.get("ASR_TIMEOUT_SECONDS") or 180)
 
 # Ten minutes, which is far past anything in this library -- the longest video
 # here is under four. It exists so one pathological input cannot fill a 200 GB
@@ -816,7 +822,7 @@ def _transcribe(wav_path: str) -> dict:
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=180) as res:
+        with urllib.request.urlopen(req, timeout=ASR_TIMEOUT_SECONDS) as res:
             raw = res.read().decode("utf-8", "replace").strip()
     except urllib.error.HTTPError as e:
         detail = e.read().decode("utf-8", "replace")[:300]

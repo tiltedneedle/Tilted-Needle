@@ -1,0 +1,33 @@
+[Unit]
+Description=Tilted Needle local Whisper (whisper.cpp, loopback only)
+After=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/whisper.cpp
+# large-v3-turbo, chosen on measurement (2026-09-14, this box, a real 52 s
+# TikTok): 0.46x realtime at 1.9 GB resident, against `small` at 1.3x and
+# 0.8 GB. The corpus this serves is short-form -- p50 48 s, p95 86 s, max
+# 210 s -- so the slower model still finishes the longest clip in under
+# eight minutes, inside the timeouts set in /etc/tn-worker.env. Quality
+# matches the hosted whisper-1 the existing transcripts were made with.
+#
+# The resident model is also what keeps this Always-Free instance alive:
+# Oracle reclaims one idle 7 days, where idle means CPU, network AND memory
+# all under 20 %. 1.9 GB on a 12 GB box is 16 % by itself and the rest of
+# the stack takes it past 20 %. Real work, not fake load.
+#
+# -l auto: clients include German-language accounts.
+# Nice=10: a transcription pegs both cores for ~2 min; nginx and the game
+# server on this machine stay responsive.
+ExecStart=/opt/whisper.cpp/build/bin/whisper-server -m /opt/whisper.cpp/models/ggml-large-v3-turbo.bin -t 2 -l auto --host 127.0.0.1 --port 8090 --inference-path /v1/audio/transcriptions
+Nice=10
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tn-whisper
+
+[Install]
+WantedBy=multi-user.target
