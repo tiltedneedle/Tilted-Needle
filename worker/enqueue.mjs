@@ -117,6 +117,26 @@ function isLiveAgencyWork(p) {
  * already created is a planner that duplicates work and drops work, which is
  * exactly the pair of symptoms this file was being fixed for.
  */
+/**
+ * Every row of a table, in stable order. PostgREST caps an unbounded select
+ * at 1000 rows IN SILENCE, and the planners below compare "what has a
+ * transcript" against "what exists": past 1000 transcripts, an unpaginated
+ * read cannot see the newest ones, so the planner queues -- and for the
+ * Apify lane, pays for -- videos it already has. 492 rows on 2026-09-13,
+ * with two of the three transcript planners still reading raw.
+ */
+async function pageAll(table, select) {
+  const out = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await db.from(table).select(select).order("id")
+      .range(from, from + 999);
+    if (error) throw new Error(`${table}: ${error.message}`);
+    out.push(...(data ?? []));
+    if ((data ?? []).length < 1000) break;
+  }
+  return out;
+}
+
 async function pagedSubjects(kind, statuses, label) {
       /* ORDERED, and this is not cosmetic. PostgREST gives no stable row
          order without one, so successive .range() windows over the same
@@ -357,7 +377,7 @@ async function planTranscript() {
     }
   }
 
-  const { data: have } = await db.from("video_transcripts").select("content_item_id");
+  const have = await pageAll("video_transcripts", "content_item_id");
   const stored = new Set((have ?? []).map((r) => r.content_item_id));
   const [busy, done] = [await inFlight(kind), await settled(kind)];
 
@@ -430,7 +450,7 @@ async function planTranscriptAsr() {
       ![...slugs].some((s) => isYouTubeLike(s) || s === "tiktok"))
     .map(([id]) => id);
 
-  const { data: have } = await db.from("video_transcripts").select("content_item_id");
+  const have = await pageAll("video_transcripts", "content_item_id");
   const stored = new Set((have ?? []).map((r) => r.content_item_id));
   const [busy, done] = [await inFlight(kind), await settled(kind)];
 
@@ -761,20 +781,8 @@ async function planTranscriptApify() {
   const servable = new Set(Object.keys(TRANSCRIPT_ACTORS));
   const cap = Number(process.env.TRANSCRIPT_APIFY_BATCH ?? 25);
 
-  /* Paged, all three. PostgREST caps an unbounded select at 1000 rows in
-     silence, and a planner that cannot see a transcript it already has will
-     queue -- and pay for -- the same video again. */
-  const page = async (table, select) => {
-    const out = [];
-    for (let from = 0; ; from += 1000) {
-      const { data, error } = await db.from(table).select(select).order("id")
-        .range(from, from + 999);
-      if (error) throw new Error(`${table}: ${error.message}`);
-      out.push(...(data ?? []));
-      if ((data ?? []).length < 1000) break;
-    }
-    return out;
-  };
+  // Paged, all three -- see pageAll().
+  const page = pageAll;
 
   const items = await page("content_items", "id, workspace_id");
   const have = new Set(
