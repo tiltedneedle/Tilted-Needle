@@ -236,16 +236,32 @@ async function viaAsr(postUrl, log) {
   };
 }
 
-import { isYouTubeLike } from "../platforms.mjs";
+import { isYouTubeLike, hostPlatforms } from "../platforms.mjs";
 import { gateAsrResult, stripCredits } from "../../src/lib/analysis/asrGate.ts";
 
 export async function transcript({ db, job, log }) {
-  const { data: posts, error } = await db
+  const { data: allPosts, error } = await db
     .from("platform_posts")
     .select("id, external_id, url, account:accounts(platform_slug)")
     .eq("content_item_id", job.subject_id)
     .not("external_id", "is", null);
   if (error) throw new Error(`lookup failed: ${error.message}`);
+
+  /* WHAT THIS HOST IS ALLOWED TO TOUCH, applied before ranking so that a
+     cross-posted item simply loses the copies this host cannot fetch and
+     proceeds on the ones it can. If nothing survives, the job goes back
+     untouched: not an attempt, not a verdict, not a cooldown -- another host
+     with the right address will take it. See hostPlatforms(). */
+  const allowed = hostPlatforms();
+  const slugOf = (p) => (Array.isArray(p.account) ? p.account[0] : p.account)?.platform_slug;
+  const posts = allowed ? (allPosts ?? []).filter((p) => allowed.has(slugOf(p))) : allPosts;
+  if (allowed && (posts ?? []).length === 0) {
+    const seen = [...new Set((allPosts ?? []).map(slugOf).filter(Boolean))];
+    return {
+      skip: true,
+      note: `posted on ${seen.join(", ") || "nothing"}; this host serves ${[...allowed].join(", ")}`,
+    };
+  }
 
   /**
    * Which platforms can yield a transcript at all, best first. Measured, not

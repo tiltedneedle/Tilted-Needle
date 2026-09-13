@@ -22,3 +22,30 @@ export const YOUTUBE_LIKE = ["youtube", "youtube_shorts"];
 export function isYouTubeLike(slug) {
   return YOUTUBE_LIKE.includes(slug);
 }
+
+/**
+ * Which platforms THIS HOST is allowed to fetch from, or null for any.
+ *
+ * The transcript kinds are split by IP reputation, and so are the hosts that
+ * run them. Measured 2026-09-13 from the Oracle Phoenix box: TikTok serves
+ * metadata, captions and audio; Instagram serves audio; YouTube refuses every
+ * request with "Sign in to confirm you're not a bot" -- the same answer the
+ * Singapore box got against seven client variants, a PO-token provider and
+ * a cookie jar. A datacenter address does not get YouTube.
+ *
+ * Letting such a host CLAIM a YouTube job is worse than useless: the first
+ * bot challenge cools the whole kind for two hours and stalls every TikTok
+ * and Instagram job queued behind it. Attempts burn, nothing is fetched. So
+ * a host declares what it can serve, and jobs for anything else are handed
+ * straight back untouched -- no attempt spent, no verdict written, no
+ * cooldown -- for a host that can.
+ *
+ *   TRANSCRIPT_PLATFORMS=tiktok,instagram    the Phoenix box
+ *   (unset)                                  the desktop: residential IP, any
+ */
+export function hostPlatforms(env = process.env) {
+  const raw = env.TRANSCRIPT_PLATFORMS?.trim();
+  if (!raw) return null;
+  const set = new Set(raw.split(",").map((s) => s.trim()).filter(Boolean));
+  return set.size ? set : null;
+}

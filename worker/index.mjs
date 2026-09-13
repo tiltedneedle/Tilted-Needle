@@ -144,6 +144,30 @@ async function runJob(job) {
   const started = Date.now();
   try {
     const result = await handler({ db, job, log });
+
+    /* SKIPPED: this host cannot serve this job, and that is a fact about the
+       HOST, not the job. So it goes back exactly as found -- attempts
+       untouched, no verdict, no cooldown on the kind (the kind is fine, the
+       address is wrong) -- deferred just long enough that this worker does
+       not re-claim the same unservable jobs on every pass. Twelve hours: a
+       correctly-addressed host, when one runs, still sees it within the day.
+
+       Distinct from the cooldown skip above, which is about a kind being
+       throttled everywhere, and from `blocked`, which cools the kind. A
+       datacenter worker handed a YouTube job is neither of those. */
+    if (result?.skip) {
+      const until = new Date(Date.now() + Number(process.env.SKIP_DEFER_HOURS ?? 12) * 3600_000);
+      await db.from("ingest_jobs").update({
+        status: "pending",
+        not_before: until.toISOString(),
+        leased_at: null, leased_by: null,
+        last_error: `skipped by ${WORKER_ID}: ${result.note ?? "not servable from this host"}`,
+        updated_at: new Date().toISOString(),
+      }).eq("id", job.id);
+      log("info", "job_skipped", { kind: job.kind, id: job.id, note: result.note ?? null });
+      return;
+    }
+
     // A handler may report that the subject genuinely has nothing to fetch --
     // captions disabled, no replay data published. That is a terminal, normal
     // outcome, NOT a failure to retry forever.
