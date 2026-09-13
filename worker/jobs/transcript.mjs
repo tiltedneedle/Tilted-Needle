@@ -306,7 +306,19 @@ export async function transcript({ db, job, log }) {
      The file already calls isYouTubeLike correctly twice below; the post
      never survived this filter to reach either. */
   const rankOf = (platform) => (isYouTubeLike(platform) ? 0 : platform === "tiktok" ? 1 : null);
-  const candidates = (posts ?? [])
+  /* THE ASR KIND SKIPS THE CAPTION LOOKUP. It shares this function, and
+     until now shared its routing too: a TikTok is a caption platform, so a
+     transcript_asr job for one ranked the TikTok post as a caption candidate,
+     asked the box for captions AGAIN, was told again there were none, and
+     settled "no caption track published" in two seconds -- never reaching
+     the audio it was queued for. Measured on the first four ASR jobs after
+     TikToks were admitted to the lane.
+
+     transcript_asr exists precisely because the caption question is already
+     answered (the planner reads the no_captions_published verdict). So for
+     that kind there are no caption candidates by definition, and the item
+     falls straight through to the audio branch below. */
+  const candidates = job.kind === "transcript_asr" ? [] : (posts ?? [])
     .map((p) => ({ ...p, platform: (Array.isArray(p.account) ? p.account[0] : p.account)?.platform_slug }))
     .filter((p) => rankOf(p.platform) !== null)
     .sort((a, b) => rankOf(a.platform) - rankOf(b.platform));
@@ -401,6 +413,15 @@ export async function transcript({ db, job, log }) {
         });
         return { unavailable: true, note: heard.reason };
       }
+    }
+
+    /* An ASR job that reaches here without an answer was claimed by a host
+       with no ASR route (viaAsr returned null). That is a fact about the
+       HOST. Writing platform_unsupported here would stamp a TikTok with a
+       sentence about caption support that is false for TikTok and has
+       nothing to do with why the audio was not read. Hand it back. */
+    if (job.kind === "transcript_asr") {
+      return { skip: true, note: "no ASR route on this host" };
     }
 
     const note = seen.length

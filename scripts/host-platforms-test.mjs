@@ -47,10 +47,10 @@ const post = (slug, id) => ({ id, external_id: "x" + id, url: "https://example/"
 const job = { id: "job1", subject_id: "item1", kind: "transcript", attempts: 0 };
 const log = () => {};
 
-async function run(rows, env, opts) {
+async function run(rows, env, opts, kind = "transcript") {
   const saved = process.env.TRANSCRIPT_PLATFORMS;
   if (env === undefined) delete process.env.TRANSCRIPT_PLATFORMS; else process.env.TRANSCRIPT_PLATFORMS = env;
-  try { return { result: await transcript({ db: fakeDb(rows, opts), job, log }) }; }
+  try { return { result: await transcript({ db: fakeDb(rows, opts), job: { ...job, kind }, log }) }; }
   catch (e) { return { error: e }; }
   finally { if (saved === undefined) delete process.env.TRANSCRIPT_PLATFORMS; else process.env.TRANSCRIPT_PLATFORMS = saved; }
 }
@@ -88,6 +88,21 @@ async function run(rows, env, opts) {
   const r = await run([post("youtube", 1)], "tiktok,instagram", { transcribed: true });
   check("an already-transcribed item is settled, not skipped, even on a host that cannot fetch it",
     r.result?.unavailable === true && /already/.test(r.result?.note ?? ""), JSON.stringify(r.result ?? String(r.error)));
+}
+
+/* ---- The ASR kind goes straight to audio ---------------------------------- */
+{
+  // Measured: the first four transcript_asr jobs for TikToks re-ran the
+  // caption lookup (a TikTok ranks as a caption candidate), were told again
+  // there were none, and settled in two seconds without touching the audio.
+  // With no ASR route configured in this test, going straight to audio ends
+  // in a host-level skip -- which is the proof it never asked for captions.
+  const asr = await run([post("tiktok", 5)], "tiktok,instagram", {}, "transcript_asr");
+  check("a transcript_asr job for a TikTok never re-asks for captions",
+    asr.result?.skip === true && /ASR route/.test(asr.result?.note ?? ""), JSON.stringify(asr.result ?? String(asr.error)));
+  const cap = await run([post("tiktok", 5)], "tiktok,instagram", {}, "transcript");
+  check("while a transcript job for the same TikTok still takes the caption path",
+    cap.result?.skip !== true, JSON.stringify(cap.result ?? String(cap.error)));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
