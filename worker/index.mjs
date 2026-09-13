@@ -459,13 +459,22 @@ if (ONCE) {
 // a box you already own is still a legitimate way to use it. The heartbeat
 // this loop publishes is the liveness signal /data reads.
 while (!stopping) {
+  let claimed = 0;
   try {
-    await pass();
+    claimed = await pass();
     await heartbeat();
   } catch (err) {
     log("error", "pass_threw", { error: String(err?.message ?? err) });
   }
-  await new Promise((r) => setTimeout(r, POLL_MS));
+  /* Sleep only when the queue looked empty. A full batch means there is more
+     behind it, and pausing anyway throttles work that made no request at all
+     -- a job skipped for the wrong platform or settled as already
+     transcribed costs one database write, and on the Phoenix box 220 of
+     them sat behind a 30-second nap per three. The fetches that do touch a
+     platform are sequential and take ~30 s each, so a busy loop does not
+     raise the rate any provider sees; it only stops the cheap work from
+     waiting on the clock. Same rule the --once drain has always used. */
+  if (claimed < BATCH) await new Promise((r) => setTimeout(r, POLL_MS));
 }
 
 log("info", "worker_stopped");
