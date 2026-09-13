@@ -695,6 +695,32 @@ def asr():
                 "reason": "no audio stream published for this video",
             }), 200
 
+        # A LICENSED SOUND IS NOT SPEECH, and Whisper cannot tell.
+        #
+        # Measured 2026-09-14 on the first TikToks admitted to the ASR lane:
+        # a video set to Macklemore's "Can't Hold Us" came back as 236
+        # characters of lyrics -- "like the ceiling can't hold us" -- stored as
+        # the client's own words. Whisper's per-segment no_speech_prob was
+        # 0.00 for it, exactly as for real speech; sung words ARE words to the
+        # model. No confidence signal separates them.
+        #
+        # The platform's metadata does. TikTok labels every video's sound: a
+        # creator who talks, or records a voiceover over a track, gets
+        # "original sound"; a video that simply plays a library song carries
+        # that song's title and artist. When the sound is a named track, the
+        # audio IS the track, and there are no words of the client's to read.
+        # Answering here also skips a three-minute transcription of a song.
+        #
+        # Instagram's extractor rarely reports a track, so this rarely fires
+        # there; the marker gate in the worker still catches "*MUSIC*".
+        track = (info.get("track") or "").strip()
+        if track and not track.lower().startswith("original sound"):
+            artist = (info.get("artist") or "").strip()
+            return jsonify({
+                "url": url, "available": False,
+                "reason": f"licensed sound, not speech: \"{track}\"" + (f" by {artist}" if artist else ""),
+            }), 200
+
         # 16 kHz mono is what every Whisper-family model resamples to anyway;
         # doing it here shrinks the upload by an order of magnitude and removes
         # a conversion the API would otherwise do on our time.

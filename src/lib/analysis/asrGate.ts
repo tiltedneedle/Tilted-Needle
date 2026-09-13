@@ -173,8 +173,14 @@ export function gateAsrResult(
      returns a sentence, not a minute of words; real speech runs about 2-3
      words per second, so under ~0.15 is far below any genuine delivery. The
      duration is optional because not every caller has it, and the check is
-     skipped rather than guessed at. */
-  if (durationSeconds && durationSeconds >= 20) {
+     skipped rather than guessed at.
+
+     From eight seconds, not twenty. The higher floor let "*MUZIE*" -- one
+     nonsense token Whisper emitted for an 18.7 s music clip, unsure even of
+     the language (p = 0.65) -- into the corpus as a transcript, because the
+     check never ran. At 0.15 words/second an 8 s clip needs 1.2 words, so a
+     lone token still fails it while a short genuine sentence still passes. */
+  if (durationSeconds && durationSeconds >= 8) {
     const perSecond = words.length / durationSeconds;
     if (perSecond < 0.15) {
       return {

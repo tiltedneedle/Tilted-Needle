@@ -170,5 +170,19 @@ const check = (name, ok, detail = "") => {
   check("undefined does not throw", gateAsrResult(undefined).speech === false);
 }
 
+/* ---- A lone token over many seconds is not speech ------------------------- */
+{
+  // Measured 2026-09-14: Whisper emitted "*MUZIE*" -- a nonsense marker,
+  // unsure even of the language -- for an 18.7 s music clip, and it was
+  // STORED, because the density check only ran from 20 s.
+  const v = gateAsrResult("*MUZIE*", { durationSeconds: 18.7 });
+  check("one nonsense token across 18.7 s is rejected", v.speech === false, v.speech === false ? v.reason : "accepted");
+  const w = gateAsrResult("Quick tip.", { durationSeconds: 6 });
+  check("a short genuine sentence on a 6 s clip still passes", w.speech === true);
+  const x = gateAsrResult("So.", { durationSeconds: 12 });
+  check("one real word across 12 s is still too sparse", x.speech === false);
+}
+
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
