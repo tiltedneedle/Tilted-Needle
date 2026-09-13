@@ -197,20 +197,57 @@ async function viaDiscoverBox(externalId, postUrl, log) {
  *   no audio stream  -> a real answer, so it earns a verdict.
  *   text came back   -> GATED before it is allowed anywhere near the corpus.
  */
+/**
+ * A GET with a real timeout and a fetch-shaped result.
+ *
+ * Exists for one caller: the ASR route, whose response can take longer than
+ * the 300 s undici allows for headers. Returns the subset of Response the
+ * caller uses -- status, ok, json() -- so the caller reads the same way.
+ */
+function longRequest(url, { headers = {}, timeoutMs }) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const lib = u.protocol === "https:" ? https : http;
+    const req = lib.request(u, { method: "GET", headers }, (res) => {
+      const chunks = [];
+      res.on("data", (c) => chunks.push(c));
+      res.on("end", () => {
+        const body = Buffer.concat(chunks).toString("utf8");
+        resolve({
+          status: res.statusCode ?? 0,
+          ok: (res.statusCode ?? 0) >= 200 && (res.statusCode ?? 0) < 300,
+          json: async () => JSON.parse(body),
+          text: async () => body,
+        });
+      });
+      res.on("error", reject);
+    });
+    req.setTimeout(timeoutMs, () => {
+      req.destroy(new Error(`ASR request timed out after ${Math.round(timeoutMs / 1000)}s`));
+    });
+    req.on("error", reject);
+    req.end();
+  });
+}
+
 async function viaAsr(postUrl, log) {
   const base = process.env.TIKTOK_DISCOVER_URL;
   const secret = process.env.TIKTOK_DISCOVER_SECRET;
   if (!base || !secret || !postUrl) return null;
 
   const url = base.replace(/\/discover\/?$/, "") + `/asr?url=${encodeURIComponent(postUrl)}`;
-  const res = await fetch(url, {
+  /* NOT fetch(). Node's fetch is undici, and undici waits at most 300 s for
+     response HEADERS regardless of any AbortSignal -- a separate, undocumented-
+     in-the-obvious-place ceiling. A local Whisper on two ARM cores takes
+     longer than that on a long clip, so the service finished every
+     transcription and the worker had already given up: measured on the
+     Phoenix box, retries landed 304-305 s apart, each one three minutes of
+     CPU thrown away and then repeated. node:http has no such ceiling; the
+     only timeout is the one set here, sized by the host (ASR_FETCH_TIMEOUT_MS,
+     just under the 15-minute job lease on the box). */
+  const res = await longRequest(url, {
     headers: { Authorization: `Bearer ${secret}` },
-    // Generous: this downloads media and waits on a transcription API, where
-    // /transcript only fetches a few tens of KB of text. Overridable because
-    // a host running a LOCAL model on two ARM cores needs longer than a
-    // hosted API -- the Phoenix box sets this to sit just under its
-    // 15-minute job lease.
-    signal: AbortSignal.timeout(Number(process.env.ASR_FETCH_TIMEOUT_MS ?? 300_000)),
+    timeoutMs: Number(process.env.ASR_FETCH_TIMEOUT_MS ?? 300_000),
   });
 
   if (res.status === 501) {
@@ -239,6 +276,8 @@ async function viaAsr(postUrl, log) {
   };
 }
 
+import http from "node:http";
+import https from "node:https";
 import { isYouTubeLike, hostPlatforms } from "../platforms.mjs";
 import { gateAsrResult, stripCredits } from "../../src/lib/analysis/asrGate.ts";
 
