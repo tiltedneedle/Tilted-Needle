@@ -1,0 +1,2 @@
+# Piped to a Linux shell straight from a Windows checkout; CRLF would break every line.
+deploy/phoenix/* text eol=lf
