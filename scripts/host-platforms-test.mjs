@@ -27,11 +27,14 @@ check("empty means any platform (an unset CI secret interpolates to \"\")", host
 // Minimal chainable stub: platform_posts answers with `rows`; any other table
 // throws a sentinel, which is how we know the handler got PAST the gate.
 const PAST_GATE = new Error("PAST_GATE");
-function fakeDb(rows) {
+function fakeDb(rows, { transcribed = false } = {}) {
   const chain = (table) => {
     const q = {
       select: () => q, eq: () => q, not: () => q, is: () => q, order: () => q, limit: () => q,
-      maybeSingle: () => Promise.resolve({ data: null, error: null }),
+      // video_transcripts lookup: the "already done by another lane" guard.
+      maybeSingle: () => Promise.resolve({
+        data: table === "video_transcripts" && transcribed ? { content_item_id: "item1" } : null, error: null,
+      }),
       then: (res, rej) => table === "platform_posts"
         ? Promise.resolve({ data: rows, error: null }).then(res, rej)
         : Promise.reject(PAST_GATE).then(res, rej),
@@ -44,10 +47,10 @@ const post = (slug, id) => ({ id, external_id: "x" + id, url: "https://example/"
 const job = { id: "job1", subject_id: "item1", kind: "transcript", attempts: 0 };
 const log = () => {};
 
-async function run(rows, env) {
+async function run(rows, env, opts) {
   const saved = process.env.TRANSCRIPT_PLATFORMS;
   if (env === undefined) delete process.env.TRANSCRIPT_PLATFORMS; else process.env.TRANSCRIPT_PLATFORMS = env;
-  try { return { result: await transcript({ db: fakeDb(rows), job, log }) }; }
+  try { return { result: await transcript({ db: fakeDb(rows, opts), job, log }) }; }
   catch (e) { return { error: e }; }
   finally { if (saved === undefined) delete process.env.TRANSCRIPT_PLATFORMS; else process.env.TRANSCRIPT_PLATFORMS = saved; }
 }
@@ -74,6 +77,17 @@ async function run(rows, env) {
 {
   const r = await run([post("instagram", 4)], "tiktok,instagram");
   check("an Instagram-only item proceeds to the audio lane rather than being skipped", r.result?.skip !== true);
+}
+
+/* ---- A stale job settles anywhere, before the host gate ------------------- */
+{
+  // 40 of 58 pending TikTok jobs on the Phoenix box were for items Apify had
+  // already transcribed. Each was fetched again and overwritten with the same
+  // text. The guard runs FIRST so even a job this host could not fetch is
+  // closed rather than skipped and handed on.
+  const r = await run([post("youtube", 1)], "tiktok,instagram", { transcribed: true });
+  check("an already-transcribed item is settled, not skipped, even on a host that cannot fetch it",
+    r.result?.unavailable === true && /already/.test(r.result?.note ?? ""), JSON.stringify(r.result ?? String(r.error)));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

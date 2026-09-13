@@ -240,6 +240,19 @@ import { isYouTubeLike, hostPlatforms } from "../platforms.mjs";
 import { gateAsrResult, stripCredits } from "../../src/lib/analysis/asrGate.ts";
 
 export async function transcript({ db, job, log }) {
+  /* ALREADY DONE BY ANOTHER LANE. The Apify lane has always checked this;
+     this one never did, and the gap only showed once a second host existed.
+     Measured 2026-09-13: of 58 pending TikTok jobs on the Phoenix box, 40
+     were for items Apify had transcribed in the weeks those jobs sat
+     waiting for a host. Each was fetched again (~30 s, a JS challenge) and
+     its text overwritten with the same caption track. Ten fetches, zero
+     new transcripts. First, and before the host gate, so a stale job
+     settles wherever it is claimed. */
+  const { data: existing } = await db
+    .from("video_transcripts").select("content_item_id")
+    .eq("content_item_id", job.subject_id).maybeSingle();
+  if (existing) return { unavailable: true, note: "already transcribed" };
+
   const { data: allPosts, error } = await db
     .from("platform_posts")
     .select("id, external_id, url, account:accounts(platform_slug)")
