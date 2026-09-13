@@ -1,0 +1,31 @@
+[Unit]
+Description=Tilted Needle worker (the yt-dlp lane only)
+After=network-online.target tn-transcript.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/tn-worker
+EnvironmentFile=/etc/tn-worker.env
+# THE KINDS AND THE PLATFORMS ARE FIXED HERE, IN THE UNIT, on purpose.
+#
+# This host exists for exactly one thing: the transcript lanes that need
+# yt-dlp, which GitHub Actions cannot run. Everything else (comments,
+# analyse, describe, ideas, transcript_apify) is IP-agnostic and already
+# runs in CI every six hours; running it here too would only double the
+# request rate against metered providers.
+#
+# TRANSCRIPT_PLATFORMS lives in /etc/tn-worker.env and must stay
+# tiktok,instagram. Measured 2026-09-13: YouTube refuses this address with
+# "Sign in to confirm you're not a bot". A YouTube job claimed here cools
+# the whole kind for two hours and stalls the work this box CAN do.
+ExecStart=/opt/node-v22/bin/node --experimental-strip-types --import /opt/tn-worker/scripts/register-alias.mjs /opt/tn-worker/worker/index.mjs --kinds=transcript,transcript_asr
+Restart=always
+RestartSec=15
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tn-worker
+
+[Install]
+WantedBy=multi-user.target

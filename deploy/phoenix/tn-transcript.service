@@ -1,0 +1,22 @@
+[Unit]
+Description=Tilted Needle transcript service (yt-dlp, loopback only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/tn-transcript
+EnvironmentFile=/etc/tn-worker.env
+# Loopback. This box has a public IP; the only client is the worker beside it.
+Environment=HOST=127.0.0.1
+Environment=PORT=8787
+ExecStart=/opt/tn/venv/bin/python /opt/tn-transcript/server.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tn-transcript
+
+[Install]
+WantedBy=multi-user.target
