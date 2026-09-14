@@ -3076,3 +3076,40 @@ h3 {
   color: var(--report-muted);
   max-width: 70ch;
 }
+
+/* ---- Report audience sheet ------------------------------------------------ */
+.report-audience-scope {
+  font-size: 9.5px;
+  line-height: 1.5;
+  color: var(--report-muted);
+  margin: 4px 0 10px;
+  max-width: 70ch;
+}
+.report-audience-tone {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 5px;
+  font-size: 7.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border: 1px solid var(--report-rule);
+  border-radius: 2px;
+  color: var(--report-muted);
+  vertical-align: middle;
+}
+.report-audience-tone--positive { color: var(--success); border-color: var(--success); }
+.report-audience-tone--negative { color: var(--danger); border-color: var(--danger); }
+.report-bar-suffix {
+  font-size: 8.5px;
+  color: var(--report-muted);
+  font-weight: 400;
+}
+/* Theme labels are sentences, not platform names: give them room. */
+.report .report-audience-row {
+  grid-template-columns: 210px minmax(0, 1fr) 150px;
+}
+.report .report-audience-row .report-bar-label {
+  white-space: normal;
+  line-height: 1.25;
+}
+

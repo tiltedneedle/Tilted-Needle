@@ -5,7 +5,8 @@ import { selectIn } from "@/lib/selectIn";
 import { PLATFORM_LABEL } from "@/lib/types";
 import { operatingDate } from "@/lib/tz";
 import { asTemplate, type ReportTemplate } from "@/lib/reportTemplates";
-import { platformGrowth, type PlatformGrowth, type CommentStamp } from "@/lib/reportGrowth";
+import { platformGrowth, seriesDelta, type PlatformGrowth, type CommentStamp } from "@/lib/reportGrowth";
+import { buildAudience, type ReportAudience, type ThemeRow, type CommentRef } from "@/lib/reportAudience";
 import {
   deltaPct,
   measurePlatform,
@@ -130,6 +131,12 @@ export type ClientReport = {
    * for what each series claims and where it stops.
    */
   growth: PlatformGrowth[];
+  /**
+   * What the audience said: themes, sentiment, and the question / intent /
+   * confusion counts, under the app's counting discipline. Null when there
+   * is nothing to say -- the document then draws no page.
+   */
+  audience: ReportAudience | null;
 };
 
 /**
@@ -320,14 +327,52 @@ export async function buildClientReport(
     (chunk) =>
       supabase
         .from("post_comments")
-        .select("platform_post_id, published_at")
+        .select("id, platform_post_id, published_at")
         .in("platform_post_id", chunk)
         .order("id"),
   );
-  const commentStamps: CommentStamp[] = ((commentRows ?? []) as {
+  const commentRowsTyped = (commentRows ?? []) as {
+    id: string;
     platform_post_id: string;
     published_at: string | null;
-  }[]).map((c) => ({ postId: c.platform_post_id, publishedAt: c.published_at }));
+  }[];
+  const commentStamps: CommentStamp[] = commentRowsTyped.map((c) => ({ postId: c.platform_post_id, publishedAt: c.published_at }));
+  const commentRefs: CommentRef[] = commentRowsTyped.map((c) => ({ id: c.id, publishedAt: c.published_at, postId: c.platform_post_id }));
+
+  /* The audience: this client's merged themes (verified comment ids, so a
+     theme can be re-counted over the period) and the per-post counters,
+     rolled up. Both are what the app's reports page already shows; the PDF
+     never carried them. */
+  const { data: themeRows } = await supabase
+    .from("merged_themes")
+    .select("label, sentiment, comment_ids, post_count")
+    .eq("client_id", clientId)
+    .order("comment_count", { ascending: false });
+  const themes: ThemeRow[] = ((themeRows ?? []) as {
+    label: string; sentiment: string | null; comment_ids: string[] | null; post_count: number;
+  }[]).map((t) => ({ label: t.label, sentiment: t.sentiment, commentIds: t.comment_ids ?? [], postCount: t.post_count }));
+
+  const { data: signalRows } = await selectIn(
+    posts.map((p) => p.id),
+    (chunk) =>
+      supabase
+        .from("post_comment_metrics")
+        .select("platform_post_id, analysed_count, question_count, intent_count, confusion_count, mention_count")
+        .in("platform_post_id", chunk),
+  );
+  const signals = ((signalRows ?? []) as {
+    analysed_count: number | null; question_count: number | null; intent_count: number | null;
+    confusion_count: number | null; mention_count: number | null;
+  }[]).reduce(
+    (acc, m) => ({
+      analysed: acc.analysed + (m.analysed_count ?? 0),
+      questions: acc.questions + (m.question_count ?? 0),
+      intent: acc.intent + (m.intent_count ?? 0),
+      confusion: acc.confusion + (m.confusion_count ?? 0),
+      mentions: acc.mentions + (m.mention_count ?? 0),
+    }),
+    { analysed: 0, questions: 0, intent: 0, confusion: 0, mentions: 0 },
+  );
 
   const snapsByPost = new Map<string, { capturedAt: string; views: number | null }[]>();
   for (const s of (snapRows ?? []) as {
@@ -371,18 +416,26 @@ export async function buildClientReport(
         snapshots: snapsByPost.get(p.id) ?? [],
       }));
 
-    growth.push(platformGrowth({
+    const g = platformGrowth({
       platform: a.platform_slug,
       platformLabel: PLATFORM_LABEL[a.platform_slug] ?? a.platform_slug,
       posts: mine,
       comments: commentStamps,
       period,
-    }));
+    });
+    growth.push(g);
 
     const { top, unmeasurable } = pickTopVideos(mine, period, TOP_VIDEOS);
     const measured = measurePlatform(mine, period);
     const views = num(m, "views");
-    const viewsDeltaPct = deltaPct(views, priorByAccount.get(a.id) ?? null);
+    /* The typed prior period when someone entered one; otherwise the
+       measured month-on-month change from the growth series, which is only
+       ever non-null when both months are fully read. The delta then matches
+       the figure above it: a reported total compares with a reported total,
+       a measured gain with a measured gain -- never one with the other. */
+    const typedDelta = deltaPct(views, priorByAccount.get(a.id) ?? null);
+    const measuredDelta = m ? null : seriesDelta(g.series.find((x) => x.key === "viewsGained")!.points);
+    const viewsDeltaPct = typedDelta ?? measuredDelta;
     const isYouTube = a.platform_slug.startsWith("youtube");
 
     return {
@@ -473,5 +526,6 @@ export async function buildClientReport(
     likesCaveat:
       "View counts are as at the end of the period. Like counts are current: the system records a history of views only, so there is no like figure for a past date.",
     growth,
+    audience: buildAudience({ themes, comments: commentRefs, signals, period, periodLabel: label }),
   };
 }

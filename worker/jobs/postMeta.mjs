@@ -20,6 +20,7 @@
  * fetch its metadata).
  */
 import { hostPlatforms } from "../platforms.mjs";
+import { durableThumbnailUrl, needsCaching } from "../../src/lib/thumbnailCache.ts";
 
 export async function postMeta({ db, job, log }) {
   const base = process.env.TIKTOK_DISCOVER_URL;
@@ -28,7 +29,7 @@ export async function postMeta({ db, job, log }) {
 
   const { data: allPosts, error } = await db
     .from("platform_posts")
-    .select("id, url, account:accounts(platform_slug)")
+    .select("id, url, thumbnail_url, account:accounts(platform_slug)")
     .eq("content_item_id", job.subject_id)
     .not("url", "is", null);
   if (error) throw new Error(`lookup failed: ${error.message}`);
@@ -98,6 +99,23 @@ export async function postMeta({ db, job, log }) {
       await db.from("platform_posts")
         .update({ posted_at_ts: new Date(body.timestamp * 1000).toISOString() })
         .eq("id", post.id);
+    }
+
+    /* ---- the poster frame, CACHED while its signature is live -----------
+       TikTok and Instagram hand out signed image URLs that answer 403 once
+       the signature lapses; a report emailed in August and opened in
+       September rendered blank boxes. 302 posters were copied into our own
+       bucket by a one-off backfill; the 64 posted since were not, and this
+       is the job that runs for every new post. Verified 2026-09-14: both
+       CDNs serve the bytes to this box's address. */
+    const current = post.thumbnail_url;
+    if (body.thumbnail && (!current || needsCaching(current))) {
+      const durable = await durableThumbnailUrl(db, post.id, body.thumbnail);
+      if (durable && !needsCaching(durable)) {
+        const { error: thErr } = await db.from("platform_posts").update({ thumbnail_url: durable }).eq("id", post.id);
+        if (thErr) log("warn", "post_meta_thumbnail_failed", { post: post.id, error: thErr.message });
+        else filled.push("thumbnail");
+      }
     }
 
     // ---- shares: a snapshot from this source, never a silent zero ------

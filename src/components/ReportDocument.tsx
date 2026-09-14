@@ -1,6 +1,7 @@
 import type { ClientReport, ReportPlatformSection } from "@/lib/buildClientReport";
 import { summaryFindings } from "@/lib/clientReport";
 import { monthLongLabel, type GrowthSeries, type PlatformGrowth } from "@/lib/reportGrowth";
+import { audienceLead, type ReportAudience } from "@/lib/reportAudience";
 import { templateClass } from "@/lib/reportTemplates";
 import ReportThumb from "@/components/ReportThumb";
 
@@ -266,6 +267,87 @@ function GrowthPage({ growth, report, page }: { growth: PlatformGrowth[]; report
       <p className="report-growth-foot">
         Each platform is drawn on its own scale and never added to another: platforms count a view on different terms.
         The solid bar is {report.periodLabel.split(" ")[0]}; lighter bars are the months before it. An outlined bar was measured for part of the month only; a dash means the month was not measured.
+      </p>
+
+      <Footer client={report.clientName} page={page} period={report.periodLabel} />
+    </section>
+  );
+}
+
+/**
+ * What the audience said: signals, themes, sentiment.
+ *
+ * Every count on this page is a count of VERIFIED comment ids, and the
+ * denominator is distinct ids -- a comment carrying two themes is counted
+ * once. That is the discipline the app's own reports page uses, and a
+ * client's document must not be looser than the dashboard. The scope note
+ * says whether the themes are this month's or, when the month is too thin
+ * to support a list, all time.
+ */
+function AudiencePage({ audience, report, page }: { audience: ReportAudience; report: ClientReport; page: number }) {
+  const sentimentRows = (["positive", "neutral", "negative"] as const)
+    .map((k) => ({ label: k[0].toUpperCase() + k.slice(1), value: audience.sentiment[k] }))
+    .filter((r) => r.value > 0);
+  const sentimentTotal = sentimentRows.reduce((a, r) => a + r.value, 0);
+
+  return (
+    <section className="report-page">
+      <div className="report-eyebrow">{spaced("Audience · what the comments say")}</div>
+      <h2 className="report-headline">{audienceLead(audience)}</h2>
+
+      {audience.signals && (
+        <div className="report-figures">
+          <Figure value={audience.signals.analysed} label="Comments analysed" size={30} />
+          <Figure value={audience.signals.questions} label="Questions asked" size={30} />
+          <Figure value={audience.signals.intent} label="Intent to buy" size={30} />
+          {/* Only when it is a finding: 3 confused comments in 2,061 is noise. */}
+          {audience.signals.confusion >= 10 && audience.signals.confusion / audience.signals.analysed >= 0.02 && (
+            <Figure value={audience.signals.confusion} label="Confused" size={30} />
+          )}
+        </div>
+      )}
+
+      {audience.themes.length > 0 && (
+        <>
+          <div className="report-eyebrow" style={{ marginTop: 22 }}>{spaced("What they talked about")}</div>
+          <p className="report-audience-scope">{audience.scopeNote} {audience.distinctComments.toLocaleString("en-GB")} distinct comments carry a theme; one comment can carry more than one.</p>
+          <div className="report-audience-themes">
+            {audience.themes.map((t) => {
+              const max = audience.themes[0].comments;
+              return (
+                <div key={t.label} className="report-bar-row report-audience-row">
+                  <div className="report-bar-label">
+                    {t.label}
+                    {t.sentiment && (
+                      <span className={`report-audience-tone report-audience-tone--${t.sentiment}`}>{t.sentiment}</span>
+                    )}
+                  </div>
+                  <div className="report-bar-track">
+                    <div className="report-bar-fill" style={{ width: `${(t.comments / max) * 100}%` }} />
+                  </div>
+                  <div className="report-bar-value">
+                    {t.comments.toLocaleString("en-GB")}
+                    <span className="report-bar-suffix"> across {t.posts} video{t.posts === 1 ? "" : "s"}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {sentimentRows.length > 0 && (
+        <>
+          <div className="report-eyebrow" style={{ marginTop: 22 }}>{spaced("How it read")}</div>
+          {/* A share of themed comments by tone. Sums honestly: one client,
+              one unit, distinct within each bucket. */}
+          <BarList rows={sentimentRows.map((r) => ({ label: r.label, value: r.value, suffix: ` · ${Math.round((r.value / sentimentTotal) * 100)}%` }))} />
+        </>
+      )}
+
+      <p className="report-growth-foot">
+        Themes are grouped by meaning, not by wording, so "how much is it" and "pricing?" count together. Counts are
+        comments the system verified, never a figure a model asserted. Instagram comments are the platform's first page per video.
       </p>
 
       <Footer client={report.clientName} page={page} period={report.periodLabel} />
@@ -689,6 +771,8 @@ export default function ReportDocument({ report }: { report: ClientReport }) {
       {report.growth.some((g) => g.series.some((x) => x.points.some((p) => p.value != null))) && (
         <GrowthPage growth={report.growth} report={report} page={++page} />
       )}
+
+      {report.audience && <AudiencePage audience={report.audience} report={report} page={++page} />}
 
       {sections.map((s) => (
         <PlatformPage key={s.platform} section={s} report={report} page={++page} />

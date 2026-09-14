@@ -22,6 +22,7 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { isYouTubeLike } from "./platforms.mjs";
+import { needsCaching } from "../src/lib/thumbnailCache.ts";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SECRET_KEY;
@@ -813,7 +814,7 @@ async function planPostMeta() {
 
   const posts = await pageAll(
     "platform_posts",
-    "content_item_id, workspace_id, url, account:accounts(platform_slug), item:content_items!inner(review_state, length_seconds, music_used, description, client:clients(is_archived))",
+    "content_item_id, workspace_id, url, thumbnail_url, account:accounts(platform_slug), item:content_items!inner(review_state, length_seconds, music_used, description, client:clients(is_archived))",
   );
   const wsOf = new Map();
   const wanted = new Set();
@@ -825,9 +826,12 @@ async function planPostMeta() {
     // Instagram never reports a duration or a sound to a free reader, so for
     // it only the caption counts as missing; otherwise every Instagram item
     // would be planned forever.
-    const missing = slug === "tiktok"
+    // A poster still pointing at a signed CDN URL is missing too: it will
+    // die, and the box can copy the bytes while a fresh URL is live.
+    const staleThumb = !p.thumbnail_url || needsCaching(p.thumbnail_url);
+    const missing = staleThumb || (slug === "tiktok"
       ? !it.length_seconds || !it.music_used || !it.description
-      : !it.description;
+      : !it.description);
     if (!missing) continue;
     wanted.add(p.content_item_id);
     wsOf.set(p.content_item_id, p.workspace_id);
