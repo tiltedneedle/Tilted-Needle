@@ -45,6 +45,12 @@ const comments = [
 {
   check("no themes and no signals yields null, never an empty page",
     buildAudience({ themes: [], comments: [], signals: null, period, periodLabel }) === null);
+  // Four comments and one question is a sentence about our coverage.
+  const thin = buildAudience({
+    themes: [{ label: "x", sentiment: "neutral", commentIds: ["a0"], postCount: 1 }],
+    comments, signals: { analysed: 4, questions: 1, intent: 1, confusion: 0, mentions: 0 }, period, periodLabel,
+  });
+  check("too little to say yields no page rather than a thin one", thin === null);
   check("zero analysed comments counts as no signals",
     buildAudience({ themes: [], comments: [], signals: { analysed: 0, questions: 0, intent: 0, confusion: 0, mentions: 0 }, period, periodLabel }) === null);
 }

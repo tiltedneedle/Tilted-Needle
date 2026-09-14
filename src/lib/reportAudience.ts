@@ -60,6 +60,14 @@ export type ReportAudience = {
 
 /** Below this the period cannot support a themes list and all time is used. */
 export const MIN_PERIOD_THEMED = 10;
+/**
+ * Below this there is no page. "Across 4 analysed comments, your audience
+ * left 1 question" is a true sentence about our coverage, not about the
+ * client's audience, and a client should never receive a page whose content
+ * is a note about our own missing data. The page appears once the comment
+ * lanes have caught up.
+ */
+export const MIN_ANALYSED_FOR_PAGE = 20;
 export const TOP_THEMES = 8;
 
 function normSentiment(s: string | null): AudienceTheme["sentiment"] {
@@ -122,6 +130,9 @@ export function buildAudience(input: {
 
   const hasSignals = input.signals != null && input.signals.analysed > 0;
   if (result.counted.length === 0 && !hasSignals) return null;
+  const substantial =
+    (input.signals?.analysed ?? 0) >= MIN_ANALYSED_FOR_PAGE || result.distinct.size >= MIN_PERIOD_THEMED;
+  if (!substantial) return null;
 
   const themes: AudienceTheme[] = result.counted.slice(0, TOP_THEMES).map(({ t, ids, posts }) => ({
     label: t.label,
