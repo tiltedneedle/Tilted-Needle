@@ -800,6 +800,50 @@ async function planCompetitorScan() {
  * ceiling, but queueing 500 jobs that will all be refused just fills the
  * queue with work the ledger has already declined.
  */
+/**
+ * post_meta: TikTok and Instagram items missing a duration, a sound, or a
+ * caption. One /meta call each on the box, which also appends a shares
+ * snapshot. Only planned where a box exists -- the same asrReady() check
+ * the audio lane uses, because /health is that box announcing itself.
+ */
+async function planPostMeta() {
+  const kind = "post_meta";
+  const cap = CAP(kind, 60);
+  if (!(await asrReady())) return { kind, count: 0, cap, skipped: "no yt-dlp box on the host" };
+
+  const posts = await pageAll(
+    "platform_posts",
+    "content_item_id, workspace_id, url, account:accounts(platform_slug), item:content_items!inner(review_state, length_seconds, music_used, description, client:clients(is_archived))",
+  );
+  const wsOf = new Map();
+  const wanted = new Set();
+  for (const p of posts) {
+    if (!isLiveAgencyWork(p) || !p.url) continue;
+    const slug = (Array.isArray(p.account) ? p.account[0] : p.account)?.platform_slug;
+    if (slug !== "tiktok" && slug !== "instagram") continue;
+    const it = p.item ?? {};
+    // Instagram never reports a duration or a sound to a free reader, so for
+    // it only the caption counts as missing; otherwise every Instagram item
+    // would be planned forever.
+    const missing = slug === "tiktok"
+      ? !it.length_seconds || !it.music_used || !it.description
+      : !it.description;
+    if (!missing) continue;
+    wanted.add(p.content_item_id);
+    wsOf.set(p.content_item_id, p.workspace_id);
+  }
+  /* ONE ASK PER ITEM. A completed job counts as answered even when a field
+     is still empty afterwards -- a TikTok the platform reports no sound for
+     would otherwise be re-planned every hour, forever, for nothing. */
+  const busy = await inFlight(kind);
+  const answered = new Set([...await settled(kind), ...await pagedSubjects(kind, ["done"], "done")]);
+  const ids = [...wanted]
+    .filter((id) => !busy.has(id) && !answered.has(id))
+    .sort((a, b) => a.localeCompare(b))
+    .slice(0, cap);
+  return { kind, count: await insert(kind, ids, wsOf), cap };
+}
+
 async function planTranscriptApify() {
   const { TRANSCRIPT_ACTORS } = await import("../src/lib/providers/apifyTranscripts.ts");
   const servable = new Set(Object.keys(TRANSCRIPT_ACTORS));
@@ -845,6 +889,7 @@ const PLANNERS = {
   describe: planDescribe,
   competitor_scan: planCompetitorScan,
   transcript_apify: planTranscriptApify,
+  post_meta: planPostMeta,
 };
 
 const chosen = only ?? Object.keys(PLANNERS);

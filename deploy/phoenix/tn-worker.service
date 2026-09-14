@@ -24,7 +24,7 @@ EnvironmentFile=/etc/tn-worker.env
 # tiktok,instagram. Measured 2026-09-13: YouTube refuses this address with
 # "Sign in to confirm you're not a bot". A YouTube job claimed here cools
 # the whole kind for two hours and stalls the work this box CAN do.
-ExecStart=/opt/node-v22/bin/node --experimental-strip-types --import /opt/tn-worker/scripts/register-alias.mjs /opt/tn-worker/worker/index.mjs --kinds=transcript,transcript_asr,comments
+ExecStart=/opt/node-v22/bin/node --experimental-strip-types --import /opt/tn-worker/scripts/register-alias.mjs /opt/tn-worker/worker/index.mjs --kinds=transcript,transcript_asr,comments,post_meta
 Restart=always
 RestartSec=15
 StandardOutput=journal

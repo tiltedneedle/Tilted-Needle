@@ -24,6 +24,7 @@ import { describe } from "./describe.mjs";
 import { ideas } from "./ideas.mjs";
 import { competitorScan } from "./competitorScan.mjs";
 import { transcriptApify } from "./transcriptApify.mjs";
+import { postMeta } from "./postMeta.mjs";
 
 export const handlers = {
   comments,
@@ -55,4 +56,5 @@ export const handlers = {
      including CI, which is the whole point: it is the transcript lane that
      does not need a desk. */
   transcript_apify: transcriptApify,
+  post_meta: postMeta,
 };

@@ -8,5 +8,5 @@ Type=oneshot
 User=ubuntu
 WorkingDirectory=/opt/tn-worker
 EnvironmentFile=/etc/tn-worker.env
-ExecStart=/opt/node-v22/bin/node --experimental-strip-types --import /opt/tn-worker/scripts/register-alias.mjs /opt/tn-worker/worker/enqueue.mjs --kinds=transcript_asr,comments --backfill
+ExecStart=/opt/node-v22/bin/node --experimental-strip-types --import /opt/tn-worker/scripts/register-alias.mjs /opt/tn-worker/worker/enqueue.mjs --kinds=transcript_asr,comments,post_meta --backfill
 SyslogIdentifier=tn-enqueue-asr
