@@ -2932,6 +2932,9 @@ h3 {
      placeholder when "Background graphics" is off. */
   border: 1px solid var(--report-rule);
 }
+.report-rank-thumb--empty {
+  border-color: transparent;
+}
 
 .report-rank-thumb img {
   width: 100%;

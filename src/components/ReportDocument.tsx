@@ -616,7 +616,11 @@ function PlatformPage({
                   Shorts are at 100% coverage, Instagram at 13% -- so the cell
                   holds its width either way and simply stays empty rather than
                   letting one missing image shift a whole column. */}
-              <div className="report-rank-thumb">
+              {/* No poster known up front: keep the cell so the column holds,
+                  drop the frame so it does not read as a broken image beside
+                  seven real ones. Eight Instagram posts are gated for
+                  anonymous readers and no free route reaches their frame. */}
+              <div className={`report-rank-thumb${t.thumbnailUrl ? "" : " report-rank-thumb--empty"}`}>
                 {/* A client component, because this one is a server component
                     and an <img> here had no way to notice its own failure.
                     Signed TikTok and Instagram URLs expire and start
