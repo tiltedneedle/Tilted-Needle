@@ -1,5 +1,6 @@
 import type { ClientReport, ReportPlatformSection } from "@/lib/buildClientReport";
 import { summaryFindings } from "@/lib/clientReport";
+import type { GrowthSeries, PlatformGrowth } from "@/lib/reportGrowth";
 import { templateClass } from "@/lib/reportTemplates";
 import ReportThumb from "@/components/ReportThumb";
 
@@ -111,6 +112,136 @@ function Figure({
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Six months of one series, as bars.
+ *
+ * INLINE SVG ON PURPOSE. The bars elsewhere in this document are borders,
+ * because Chrome's print dialog ships with "background graphics" off and a
+ * CSS background silently vanishes from the PDF. SVG shapes are painted
+ * content, not backgrounds; they print. It also means no client-side chart
+ * library and nothing to hydrate -- the page is static markup.
+ *
+ * A NULL MONTH IS DRAWN AS UNMEASURED, not as an empty bar. "Views gained"
+ * has readings only from the month the system started taking them, and a
+ * flat zero there would tell the client their videos did nothing that month.
+ * A short dash on the baseline says "no reading" and the note below the
+ * chart says why.
+ *
+ * The latest month is solid; earlier months are lighter. The eye goes to the
+ * period this report is about, and the rest is the shape it arrived on.
+ */
+function MonthBars({ series }: { series: GrowthSeries }) {
+  const W = 228, H = 118, TOP = 20, BOTTOM = 18, GAP = 8;
+  const n = series.points.length;
+  const bw = (W - GAP * (n - 1)) / n;
+  const plotH = H - TOP - BOTTOM;
+  const values = series.points.map((p) => p.value).filter((v): v is number => v != null);
+  const max = values.length ? Math.max(...values, 1) : 1;
+  const last = series.points[n - 1];
+  const compact = (v: number) =>
+    v >= 1_000_000 ? `${(v / 1_000_000).toFixed(1)}M` : v >= 10_000 ? `${Math.round(v / 1000)}k` : v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(v);
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label={`${series.title}, last ${n} months`}>
+      {/* baseline: a stroke, which prints */}
+      <line x1={0} y1={H - BOTTOM + 0.5} x2={W} y2={H - BOTTOM + 0.5} style={{ stroke: "var(--report-rule)", strokeWidth: 1 }} />
+      {series.points.map((pt, i) => {
+        const x = i * (bw + GAP);
+        const isLast = i === n - 1;
+        if (pt.value == null) {
+          return (
+            <g key={pt.month}>
+              <line x1={x + bw * 0.3} y1={H - BOTTOM - 3} x2={x + bw * 0.7} y2={H - BOTTOM - 3}
+                style={{ stroke: "var(--report-muted)", strokeWidth: 1.2, strokeDasharray: "2 2" }} />
+              <text x={x + bw / 2} y={H - 4} textAnchor="middle" fontSize={9} style={{ fill: "var(--report-muted)" }}>{pt.label}</text>
+            </g>
+          );
+        }
+        const h = max > 0 ? Math.max(pt.value > 0 ? 2 : 0, (pt.value / max) * plotH) : 0;
+        return (
+          <g key={pt.month}>
+            <rect x={x} y={H - BOTTOM - h} width={bw} height={h}
+              style={{ fill: "var(--report-accent)", opacity: isLast ? 1 : 0.38 }} />
+            {(isLast || pt.value === max) && (
+              <text x={x + bw / 2} y={H - BOTTOM - h - 5} textAnchor="middle" fontSize={9.5}
+                style={{ fill: "var(--report-ink)", fontWeight: 600 }}>{compact(pt.value)}</text>
+            )}
+            <text x={x + bw / 2} y={H - 4} textAnchor="middle" fontSize={9}
+              style={{ fill: isLast ? "var(--report-ink)" : "var(--report-muted)", fontWeight: isLast ? 600 : 400 }}>{pt.label}</text>
+          </g>
+        );
+      })}
+      {last?.value == null && values.length === 0 && (
+        <text x={W / 2} y={TOP + plotH / 2} textAnchor="middle" fontSize={9.5} style={{ fill: "var(--report-muted)" }}>not measured</text>
+      )}
+    </svg>
+  );
+}
+
+/**
+ * The growth sheet: every platform, three series, six months.
+ *
+ * Drawn only when something was measured. A client should never receive a
+ * page whose content is a note about our own missing data, so a platform
+ * with nothing in any series is left off, and a report with nothing in any
+ * platform gets no sheet at all.
+ */
+function GrowthPage({ growth, report, page }: { growth: PlatformGrowth[]; report: ClientReport; page: number }) {
+  const drawable = growth.filter((g) => g.series.some((s) => s.points.some((p) => p.value != null)));
+  if (drawable.length === 0) return null;
+
+  /* One sentence the numbers support. The views series is the one clients
+     ask about, so it leads when it can; publishing cadence otherwise. */
+  const lead = (() => {
+    const v = drawable
+      .map((g) => ({ g, s: g.series.find((x) => x.key === "viewsGained")! }))
+      .filter((x) => x.s.deltaPct != null)
+      .sort((a, b) => Math.abs(b.s.deltaPct!) - Math.abs(a.s.deltaPct!))[0];
+    if (v) {
+      const prev = v.s.points[v.s.points.length - 2]?.label;
+      const d = v.s.deltaPct!;
+      return `${v.g.platformLabel}'s tracked videos gained ${Math.abs(d)}% ${d >= 0 ? "more" : "fewer"} views than in ${prev}.`;
+    }
+    return "The last six months, at a glance.";
+  })();
+
+  return (
+    <section className="report-page">
+      <div className="report-eyebrow">{spaced("Growth · trailing six months")}</div>
+      <h2 className="report-headline">{lead}</h2>
+
+      {drawable.map((g) => (
+        <div key={g.platform} className="report-growth-row">
+          <div className="report-growth-platform">{spaced(g.platformLabel)}</div>
+          <div className="report-growth-charts">
+            {g.series.map((s) => (
+              <div key={s.key} className="report-growth-chart">
+                <div className="report-growth-title">
+                  <span>{s.title}</span>
+                  {s.deltaPct != null && (
+                    <span className="report-growth-delta" style={{ color: s.deltaPct >= 0 ? "var(--success)" : "var(--danger)" }}>
+                      {s.deltaPct >= 0 ? "+" : ""}{s.deltaPct}% vs {s.points[s.points.length - 2]?.label}
+                    </span>
+                  )}
+                </div>
+                <MonthBars series={s} />
+                <div className="report-growth-note">{s.note}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+
+      <p className="report-growth-foot">
+        Each platform is drawn on its own scale and never added to another: platforms count a view on different terms.
+        The solid bar is {report.periodLabel.split(" ")[0]}; lighter bars are the months before it. A dash means the month was not measured.
+      </p>
+
+      <Footer client={report.clientName} page={page} period={report.periodLabel} />
+    </section>
   );
 }
 
@@ -523,6 +654,12 @@ export default function ReportDocument({ report }: { report: ClientReport }) {
 
           <Footer client={report.clientName} page={++page} period={report.periodLabel} />
         </section>
+      )}
+
+      {/* Growth before the platform pages: the trajectory first, then the
+          month's detail. Renders nothing when nothing was measured. */}
+      {report.growth.some((g) => g.series.some((x) => x.points.some((p) => p.value != null))) && (
+        <GrowthPage growth={report.growth} report={report} page={++page} />
       )}
 
       {sections.map((s) => (

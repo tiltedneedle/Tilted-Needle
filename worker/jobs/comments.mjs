@@ -471,8 +471,15 @@ async function fetchViaBox({ db, job, log, posts }) {
     }
 
     // --- Enrichment, free with the same call ---------------------------
-    if (body.timestamp) {
-      await db.from("platform_posts").update({ posted_at_ts: body.timestamp }).eq("id", post.id);
+    /* EPOCH SECONDS, converted. /meta returns yt-dlp's `timestamp`, an
+       integer of seconds. Written raw into a timestamptz, Postgres read
+       "1786396931" as a date literal and stored the year 178639 -- seven
+       posts, the first day this route ever ran against a real box -- and
+       the report page threw "Invalid time value" on every render. */
+    if (typeof body.timestamp === "number" && Number.isFinite(body.timestamp)) {
+      await db.from("platform_posts")
+        .update({ posted_at_ts: new Date(body.timestamp * 1000).toISOString() })
+        .eq("id", post.id);
     }
     if (body.description) {
       // Only fill an empty description: a human may have written a better one

@@ -3018,3 +3018,60 @@ h3 {
     padding: 30px 18px;
   }
 }
+
+/* ---- Report growth sheet: small multiples, six months, three series per
+   platform. Nothing here is a background: rules are borders and bars are SVG
+   content, both of which print with "background graphics" unticked. */
+.report-growth-row {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 0 18px;
+  align-items: start;
+  padding: 14px 0 12px;
+  border-top: 1px solid var(--report-rule);
+}
+.report-growth-platform {
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--report-accent);
+  padding-top: 4px;
+}
+.report-growth-charts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0 22px;
+}
+.report-growth-chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 4px 0 6px;
+}
+.report-growth-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--report-ink);
+}
+.report-growth-delta {
+  font-size: 9.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.report-growth-note {
+  font-size: 8.5px;
+  line-height: 1.4;
+  color: var(--report-muted);
+  min-height: 3.6em;
+}
+.report-growth-foot {
+  margin-top: 16px;
+  font-size: 9.5px;
+  line-height: 1.5;
+  color: var(--report-muted);
+  max-width: 70ch;
+}

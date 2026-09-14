@@ -5,6 +5,7 @@ import { selectIn } from "@/lib/selectIn";
 import { PLATFORM_LABEL } from "@/lib/types";
 import { operatingDate } from "@/lib/tz";
 import { asTemplate, type ReportTemplate } from "@/lib/reportTemplates";
+import { platformGrowth, type PlatformGrowth, type CommentStamp } from "@/lib/reportGrowth";
 import {
   deltaPct,
   measurePlatform,
@@ -123,6 +124,12 @@ export type ClientReport = {
   };
   /** Stated on the document, because views and likes have different dates. */
   likesCaveat: string;
+  /**
+   * The trailing six months, per platform: published, views gained, comments
+   * received. The document draws these as small charts. See reportGrowth.ts
+   * for what each series claims and where it stops.
+   */
+  growth: PlatformGrowth[];
 };
 
 /**
@@ -305,6 +312,23 @@ export async function buildClientReport(
         .in("platform_post_id", chunk)
         .order("captured_at"),
   );
+  /* Comment timestamps for the growth page. Only the stamp and the post it
+     belongs to -- the text stays where it is. Chunked like the snapshots:
+     a busy client's post list overruns the gateway's URL limit in one .in(). */
+  const { data: commentRows } = await selectIn(
+    posts.map((p) => p.id),
+    (chunk) =>
+      supabase
+        .from("post_comments")
+        .select("platform_post_id, published_at")
+        .in("platform_post_id", chunk)
+        .order("id"),
+  );
+  const commentStamps: CommentStamp[] = ((commentRows ?? []) as {
+    platform_post_id: string;
+    published_at: string | null;
+  }[]).map((c) => ({ postId: c.platform_post_id, publishedAt: c.published_at }));
+
   const snapsByPost = new Map<string, { capturedAt: string; views: number | null }[]>();
   for (const s of (snapRows ?? []) as {
     platform_post_id: string;
@@ -325,6 +349,7 @@ export async function buildClientReport(
     return typeof v === "number" ? v : null;
   };
 
+  const growth: PlatformGrowth[] = [];
   const sections: ReportPlatformSection[] = accounts.map((a) => {
     const m = metricsByAccount.get(a.id);
     const mine: ReportPost[] = posts
@@ -345,6 +370,14 @@ export async function buildClientReport(
         thumbnailUrl: p.thumbnail_url,
         snapshots: snapsByPost.get(p.id) ?? [],
       }));
+
+    growth.push(platformGrowth({
+      platform: a.platform_slug,
+      platformLabel: PLATFORM_LABEL[a.platform_slug] ?? a.platform_slug,
+      posts: mine,
+      comments: commentStamps,
+      period,
+    }));
 
     const { top, unmeasurable } = pickTopVideos(mine, period, TOP_VIDEOS);
     const measured = measurePlatform(mine, period);
@@ -439,5 +472,6 @@ export async function buildClientReport(
     },
     likesCaveat:
       "View counts are as at the end of the period. Like counts are current: the system records a history of views only, so there is no like figure for a past date.",
+    growth,
   };
 }

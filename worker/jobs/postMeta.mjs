@@ -92,8 +92,12 @@ export async function postMeta({ db, job, log }) {
     }
 
     // ---- exact publish instant, which the sync only ever had as a date --
-    if (typeof body.timestamp === "number") {
-      await db.from("platform_posts").update({ posted_at_ts: body.timestamp }).eq("id", post.id);
+    // Epoch SECONDS from yt-dlp; a raw integer into a timestamptz is read as
+    // a date literal and lands in the year 178639. Convert.
+    if (typeof body.timestamp === "number" && Number.isFinite(body.timestamp)) {
+      await db.from("platform_posts")
+        .update({ posted_at_ts: new Date(body.timestamp * 1000).toISOString() })
+        .eq("id", post.id);
     }
 
     // ---- shares: a snapshot from this source, never a silent zero ------
