@@ -1,5 +1,5 @@
 [Unit]
-Description=Plan transcript_asr jobs (this is the host with an audio route)
+Description=Plan the jobs only this host can serve: transcript_asr, and Instagram comments
 After=network-online.target tn-transcript.service
 Wants=network-online.target
 
@@ -8,5 +8,5 @@ Type=oneshot
 User=ubuntu
 WorkingDirectory=/opt/tn-worker
 EnvironmentFile=/etc/tn-worker.env
-ExecStart=/opt/node-v22/bin/node --experimental-strip-types --import /opt/tn-worker/scripts/register-alias.mjs /opt/tn-worker/worker/enqueue.mjs --kinds=transcript_asr --backfill
+ExecStart=/opt/node-v22/bin/node --experimental-strip-types --import /opt/tn-worker/scripts/register-alias.mjs /opt/tn-worker/worker/enqueue.mjs --kinds=transcript_asr,comments --backfill
 SyslogIdentifier=tn-enqueue-asr

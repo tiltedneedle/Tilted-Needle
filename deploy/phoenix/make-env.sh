@@ -39,5 +39,15 @@ printf 'TIKTOK_DISCOVER_URL=http://127.0.0.1:8787/discover\n'
 printf 'TIKTOK_DISCOVER_SECRET=%s\n' "$SECRET"
 # The whole point of this host. See worker/platforms.mjs hostPlatforms().
 printf 'TRANSCRIPT_PLATFORMS=tiktok,instagram\n'
+# Comments: Instagram only. YouTube's route is the Data API and TikTok's is
+# Apify -- both live in GitHub Actions, which gates itself the other way.
+printf 'COMMENTS_PLATFORMS=instagram\n'
+# Instagram throttles a fast reader (its profile page 429d on the first
+# try). 40/hour is a third of the worker's default and clears the 144
+# commented posts in under four hours.
+printf 'RATE_COMMENTS_PER_HOUR=40\n'
+# A YouTube job this host skips is one Actions serves, every six hours.
+# Defer just under that so the next run sees it.
+printf 'SKIP_DEFER_HOURS=5\n'
 printf 'WORKER_ID=tn-worker-phoenix\n'
 printf 'BATCH=3\n'

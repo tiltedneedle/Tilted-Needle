@@ -42,9 +42,13 @@ export function isYouTubeLike(slug) {
  *
  *   TRANSCRIPT_PLATFORMS=tiktok,instagram    the Phoenix box
  *   (unset)                                  the desktop: residential IP, any
+ *
+ * One variable per kind, because the answer differs per kind: the same box
+ * serves transcripts for tiktok+instagram but comments for instagram only
+ * (TikTok comments are Apify's, and that budget lives in Actions).
  */
-export function hostPlatforms(env = process.env) {
-  const raw = env.TRANSCRIPT_PLATFORMS?.trim();
+export function hostPlatforms(env = process.env, variable = "TRANSCRIPT_PLATFORMS") {
+  const raw = env[variable]?.trim();
   if (!raw) return null;
   const set = new Set(raw.split(",").map((s) => s.trim()).filter(Boolean));
   return set.size ? set : null;

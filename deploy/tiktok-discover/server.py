@@ -27,6 +27,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone
 from flask import Flask, request, jsonify
 import yt_dlp
 
@@ -260,7 +261,20 @@ def meta():
     if not url:
         return jsonify({"error": "url query param is required."}), 400
 
+    # COMMENTS, WHEN ASKED FOR. The worker has requested `limit=200` and read
+    # `comments` off this response since the Instagram comment lane was
+    # written -- and this endpoint never produced either. Measured 2026-09-14:
+    # 6,086 comments on the platform across 144 Instagram posts, 43 stored.
+    # yt-dlp reads them from the same page fetch when getcomments is set.
+    #
+    # Anonymously it returns the FIRST PAGE only -- 14 on a post with 995 --
+    # newest first. Complete for the typical post, a sample for a viral one,
+    # so commentCount is returned beside them and the caller records the
+    # fetch as partial when the platform's count exceeds what came back.
+    limit = request.args.get("limit", type=int)
     opts = {"quiet": True, "no_warnings": True, "skip_download": True}
+    if limit:
+        opts["getcomments"] = True
     started = time.time()
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
@@ -290,6 +304,35 @@ def meta():
         # in the Actions runner. Signed and short-lived, so the caller must
         # cache the bytes rather than store the url.
         "thumbnail": info.get("thumbnail"),
+        # The counters the same call already carried and this endpoint threw
+        # away. TikTok reports all of them; Instagram reports likes and
+        # comments to an anonymous reader but not views or duration. Shares
+        # is TikTok's repost_count. Null, never zero, when a platform withholds
+        # one -- the sync must not record "0 views" for "not told".
+        "viewCount": info.get("view_count"),
+        "likeCount": info.get("like_count"),
+        "commentCount": info.get("comment_count"),
+        "shareCount": info.get("repost_count"),
+        # The sound. "original sound" is a creator talking or a voiceover;
+        # a named track is a library song (see /asr, which refuses those).
+        "track": (info.get("track") or "").strip() or None,
+        "artist": (info.get("artist") or "").strip() or None,
+        "width": info.get("width"),
+        "height": info.get("height"),
+        "comments": [
+            {
+                "id": c.get("id"),
+                "text": (c.get("text") or "").strip(),
+                "author": c.get("author"),
+                "likeCount": c.get("like_count"),
+                "publishedAt": (
+                    datetime.fromtimestamp(c["timestamp"], tz=timezone.utc).isoformat()
+                    if isinstance(c.get("timestamp"), (int, float)) else None
+                ),
+            }
+            for c in (info.get("comments") or [])[: limit or 0]
+            if c.get("id") and (c.get("text") or "").strip()
+        ] if limit else None,
         "tookMs": round((time.time() - started) * 1000),
     })
 

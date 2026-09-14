@@ -15,30 +15,53 @@
  */
 
 const API = "https://www.googleapis.com/youtube/v3/commentThreads";
-import { isYouTubeLike } from "../platforms.mjs";
+import { isYouTubeLike, hostPlatforms } from "../platforms.mjs";
 
 /** Enough for any realistic video; the cap stops a runaway thread eating quota. */
 const MAX_PAGES = 10;
 
 export async function comments({ db, job, log }) {
-  const key = process.env.YOUTUBE_API_KEY;
-  if (!key) throw new Error("YOUTUBE_API_KEY is not set");
-
-  const { data: posts, error } = await db
+  const { data: allPosts, error } = await db
     .from("platform_posts")
     .select("id, external_id, url, account:accounts(platform_slug)")
     .eq("content_item_id", job.subject_id)
     .not("external_id", "is", null);
   if (error) throw new Error(`lookup failed: ${error.message}`);
 
-  const withPlatform = (posts ?? []).map((p) => ({
-    ...p,
-    platform: (Array.isArray(p.account) ? p.account[0] : p.account)?.platform_slug,
-  }));
+  /* WHAT THIS HOST IS ALLOWED TO TOUCH -- the same gate the transcript
+     kinds use, on its own variable, because the answer differs per kind.
+     Three routes live in this one handler and they belong to different
+     hosts: YouTube is the Data API (IP-agnostic; GitHub Actions runs it),
+     TikTok is Apify (metered; Actions holds that budget), Instagram is the
+     yt-dlp box (the Phoenix machine, and only it). Left ungated, the
+     Actions runner claimed Instagram-only items it had no route for and
+     stamped 132 of them platform_unsupported -- "no comment route" was
+     true of the RUNNER, and got written down as a fact about the posts.
+
+       COMMENTS_PLATFORMS=youtube,youtube_shorts,tiktok   Actions
+       COMMENTS_PLATFORMS=instagram                       the Phoenix box
+       (unset)                                            any */
+  const allowed = hostPlatforms(process.env, "COMMENTS_PLATFORMS");
+  const slugOf = (p) => (Array.isArray(p.account) ? p.account[0] : p.account)?.platform_slug;
+  const posts = allowed ? (allPosts ?? []).filter((p) => allowed.has(slugOf(p))) : allPosts;
+  if (allowed && (posts ?? []).length === 0) {
+    const seen = [...new Set((allPosts ?? []).map(slugOf).filter(Boolean))];
+    return {
+      skip: true,
+      note: `posted on ${seen.join(", ") || "nothing"}; this host serves comments for ${[...allowed].join(", ")}`,
+    };
+  }
+
+  const withPlatform = (posts ?? []).map((p) => ({ ...p, platform: slugOf(p) }));
 
   // Shorts included: the Data API's commentThreads endpoint takes a video id
   // and neither knows nor cares that the video is vertical.
   const youtube = withPlatform.filter((p) => isYouTubeLike(p.platform));
+  // Required for the Data API route and nothing else. Demanding it up front
+  // meant a host with no YouTube work -- the Phoenix box -- could not run
+  // this handler for the Instagram route it exists to serve.
+  const key = process.env.YOUTUBE_API_KEY;
+  if (youtube.length > 0 && !key) throw new Error("YOUTUBE_API_KEY is not set");
   // Instagram has no free comment API, but yt-dlp reads them -- verified on a
   // real post.
   const viaBox = withPlatform.filter((p) => p.platform === "instagram" && p.url);
@@ -87,11 +110,29 @@ export async function comments({ db, job, log }) {
        * count started CLIMBING as jobs completed: 5, then 18. Instagram is
        * 166 posts, so it was most of the remaining gap. */
       if ((boxStats.fetched ?? 0) === 0) {
+        /* Zero fetched with a non-zero platform count is NOT "none exist" --
+           it is the box failing to read them, and writing none_exist would
+           hide that for thirty days. Throw, so the job retries and the log
+           shows the real gap. This is exactly how 25 Instagram items came to
+           carry none_exist while the platform showed thousands of comments. */
+        if ((boxStats.reported ?? 0) > 0) {
+          throw new Error(
+            `platform reports ${boxStats.reported} comment(s) on this item but the box read none`,
+          );
+        }
         await recordCommentVerdict(db, job, {
           state: "none_exist",
           method: "box",
           note: `no comments on any of this item's ${viaBox.length} instagram post(s) at fetch time`,
           recheckDays: 30,
+        });
+      } else {
+        await recordCommentVerdict(db, job, {
+          state: "ok",
+          method: "box",
+          note: boxStats.partial
+            ? `partial: ${boxStats.fetched} of ${boxStats.reported} the platform reports (anonymous read is first page only)`
+            : `${boxStats.fetched} comment(s), complete against the platform's count`,
         });
       }
       return { stats: boxStats };
@@ -392,6 +433,12 @@ async function fetchViaBox({ db, job, log, posts }) {
 
   let fetched = 0;
   let stored = 0;
+  /* What the platform SAYS is there, summed across the item's posts. An
+     anonymous read returns the first page only -- measured 2026-09-14: 14 of
+     995 on one post -- so the count travels with the fetch and the verdict
+     says "partial" when they differ. Otherwise "29 of 213 comments" in a
+     report would quietly have a denominator of 14. */
+  let reported = 0;
 
   for (const post of posts) {
     const url =
@@ -443,6 +490,8 @@ async function fetchViaBox({ db, job, log, posts }) {
       }
     }
 
+    if (typeof body.commentCount === "number") reported += body.commentCount;
+
     // --- Comments -------------------------------------------------------
     const rows = (body.comments ?? [])
       .filter((c) => c.id && c.text)
@@ -469,5 +518,5 @@ async function fetchViaBox({ db, job, log, posts }) {
     }
   }
 
-  return { fetched, stored };
+  return { fetched, stored, reported, partial: reported > fetched };
 }

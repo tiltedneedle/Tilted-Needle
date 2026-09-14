@@ -142,6 +142,15 @@ jobs:
           LLM_MODEL: ${{ secrets.LLM_MODEL }}
           WORKER_ID: gha-${{ github.run_id }}
           BATCH: "5"
+          # Which comment routes THIS host holds: the Data API key and the
+          # Apify budget. Instagram comments come from the yt-dlp box on the
+          # Phoenix machine, which claims them itself. Left ungated, this
+          # runner claimed Instagram items it had no route for and stamped
+          # 132 of them platform_unsupported.
+          COMMENTS_PLATFORMS: youtube,youtube_shorts,tiktok
+          # A job this host skips is one the box serves, and the box polls
+          # continuously -- so hand it back in minutes, not hours.
+          SKIP_DEFER_HOURS: "0.1"
         run: |
           node --experimental-strip-types --import ./scripts/register-alias.mjs \
             worker/index.mjs --once \
