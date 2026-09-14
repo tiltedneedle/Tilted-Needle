@@ -3024,18 +3024,18 @@ h3 {
    content, both of which print with "background graphics" unticked. */
 .report-growth-row {
   display: grid;
-  grid-template-columns: 96px minmax(0, 1fr);
-  gap: 0 18px;
+  grid-template-columns: 104px minmax(0, 1fr);
+  gap: 0 16px;
   align-items: start;
-  padding: 14px 0 12px;
+  padding: 7px 0 5px;
   border-top: 1px solid var(--report-rule);
 }
 .report-growth-platform {
-  font-size: 9.5px;
-  letter-spacing: 0.18em;
+  font-size: 9px;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--report-accent);
-  padding-top: 4px;
+  padding-top: 3px;
 }
 .report-growth-charts {
   display: grid;
@@ -3046,16 +3046,17 @@ h3 {
   display: block;
   width: 100%;
   height: auto;
-  margin: 4px 0 6px;
+  margin: 3px 0 4px;
 }
 .report-growth-title {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
   gap: 8px;
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 600;
   color: var(--report-ink);
+  white-space: nowrap;
 }
 .report-growth-delta {
   font-size: 9.5px;
@@ -3063,13 +3064,13 @@ h3 {
   white-space: nowrap;
 }
 .report-growth-note {
-  font-size: 8.5px;
-  line-height: 1.4;
+  font-size: 8px;
+  line-height: 1.35;
   color: var(--report-muted);
-  min-height: 3.6em;
+  min-height: 2.2em;
 }
 .report-growth-foot {
-  margin-top: 16px;
+  margin-top: 8px;
   font-size: 9.5px;
   line-height: 1.5;
   color: var(--report-muted);

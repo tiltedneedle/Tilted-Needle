@@ -1,6 +1,6 @@
 import type { ClientReport, ReportPlatformSection } from "@/lib/buildClientReport";
 import { summaryFindings } from "@/lib/clientReport";
-import type { GrowthSeries, PlatformGrowth } from "@/lib/reportGrowth";
+import { monthLongLabel, type GrowthSeries, type PlatformGrowth } from "@/lib/reportGrowth";
 import { templateClass } from "@/lib/reportTemplates";
 import ReportThumb from "@/components/ReportThumb";
 
@@ -134,7 +134,7 @@ function Figure({
  * period this report is about, and the rest is the shape it arrived on.
  */
 function MonthBars({ series }: { series: GrowthSeries }) {
-  const W = 228, H = 118, TOP = 20, BOTTOM = 18, GAP = 8;
+  const W = 228, H = 82, TOP = 16, BOTTOM = 15, GAP = 8;
   const n = series.points.length;
   const bw = (W - GAP * (n - 1)) / n;
   const plotH = H - TOP - BOTTOM;
@@ -163,8 +163,14 @@ function MonthBars({ series }: { series: GrowthSeries }) {
         const h = max > 0 ? Math.max(pt.value > 0 ? 2 : 0, (pt.value / max) * plotH) : 0;
         return (
           <g key={pt.month}>
-            <rect x={x} y={H - BOTTOM - h} width={bw} height={h}
-              style={{ fill: "var(--report-accent)", opacity: isLast ? 1 : 0.38 }} />
+            {pt.partial ? (
+              // Outlined, not filled: measured for part of the month only.
+              <rect x={x + 0.5} y={H - BOTTOM - h + 0.5} width={bw - 1} height={Math.max(0, h - 1)}
+                style={{ fill: "none", stroke: "var(--report-accent)", strokeWidth: 1, strokeDasharray: "3 2", opacity: 0.8 }} />
+            ) : (
+              <rect x={x} y={H - BOTTOM - h} width={bw} height={h}
+                style={{ fill: "var(--report-accent)", opacity: isLast ? 1 : 0.38 }} />
+            )}
             {(isLast || pt.value === max) && (
               <text x={x + bw / 2} y={H - BOTTOM - h - 5} textAnchor="middle" fontSize={9.5}
                 style={{ fill: "var(--report-ink)", fontWeight: 600 }}>{compact(pt.value)}</text>
@@ -201,9 +207,31 @@ function GrowthPage({ growth, report, page }: { growth: PlatformGrowth[]; report
       .filter((x) => x.s.deltaPct != null)
       .sort((a, b) => Math.abs(b.s.deltaPct!) - Math.abs(a.s.deltaPct!))[0];
     if (v) {
-      const prev = v.s.points[v.s.points.length - 2]?.label;
+      const prev = monthLongLabel(v.s.points[v.s.points.length - 2].month);
       const d = v.s.deltaPct!;
       return `${v.g.platformLabel}'s tracked videos gained ${Math.abs(d)}% ${d >= 0 ? "more" : "fewer"} views than in ${prev}.`;
+    }
+    /* Cadence next: complete for every month, so always comparable. Stated
+       for the client as a whole, not as the single steepest platform -- "100%
+       fewer videos on YouTube" was true of a channel that went from three to
+       none, and the wrong headline for a month in which every channel
+       slowed. Only when the channels disagree does one get named. */
+    const cadence = drawable
+      .map((g) => {
+        const pts = g.series.find((x) => x.key === "published")!.points;
+        return { g, cur: pts[pts.length - 1].value ?? 0, prev: pts[pts.length - 2]?.value ?? 0, month: pts[pts.length - 2]?.month };
+      })
+      .filter((x) => x.cur + x.prev > 0);
+    if (cadence.length) {
+      const prev = monthLongLabel(cadence[0].month!);
+      const up = cadence.filter((x) => x.cur > x.prev), down = cadence.filter((x) => x.cur < x.prev);
+      const n = cadence.length;
+      if (down.length === n && n > 1) return `Publishing slowed on every channel compared with ${prev}.`;
+      if (up.length === n && n > 1) return `Publishing rose on every channel compared with ${prev}.`;
+      const lead = [...up].sort((a, b) => (b.cur - b.prev) - (a.cur - a.prev))[0];
+      if (lead) return `${lead.g.platformLabel} published ${lead.cur - lead.prev} more video${lead.cur - lead.prev === 1 ? "" : "s"} than in ${prev}.`;
+      const steady = cadence.every((x) => x.cur === x.prev);
+      if (steady) return `Publishing held steady against ${prev}.`;
     }
     return "The last six months, at a glance.";
   })();
@@ -215,7 +243,7 @@ function GrowthPage({ growth, report, page }: { growth: PlatformGrowth[]; report
 
       {drawable.map((g) => (
         <div key={g.platform} className="report-growth-row">
-          <div className="report-growth-platform">{spaced(g.platformLabel)}</div>
+          <div className="report-growth-platform">{g.platformLabel}</div>
           <div className="report-growth-charts">
             {g.series.map((s) => (
               <div key={s.key} className="report-growth-chart">
@@ -223,7 +251,7 @@ function GrowthPage({ growth, report, page }: { growth: PlatformGrowth[]; report
                   <span>{s.title}</span>
                   {s.deltaPct != null && (
                     <span className="report-growth-delta" style={{ color: s.deltaPct >= 0 ? "var(--success)" : "var(--danger)" }}>
-                      {s.deltaPct >= 0 ? "+" : ""}{s.deltaPct}% vs {s.points[s.points.length - 2]?.label}
+                      {s.deltaPct >= 0 ? "+" : ""}{s.deltaPct}% vs {s.points[s.points.length - 2].label}
                     </span>
                   )}
                 </div>
@@ -237,7 +265,7 @@ function GrowthPage({ growth, report, page }: { growth: PlatformGrowth[]; report
 
       <p className="report-growth-foot">
         Each platform is drawn on its own scale and never added to another: platforms count a view on different terms.
-        The solid bar is {report.periodLabel.split(" ")[0]}; lighter bars are the months before it. A dash means the month was not measured.
+        The solid bar is {report.periodLabel.split(" ")[0]}; lighter bars are the months before it. An outlined bar was measured for part of the month only; a dash means the month was not measured.
       </p>
 
       <Footer client={report.clientName} page={page} period={report.periodLabel} />

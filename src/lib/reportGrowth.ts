@@ -38,6 +38,13 @@ export type GrowthPoint = {
   label: string;
   /** Null means "not measured", which the chart must draw as such. */
   value: number | null;
+  /**
+   * Measured, but not for the whole month. The first month readings exist
+   * for starts wherever the first reading fell -- 29 July, here -- so only
+   * videos published inside it can be attributed and older videos' gains
+   * that month are invisible. Drawn outlined, and the note says so.
+   */
+  partial?: boolean;
 };
 
 export type GrowthSeries = {
@@ -59,6 +66,11 @@ export type PlatformGrowth = {
 export type CommentStamp = { postId: string; publishedAt: string | null };
 
 const MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const MONTH_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+export function monthLongLabel(key: MonthKey): string {
+  return MONTH_LONG[Number(key.slice(5, 7)) - 1] ?? key;
+}
 
 /** The `n` months ending with the month the period ends in, oldest first. */
 export function trailingMonths(period: ReportPeriod, n = 6): MonthKey[] {
@@ -101,13 +113,16 @@ export function publishedByMonth(posts: ReportPost[], months: MonthKey[]): Growt
  * our coverage, not about the client's views -- and the honest value is null.
  */
 export function viewsGainedByMonth(posts: ReportPost[], months: MonthKey[]): GrowthPoint[] {
+  // The day readings began, across every post: a month that started before
+  // it can only be partially measured.
+  const firstReading = posts
+    .flatMap((p) => p.snapshots.map((x) => x.capturedAt))
+    .sort()[0] ?? null;
   return months.map((month) => {
     const t = measurePlatform(posts, monthBounds(month));
-    return {
-      month,
-      label: monthLabel(month),
-      value: t.measured > 0 ? t.viewsGained : null,
-    };
+    const value = t.measured > 0 ? t.viewsGained : null;
+    const partial = value != null && firstReading != null && firstReading > `${month}-01`;
+    return { month, label: monthLabel(month), value, ...(partial ? { partial: true } : {}) };
   });
 }
 
@@ -140,6 +155,10 @@ export function seriesDelta(points: GrowthPoint[]): number | null {
   const cur = points[points.length - 1].value;
   const prev = points[points.length - 2].value;
   if (cur == null || prev == null || prev === 0) return null;
+  // A full month against a partial one is not a comparison. July measured
+  // from its 29th read 142k; August read 22k; "-84%" was the shape of our
+  // coverage, not of the client's views.
+  if (points[points.length - 2].partial || points[points.length - 1].partial) return null;
   return Math.round(((cur - prev) / prev) * 100);
 }
 
@@ -163,15 +182,19 @@ export function platformGrowth(input: {
   const views = viewsGainedByMonth(input.posts, months);
   const comments = commentsByMonth(input.comments, postIds, months);
 
+  /* Short, because three of these sit under three charts on one A4 sheet.
+     Each still says what the numbers are and where they stop. */
   const viewsFirst = firstMeasured(views);
   const viewsNote = viewsFirst
-    ? `Views the tracked videos gained inside each month, from the system's own readings. Measured from ${viewsFirst.label} ${viewsFirst.month.slice(0, 4)}; earlier months are not measured.`
-    : "Views gained inside each month. No readings yet for these months.";
+    ? `Views gained inside each month, from our own readings. Measured from ${viewsFirst.label}` +
+      (viewsFirst.partial ? " (partial: readings began mid-month)" : "") +
+      "; earlier months unmeasured."
+    : "Views gained inside each month. No readings yet.";
 
   const commentsNote = firstMeasured(comments)
     ? input.platform === "instagram"
-      ? "Comments received, by the date they were posted. Instagram counts are the platform's first page per video, so busy posts are undercounted."
-      : "Comments received, by the date they were posted."
+      ? "Comments received, by post date. Instagram: first page per video only."
+      : "Comments received, by post date."
     : "No comment route for this platform.";
 
   return {
@@ -180,8 +203,8 @@ export function platformGrowth(input: {
     series: [
       {
         key: "published",
-        title: "Videos published",
-        note: "Videos published each month, from the platform's publish date.",
+        title: "Published",
+        note: "Videos published each month.",
         points: published,
         deltaPct: seriesDelta(published),
       },
@@ -194,7 +217,7 @@ export function platformGrowth(input: {
       },
       {
         key: "comments",
-        title: "Comments received",
+        title: "Comments",
         note: commentsNote,
         points: comments,
         deltaPct: seriesDelta(comments),

@@ -33,6 +33,9 @@ const posts = [
   post("b", "2026-08-05T10:00:00Z", [{ capturedAt: "2026-08-06", views: 0 }, { capturedAt: "2026-08-31", views: 900 }]),
   post("c", "2026-08-20T10:00:00Z", [{ capturedAt: "2026-08-21", views: 0 }, { capturedAt: "2026-08-31", views: 300 }]),
   post("d", "2026-05-01T10:00:00Z", []),
+  // Published in July and read inside July -- so July is measurable, but
+  // only from the 30th, which is the real system's first-month situation.
+  post("e", "2026-07-20T10:00:00Z", [{ capturedAt: "2026-07-30", views: 500 }, { capturedAt: "2026-07-31", views: 800 }, { capturedAt: "2026-08-31", views: 1000 }]),
 ];
 const months = trailingMonths(period, 6);
 
@@ -40,7 +43,7 @@ const months = trailingMonths(period, 6);
 {
   const p = publishedByMonth(posts, months);
   check("published counts every month, including zeros",
-    p.map((x) => x.value).join(",") === "0,0,1,1,0,2", p.map((x) => x.value).join(","));
+    p.map((x) => x.value).join(",") === "0,0,1,1,1,2", p.map((x) => x.value).join(","));
 }
 
 /* ---- Views gained: null where nothing was measured ---------------------- */
@@ -49,6 +52,7 @@ const months = trailingMonths(period, 6);
   const vals = v.map((x) => x.value);
   check("months before any reading are UNMEASURED, not zero",
     vals.slice(0, 4).every((x) => x === null), JSON.stringify(vals));
+  check("July, read from the 30th, carries the July video's gain", typeof vals[4] === "number" && vals[4] > 0, String(vals[4]));
   check("August, with readings on both sides, carries a gain", typeof vals[5] === "number" && vals[5] > 0, String(vals[5]));
 }
 
@@ -79,11 +83,24 @@ const months = trailingMonths(period, 6);
 {
   const g = platformGrowth({ platform: "instagram", platformLabel: "Instagram", posts, comments: [], period });
   check("three series, in a fixed order", g.series.map((s) => s.key).join(",") === "published,viewsGained,comments");
-  check("the views note names the first measured month", /Measured from Aug 2026/.test(g.series[1].note), g.series[1].note);
+  check("the views note names the first measured month and admits it is partial", /Measured from Jul \(partial/.test(g.series[1].note), g.series[1].note);
   check("the comments note says when there is no route", /No comment route/.test(g.series[2].note));
   const ig = platformGrowth({ platform: "instagram", platformLabel: "Instagram", posts, comments: [{ postId: "a", publishedAt: "2026-08-03T00:00:00Z" }], period });
   check("Instagram's comments note admits the first-page limit", /first page/.test(ig.series[2].note));
 }
+
+/* ---- A partial first month is marked, and never compared against ------- */
+{
+  const v = viewsGainedByMonth(posts, months);
+  // readings began 2026-07-30 in the fixture: July has a reading but not from its 1st
+  const jul = v.find((x) => x.month === "2026-07");
+  check("a month whose readings began mid-month is flagged partial", jul?.partial === true, JSON.stringify(jul));
+  const aug = v.find((x) => x.month === "2026-08");
+  check("a fully-read month is not", !aug?.partial);
+  check("no delta between a partial month and a full one -- that is the shape of our coverage, not the views",
+    seriesDelta(v) === null);
+}
+
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
