@@ -4,13 +4,21 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
+/**
+ * Sign in, or get a reset link. Nothing else.
+ *
+ * THERE IS NO SIGN-UP HERE, ON PURPOSE. Accounts are created by an owner,
+ * admin or manager from Team admin, which sends the person an invite; they
+ * choose their password from that link. So every account that exists is
+ * one somebody vouched for, and this page cannot mint a stranger a login.
+ * The project's own "allow new sign-ups" switch is off to match -- removing
+ * the form alone would leave the API route open.
+ */
 export default function LoginPage() {
   const router = useRouter();
   const supabase = createClient();
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -20,37 +28,14 @@ export default function LoginPage() {
     setBusy(true);
     setError(null);
     setNotice(null);
-
-    if (mode === "signin") {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) {
-        setError(error.message);
-        setBusy(false);
-        return;
-      }
-      router.push("/home");
-      router.refresh();
-    } else {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: { data: { full_name: name || email.split("@")[0] } },
-      });
-      if (error) {
-        setError(error.message);
-        setBusy(false);
-        return;
-      }
-      // With email confirmation on, there is no session yet.
-      if (!data.session) {
-        setNotice("Check your email to confirm your account, then sign in.");
-        setMode("signin");
-        setBusy(false);
-        return;
-      }
-      router.push("/home");
-      router.refresh();
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      setError(error.message);
+      setBusy(false);
+      return;
     }
+    router.push("/home");
+    router.refresh();
   }
 
   return (
@@ -89,21 +74,10 @@ export default function LoginPage() {
           <div className="mb-1.5 text-[17px] font-semibold tracking-[-0.02em]">
             Tilted Needle
           </div>
-          <p className="text-sm text-[var(--muted)]">
-            {mode === "signin" ? "Sign in to your workspace." : "Create your account."}
-          </p>
+          <p className="text-sm text-[var(--muted)]">Sign in to your workspace.</p>
         </div>
 
         <form onSubmit={onSubmit} className="card space-y-3 p-6">
-          {mode === "signup" && (
-            <input
-              className="input"
-              placeholder="Full name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              autoComplete="name"
-            />
-          )}
           <input
             className="input"
             type="email"
@@ -121,7 +95,7 @@ export default function LoginPage() {
             placeholder="Password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            autoComplete={mode === "signin" ? "current-password" : "new-password"}
+            autoComplete="current-password"
           />
 
           {error && (
@@ -136,27 +110,14 @@ export default function LoginPage() {
           )}
 
           <button className="btn-primary w-full" disabled={busy}>
-            {busy ? "Working…" : mode === "signin" ? "Sign in" : "Create account"}
+            {busy ? "Signing in…" : "Sign in"}
           </button>
         </form>
 
         {/* Secondary routes sit outside the panel and centred under it --
             they are a footnote to the form, not another field in it. */}
         <div className="mt-5 flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
-          <button
-            type="button"
-            className="text-sm text-[var(--muted)] transition-colors hover:text-[var(--fg)]"
-            onClick={() => {
-              setMode(mode === "signin" ? "signup" : "signin");
-              setError(null);
-              setNotice(null);
-            }}
-          >
-            {mode === "signin"
-              ? "Need an account? Sign up"
-              : "Already have an account? Sign in"}
-          </button>
-          {mode === "signin" && (
+          {(
             <button
               type="button"
               className="text-sm text-[var(--muted)] transition-colors hover:text-[var(--fg)]"
@@ -179,6 +140,9 @@ export default function LoginPage() {
               Forgot password?
             </button>
           )}
+          <span className="text-sm text-[var(--muted)]">
+            Need access? Ask your workspace admin for an invite.
+          </span>
         </div>
       </div>
     </div>

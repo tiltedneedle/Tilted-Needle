@@ -4,8 +4,9 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Select from "@/components/ui/Select";
 import {
-  addMemberByEmail,
+  inviteMember,
   removeMember,
+  resendInvite,
   sendPasswordReset,
   setMemberActive,
   setMemberRole,
@@ -106,7 +107,7 @@ export default function TeamManager({
       {(
         <>
           {canManage && (
-            <AddMemberRow workspaceId={workspaceId} onError={setError} refresh={refresh} />
+            <InviteRow workspaceId={workspaceId} onError={setError} refresh={refresh} />
           )}
           {/* The card clips to its own rounded corners, so a table placed
               straight inside it gets clipped too -- with no way to reach what
@@ -265,10 +266,10 @@ export default function TeamManager({
 }
 
 /**
- * Adds an existing account to the workspace by email. No invite emails to
- * configure or break: signup is open on the login page, so the flow is
- * "they sign up, you add them" -- the action explains exactly that when
- * the email isn't found.
+ * Invite someone by email. This is the ONLY way an account is created: there
+ * is no sign-up form, so every account in the project is one an owner, admin
+ * or manager vouched for here. An address that already has an account is
+ * simply added; a new one gets an invite link and chooses its own password.
  */
 /**
  * The two account operations: hand the account back, or take access away.
@@ -308,25 +309,37 @@ function AccessCell({
 
   return (
     <span className="flex items-center justify-end gap-1">
-      <button
-        className="rounded px-2 py-1 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--bg-subtle)] hover:text-[var(--fg)] disabled:opacity-50"
-        disabled={busy || sent || !member.email}
-        title={
-          member.email
-            ? `Email ${member.email} a link to set a new password. Nobody, including you, can read their existing one.`
-            : "No email on file for this account."
-        }
-        onClick={async () => {
-          setBusy(true);
-          onError(null);
-          const res = await sendPasswordReset(member.id);
-          setBusy(false);
-          if (res.error) return onError(res.error);
-          setSent(true);
-        }}
-      >
-        {sent ? "Link sent" : busy ? "Sending…" : "Reset link"}
-      </button>
+      {/* ONE button, named for the person's state. Someone who has never
+          signed in holds an invite that may have expired, so the useful act
+          is to send it again; someone who has signed in needs a password
+          reset. Offering both would put a link that SETS a password one
+          click from an active account. */}
+      {(() => {
+        const pending = !member.lastSignInAt;
+        return (
+          <button
+            className="rounded px-2 py-1 text-xs text-[var(--muted)] transition-colors hover:bg-[var(--bg-subtle)] hover:text-[var(--fg)] disabled:opacity-50"
+            disabled={busy || sent || !member.email}
+            title={
+              !member.email
+                ? "No email on file for this account."
+                : pending
+                  ? `Send ${member.email} a fresh invite link. They choose their own password from it.`
+                  : `Email ${member.email} a link to set a new password. Nobody, including you, can read their existing one.`
+            }
+            onClick={async () => {
+              setBusy(true);
+              onError(null);
+              const res = pending ? await resendInvite(member.id) : await sendPasswordReset(member.id);
+              setBusy(false);
+              if (res.error) return onError(res.error);
+              setSent(true);
+            }}
+          >
+            {sent ? (pending ? "Invite sent" : "Link sent") : busy ? "Sending…" : pending ? "Resend invite" : "Reset link"}
+          </button>
+        );
+      })()}
 
       {canRemove &&
         (confirming ? (
@@ -369,7 +382,7 @@ function AccessCell({
   );
 }
 
-function AddMemberRow({
+function InviteRow({
   workspaceId,
   onError,
   refresh,
@@ -378,17 +391,26 @@ function AddMemberRow({
   onError: (m: string) => void;
   refresh: () => void;
 }) {
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("member");
   const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
-  async function add() {
+  async function invite() {
     if (!email.trim()) return;
     setBusy(true);
-    const res = await addMemberByEmail({ workspaceId, email, role });
+    setNotice(null);
+    const res = await inviteMember({ workspaceId, email, fullName: name, role });
     setBusy(false);
     if (res.error) return onError(res.error);
     onError("");
+    setNotice(
+      res.outcome === "invited"
+        ? `Invite sent to ${email.trim()}. They choose their own password from the link and land here as ${role}.`
+        : `${email.trim()} already had an account — added as ${role}.`,
+    );
+    setName("");
     setEmail("");
     refresh();
   }
@@ -397,15 +419,24 @@ function AddMemberRow({
     <div className="card mb-3 p-3">
       <div className="flex flex-wrap items-center gap-2">
         <input
-          className="input min-w-[220px] flex-1 py-1.5"
+          className="input min-w-[150px] flex-1 py-1.5"
+          placeholder="Full name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          autoComplete="off"
+          aria-label="Full name of the person to invite"
+        />
+        <input
+          className="input min-w-[220px] flex-[2] py-1.5"
           type="email"
-          placeholder="Add a member by email (they must have signed up first)"
+          placeholder="Email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") void add();
+            if (e.key === "Enter") void invite();
           }}
-          aria-label="Email of the account to add"
+          autoComplete="off"
+          aria-label="Email of the person to invite"
         />
         <Select
           className="max-w-[130px]"
@@ -421,12 +452,16 @@ function AddMemberRow({
         />
         <button
           className="btn-primary py-1.5"
-          onClick={() => void add()}
+          onClick={() => void invite()}
           disabled={busy || !email.trim()}
         >
-          {busy ? "Adding…" : "Add member"}
+          {busy ? "Inviting…" : "Invite"}
         </button>
       </div>
+      <p className="mt-2 text-[11px] text-[var(--muted)]">
+        {notice ??
+          "The only way an account gets made. They receive a link, set their own password, and open the app already in this workspace at the role you chose."}
+      </p>
     </div>
   );
 }

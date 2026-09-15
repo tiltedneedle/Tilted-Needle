@@ -3,7 +3,7 @@
 import { revalidatePath, revalidateTag } from "next/cache";
 import { PERIOD_FIELDS } from "@/lib/periodFields";
 import { CLIENT_BIN_DAYS, type BinnedClient } from "@/lib/clientBin";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -2164,24 +2164,56 @@ export async function setMemberActive(membershipId: string, isActive: boolean): 
 }
 
 /**
- * Adds an existing account to this workspace by email. Deliberately does
- * not create accounts or send invite emails: signup is open on the login
- * page, and "ask them to sign up, then add them" has no email-delivery
- * configuration to break. The service client is used ONLY to resolve
- * email -> user id (profiles carry no email); the membership insert itself
- * runs as the caller, so RLS still decides whether they may add members.
+ * Where an emailed link should land. The Origin header is what the browser
+ * sent this action from, so previews and local runs get their own address
+ * rather than production's. Absent (a non-browser caller), Supabase falls
+ * back to the project's Site URL, which is production.
  */
-export async function addMemberByEmail(input: {
+async function callerOrigin(): Promise<string | null> {
+  const h = await headers();
+  const origin = h.get("origin");
+  if (origin) return origin;
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  if (!host) return null;
+  const proto = h.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
+  return `${proto}://${host}`;
+}
+
+/**
+ * Bring someone into the workspace, by email, with a role.
+ *
+ * THIS IS THE ONLY WAY AN ACCOUNT GETS MADE. There is no sign-up form: the
+ * login page signs people in and resets passwords, and that is all. An
+ * account exists because an owner, admin or manager created it here, which
+ * means every account in the project is one somebody vouched for.
+ *
+ * Two paths, one outcome:
+ *   - No account for that email yet: Supabase sends an invite. The link lands
+ *     on /auth/reset, where they choose their own password. Nobody here ever
+ *     sees or sets it.
+ *   - An account already exists: no email, they are simply added.
+ * Either way the membership is created NOW, at the role given, so a new
+ * person opens the app already inside the workspace rather than waiting to
+ * be found and added after their first login.
+ *
+ * The invite runs with the service role because creating an auth user needs
+ * it; the membership insert runs as the caller so RLS still decides whether
+ * they may add people. Duplicate protection is the (workspace, user) unique
+ * key, and a race with someone signing up in the same second is caught by
+ * re-resolving the email after a failed invite.
+ */
+export async function inviteMember(input: {
   workspaceId: string;
   email: string;
+  fullName?: string;
   role: string;
-}): Promise<Result> {
+}): Promise<Result & { outcome?: "invited" | "added" }> {
   const role = ASSIGNABLE_ROLES.includes(input.role as (typeof ASSIGNABLE_ROLES)[number])
     ? input.role
     : "member";
   const email = input.email.trim().toLowerCase();
+  const fullName = (input.fullName ?? "").trim();
   if (!email || !email.includes("@")) return { error: "Enter a valid email address." };
-
   const supabase = await createClient();
   const {
     data: { user },
@@ -2194,26 +2226,44 @@ export async function addMemberByEmail(input: {
     .eq("user_id", user.id)
     .maybeSingle();
   if (!caller?.is_active || !MANAGER_ROLES.includes(caller.role as WorkspaceRole)) {
-    return { error: "Only managers and above can add members." };
+    return { error: "Only owners, admins and managers can invite people." };
   }
 
-  const { serviceClient } = await import("@/lib/syncRunner");
-  const admin = serviceClient();
-  const { data: page, error: listErr } = await admin.auth.admin.listUsers({
-    page: 1,
-    perPage: 1000,
-  });
-  if (listErr) return { error: listErr.message };
-  const found = page.users.find((u: { email?: string }) => u.email?.toLowerCase() === email);
-  if (!found) {
-    return {
-      error: "No account with that email. Ask them to sign up on the login page first, then add them here.",
-    };
+  const admin = createAdminClient();
+  const findByEmail = async (): Promise<string | null> => {
+    const { data: page, error } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
+    if (error) return null;
+    return page.users.find((u: { email?: string }) => u.email?.toLowerCase() === email)?.id ?? null;
+  };
+
+  let userId = await findByEmail();
+  let outcome: "invited" | "added" = "added";
+  if (!userId) {
+    const origin = await callerOrigin();
+    const { data, error } = await admin.auth.admin.inviteUserByEmail(email, {
+      data: { full_name: fullName || email.split("@")[0] },
+      ...(origin ? { redirectTo: `${origin}/auth/reset` } : {}),
+    });
+    if (error) {
+      // "already registered" can only mean they signed up between the lookup
+      // and the invite; resolve again rather than failing a real request.
+      userId = await findByEmail();
+      if (!userId) return { error: error.message };
+    } else {
+      userId = data.user.id;
+      outcome = "invited";
+    }
+  }
+
+  // The signup trigger names the profile from the invite metadata; a typed
+  // name here wins over a name derived from the address.
+  if (fullName) {
+    await admin.from("profiles").update({ full_name: fullName }).eq("id", userId);
   }
 
   const { error } = await supabase.from("memberships").insert({
     workspace_id: input.workspaceId,
-    user_id: found.id,
+    user_id: userId,
     role,
     seat: "full",
     is_active: true,
@@ -2224,7 +2274,37 @@ export async function addMemberByEmail(input: {
   }
   revalidateTeam();
   revalidatePath("/home");
-  return {};
+  return { outcome };
+}
+
+/**
+ * Send the invite again to someone who has never signed in.
+ *
+ * Invite links expire; a person who missed the window would otherwise be
+ * stuck with an account they cannot enter and no button that helps. Refused
+ * for anyone who HAS signed in -- for them the honest tool is the password
+ * reset on the same row, and re-inviting an active account is how a link
+ * that sets a password ends up in the wrong inbox.
+ */
+export async function resendInvite(membershipId: string): Promise<Result & { sentTo?: string }> {
+  const supabase = await createClient();
+  const guard = await guardedMembershipTarget(supabase, membershipId);
+  if (guard.error) return { error: guard.error };
+  const admin = createAdminClient();
+  const { data: user } = await admin.auth.admin.getUserById(guard.target!.user_id);
+  const email = user?.user?.email;
+  if (!email) return { error: "That account has no email address on file." };
+  if (user?.user?.last_sign_in_at) {
+    return { error: "They have signed in before. Use the password reset instead." };
+  }
+  const origin = await callerOrigin();
+  // generateLink of type "invite" both re-arms the token and sends the email
+  // through the project's configured sender, same as the first invite.
+  const { error } = await admin.auth.admin.inviteUserByEmail(email, {
+    ...(origin ? { redirectTo: `${origin}/auth/reset` } : {}),
+  });
+  if (error) return { error: error.message };
+  return { sentTo: email };
 }
 
 export async function createTimeOffPolicy(

@@ -346,8 +346,8 @@ function AudiencePage({ audience, report, page }: { audience: ReportAudience; re
       )}
 
       <p className="report-growth-foot">
-        Themes are grouped by meaning, not by wording, so "how much is it" and "pricing?" count together. Counts are
-        comments the system verified, never a figure a model asserted. Instagram comments are the platform's first page per video.
+        Themes are grouped by meaning, not by wording, so &ldquo;how much is it&rdquo; and &ldquo;pricing?&rdquo; count together. Counts are
+        comments the system verified, never a figure a model asserted. Instagram comments are the platform&rsquo;s first page per video.
       </p>
 
       <Footer client={report.clientName} page={page} period={report.periodLabel} />
