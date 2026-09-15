@@ -11,8 +11,9 @@ import { createClient } from "@/lib/supabase/client";
  * admin or manager from Team admin, which sends the person an invite; they
  * choose their password from that link. So every account that exists is
  * one somebody vouched for, and this page cannot mint a stranger a login.
- * The project's own "allow new sign-ups" switch is off to match -- removing
- * the form alone would leave the API route open.
+ * Removing the form alone leaves the API route open, so the project's own
+ * "Allow new users to sign up" switch (Supabase dashboard, Authentication)
+ * must be OFF as well; this page cannot enforce that.
  */
 export default function LoginPage() {
   const router = useRouter();
