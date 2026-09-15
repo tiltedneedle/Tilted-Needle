@@ -2,6 +2,7 @@ import type { ClientReport, ReportPlatformSection } from "@/lib/buildClientRepor
 import { summaryFindings } from "@/lib/clientReport";
 import { monthLongLabel, type GrowthSeries, type PlatformGrowth } from "@/lib/reportGrowth";
 import { audienceLead, type ReportAudience } from "@/lib/reportAudience";
+import { drawableWorks, worksPageShown, worksLead, sentence, formatIndex, MIN_BUCKET, type PlatformWorks, type WorksAxis } from "@/lib/reportWorks";
 import { templateClass } from "@/lib/reportTemplates";
 import ReportThumb from "@/components/ReportThumb";
 
@@ -348,6 +349,111 @@ function AudiencePage({ audience, report, page }: { audience: ReportAudience; re
       <p className="report-growth-foot">
         Themes are grouped by meaning, not by wording, so &ldquo;how much is it&rdquo; and &ldquo;pricing?&rdquo; count together. Counts are
         comments the system verified, never a figure a model asserted. Instagram comments are the platform&rsquo;s first page per video.
+      </p>
+
+      <Footer client={report.clientName} page={page} period={report.periodLabel} />
+    </section>
+  );
+}
+
+/**
+ * One axis of the works page: a bucket per row, its median index as a bar
+ * against the channel's own norm (1x, the dashed line). A bucket under the
+ * floor is listed with its count and no bar -- "3 videos" over 90 seconds is
+ * a fact about what the client has tried, not a figure we withheld. The
+ * figures sit in their own column so the norm line never runs through them.
+ */
+function IndexBars({ axis }: { axis: WorksAxis }) {
+  const rows = axis.buckets.filter((b) => b.n > 0);
+  const W = 560, ROW = 21, LABEL = 76, VALUE = 118, TOP = 3;
+  const H = TOP + rows.length * ROW + 1;
+  const plotW = W - LABEL - VALUE - 10;
+  const shown = rows.map((b) => b.index).filter((x): x is number => x != null);
+  const scale = Math.max(1, ...shown) * 1.08;
+  const xOf = (v: number) => LABEL + (v / scale) * plotW;
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label={axis.title}>
+      {/* the norm: every bar is read against it */}
+      <line x1={xOf(1)} y1={0} x2={xOf(1)} y2={H}
+        style={{ stroke: "var(--report-muted)", strokeWidth: 1, strokeDasharray: "2 2" }} />
+      {rows.map((b, i) => {
+        const y = TOP + i * ROW;
+        const cy = y + ROW / 2;
+        return (
+          <g key={b.key}>
+            <text x={LABEL - 10} y={cy + 3.5} textAnchor="end" fontSize={10}
+              style={{ fill: b.index != null ? "var(--report-ink)" : "var(--report-muted)", fontWeight: b.index != null ? 600 : 400 }}>{b.label}</text>
+            {b.index != null ? (
+              <>
+                <rect x={LABEL} y={cy - 6.5} width={Math.max(2, xOf(b.index) - LABEL)} height={13}
+                  style={{ fill: "var(--report-accent)", opacity: b.index >= 1 ? 1 : 0.45 }} />
+                <text x={LABEL + plotW + 10} y={cy + 3.5} fontSize={10} style={{ fill: "var(--report-ink)", fontWeight: 600 }}>
+                  {formatIndex(b.index)}<tspan style={{ fill: "var(--report-muted)", fontWeight: 400 }}> · {b.n} videos</tspan>
+                </text>
+              </>
+            ) : (
+              <text x={LABEL} y={cy + 3.5} fontSize={9.5} style={{ fill: "var(--report-muted)" }}>
+                {b.n} video{b.n === 1 ? "" : "s"} · too few to compare
+              </text>
+            )}
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+const clip = (t: string, n = 64) => (t.length > n ? t.slice(0, n - 1).trimEnd() + "…" : t);
+
+/**
+ * What works: median performance by video length and by posting day, per
+ * platform, each axis with the videos that made its finding true. Drawn
+ * only when two axes clear the floor -- see reportWorks.ts. Reads across
+ * the client's whole scored history, never the month alone, and the page
+ * says so.
+ */
+function WorksPage({ works, report, page }: { works: PlatformWorks[]; report: ClientReport; page: number }) {
+  const drawable = drawableWorks(works);
+  if (!worksPageShown(works)) return null;
+
+  return (
+    <section className="report-page">
+      <div className="report-eyebrow">{spaced("What works · length and timing")}</div>
+      <h2 className="report-headline">{worksLead(works)}</h2>
+
+      {drawable.map((w) => (
+        <div key={w.platform} className="report-growth-row report-works-row">
+          <div className="report-growth-platform">
+            {w.platformLabel}
+            <div className="report-works-n">{w.scored} videos scored</div>
+          </div>
+          <div className="report-works-axes">
+            {w.axes.filter((a) => a.shown).map((a) => (
+              <div key={a.key} className="report-works-axis">
+                <div className="report-growth-title"><span>{a.title}</span></div>
+                <IndexBars axis={a} />
+                <div className="report-works-finding">{sentence(a.finding!)}</div>
+                {a.examples.length > 0 && (
+                  <div className="report-works-examples">
+                    {a.examples.map((e) => (
+                      <span key={e.postId} className="report-works-example">
+                        <span className="report-works-example-index">{formatIndex(e.index)}</span> {clip(e.title)}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+
+      <p className="report-growth-foot">
+        Each video is read against this channel&rsquo;s own norm at the time: its views at the platform&rsquo;s maturity window over
+        the median of the ten videos the account published before it, so 1&times; is typical for the channel and the dashed line marks it.
+        Bars are the median of the videos in the bucket, across everything the system has scored, and a bucket is compared only once
+        it holds {MIN_BUCKET} videos. Platforms are read separately and never pooled. Posting day is the calendar day the video went out, in workspace time.
       </p>
 
       <Footer client={report.clientName} page={page} period={report.periodLabel} />
@@ -777,6 +883,10 @@ export default function ReportDocument({ report }: { report: ClientReport }) {
       )}
 
       {report.audience && <AudiencePage audience={report.audience} report={report} page={++page} />}
+
+      {/* What to do more of, after what the audience said and before the
+          month's detail. Renders nothing when no bucket clears the floor. */}
+      {worksPageShown(report.works) && <WorksPage works={report.works} report={report} page={++page} />}
 
       {sections.map((s) => (
         <PlatformPage key={s.platform} section={s} report={report} page={++page} />

@@ -7,6 +7,7 @@ import { operatingDate } from "@/lib/tz";
 import { asTemplate, type ReportTemplate } from "@/lib/reportTemplates";
 import { platformGrowth, seriesDelta, type PlatformGrowth, type CommentStamp } from "@/lib/reportGrowth";
 import { buildAudience, type ReportAudience, type ThemeRow, type CommentRef } from "@/lib/reportAudience";
+import { platformWorks, type PlatformWorks, type WorksPost } from "@/lib/reportWorks";
 import {
   deltaPct,
   measurePlatform,
@@ -137,6 +138,12 @@ export type ClientReport = {
    * is nothing to say -- the document then draws no page.
    */
   audience: ReportAudience | null;
+  /**
+   * What to do more of: median performance index by video length and by
+   * posting day, per platform. See reportWorks.ts for the floors that decide
+   * whether a bucket, an axis, a platform or the page is drawn at all.
+   */
+  works: PlatformWorks[];
 };
 
 /**
@@ -294,7 +301,7 @@ export async function buildClientReport(
     supabase
       .from("platform_posts")
       .select(
-        "id, content_item_id, account_id, posted_at, posted_at_ts, thumbnail_url, content:content_items(title), metrics:post_current_metrics(likes)",
+        "id, content_item_id, account_id, posted_at, posted_at_ts, thumbnail_url, content:content_items(title, length_seconds), metrics:post_current_metrics(likes)",
       )
       .in("account_id", accounts.length ? accounts.map((a) => a.id) : ["none"])
       .order("id"),
@@ -306,18 +313,36 @@ export async function buildClientReport(
     posted_at: string | null;
     posted_at_ts: string | null;
     thumbnail_url: string | null;
-    content: { title: string } | { title: string }[] | null;
+    content: { title: string; length_seconds: number | null } | { title: string; length_seconds: number | null }[] | null;
     metrics: { likes: number | null } | { likes: number | null }[] | null;
   }[];
 
+  /* The maturity window each platform is scored at, for the works page: a
+     post is read at the same age everywhere so older videos do not win by
+     being older. The same table the performance pages score from. */
+  const { data: platformRows } = await supabase.from("platforms").select("slug, maturity_window_days");
+  const windowFor = new Map(
+    ((platformRows ?? []) as { slug: string; maturity_window_days: number | null }[]).map((p) => [p.slug, p.maturity_window_days ?? 7]),
+  );
+
+  /* BOTH hazards at once, like channelDashboard: selectIn for the URL, and
+     selectAll inside it for the 1000-ROW response cap. A chunk of 200 posts
+     carries far more than 1000 readings -- The Jet Business's 79 posts hold
+     4,871 -- and ordered by captured_at the cap kept the OLDEST thousand.
+     Measured 2026-09-15: four clients' August reports ranked their videos,
+     measured their gains and read their views "at the end of the period"
+     from readings that stopped on 21, 22, 30 August and 1 September. */
   const { data: snapRows } = await selectIn(
     posts.map((p) => p.id),
     (chunk) =>
-      supabase
-        .from("post_snapshots")
-        .select("platform_post_id, captured_at, views")
-        .in("platform_post_id", chunk)
-        .order("captured_at"),
+      selectAll(() =>
+        supabase
+          .from("post_snapshots")
+          .select("platform_post_id, captured_at, views")
+          .in("platform_post_id", chunk)
+          .order("captured_at")
+          .order("id"),
+      ),
   );
   /* Comment timestamps for the growth page. Only the stamp and the post it
      belongs to -- the text stays where it is. Chunked like the snapshots:
@@ -325,11 +350,13 @@ export async function buildClientReport(
   const { data: commentRows } = await selectIn(
     posts.map((p) => p.id),
     (chunk) =>
-      supabase
-        .from("post_comments")
-        .select("id, platform_post_id, published_at")
-        .in("platform_post_id", chunk)
-        .order("id"),
+      selectAll(() =>
+        supabase
+          .from("post_comments")
+          .select("id, platform_post_id, published_at")
+          .in("platform_post_id", chunk)
+          .order("id"),
+      ),
   );
   const commentRowsTyped = (commentRows ?? []) as {
     id: string;
@@ -375,6 +402,9 @@ export async function buildClientReport(
   );
 
   const snapsByPost = new Map<string, { capturedAt: string; views: number | null }[]>();
+  // The same readings as instants, for the scoring model, which measures
+  // a post's age in days from its publish instant rather than by calendar day.
+  const snapInstants = new Map<string, { capturedAt: Date; value: number }[]>();
   for (const s of (snapRows ?? []) as {
     platform_post_id: string;
     captured_at: string;
@@ -386,6 +416,11 @@ export async function buildClientReport(
     // different calendar and put five live posts in the wrong month.
     list.push({ capturedAt: operatingDate(new Date(s.captured_at)), views: s.views });
     snapsByPost.set(s.platform_post_id, list);
+    if (s.views != null) {
+      const inst = snapInstants.get(s.platform_post_id) ?? [];
+      inst.push({ capturedAt: new Date(s.captured_at), value: s.views });
+      snapInstants.set(s.platform_post_id, inst);
+    }
   }
 
   const one = <T,>(v: T | T[] | null): T | null => (Array.isArray(v) ? (v[0] ?? null) : v);
@@ -395,6 +430,7 @@ export async function buildClientReport(
   };
 
   const growth: PlatformGrowth[] = [];
+  const works: PlatformWorks[] = [];
   const sections: ReportPlatformSection[] = accounts.map((a) => {
     const m = metricsByAccount.get(a.id);
     const mine: ReportPost[] = posts
@@ -424,6 +460,28 @@ export async function buildClientReport(
       period,
     });
     growth.push(g);
+
+    /* Scored by the instant, like performanceData.ts: given only a date,
+       every post published the same day compares equal and the "previous
+       ten posts" baseline depends on row order. */
+    const worksPosts: WorksPost[] = posts
+      .filter((p) => p.account_id === a.id && (p.posted_at_ts || p.posted_at))
+      .map((p) => ({
+        postId: p.id,
+        title: one(p.content)?.title ?? "",
+        lengthSeconds: one(p.content)?.length_seconds ?? null,
+        postedAt: new Date((p.posted_at_ts ?? p.posted_at) as string),
+        postedDay: p.posted_at_ts ? operatingDate(new Date(p.posted_at_ts)) : (p.posted_at ? p.posted_at.slice(0, 10) : null),
+        snapshots: snapInstants.get(p.id) ?? [],
+      }));
+    works.push(
+      platformWorks({
+        platform: a.platform_slug,
+        platformLabel: PLATFORM_LABEL[a.platform_slug] ?? a.platform_slug,
+        posts: worksPosts,
+        windowDays: windowFor.get(a.platform_slug) ?? 7,
+      }),
+    );
 
     const { top, unmeasurable } = pickTopVideos(mine, period, TOP_VIDEOS);
     const measured = measurePlatform(mine, period);
@@ -527,5 +585,6 @@ export async function buildClientReport(
       "View counts are as at the end of the period. Like counts are current: the system records a history of views only, so there is no like figure for a past date.",
     growth,
     audience: buildAudience({ themes, comments: commentRefs, signals, period, periodLabel: label }),
+    works,
   };
 }
