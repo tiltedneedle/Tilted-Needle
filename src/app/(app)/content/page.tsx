@@ -149,7 +149,11 @@ export default async function ContentPage({
         .eq("workspace_id", ws)
         .eq("is_active", true),
       loadRoles(supabase, ws),
-      loadReviewQueue(supabase, ws),
+      /* The ONLY filter the review queue takes. The rest of the page's
+         filters narrow a view; approving decides whether a video is ours at
+         all, and a queue hidden by a date range or a platform would report
+         itself empty while work sat in it. See loadReviewQueue. */
+      loadReviewQueue(supabase, ws, f.clientIds),
       /**
        * Accounts, so a row with no link can be given one without leaving the
        * list.
@@ -506,6 +510,20 @@ export default async function ContentPage({
       })())
     : null;
 
+  /* The client filter, named, for the review strip -- which is narrowed by
+     that filter and by nothing else. Falls back to a count rather than a
+     list of names once there are more than two, which is where the line
+     stops being readable. */
+  const reviewScopeLabel =
+    f.clientIds.length === 0
+      ? null
+      : f.clientIds.length <= 2
+        ? (f.clientIds
+            .map((id) => allClients.find((c) => c.id === id)?.name)
+            .filter(Boolean)
+            .join(" and ") || null)
+        : `${f.clientIds.length} clients`;
+
   // Names of the roles currently filtering the list, for the stat tiles.
   const roleLabel =
     f.roleSlugs.length > 0
@@ -782,9 +800,10 @@ export default async function ContentPage({
         workspaceId={ws}
         pending={reviewQueue.pending}
         rejected={reviewQueue.rejected}
-        approvedCount={t.videos}
+        approvedCount={reviewQueue.approvedCount}
         newSinceSync={reviewQueue.newSinceSync}
         canManage={manages}
+        scopeLabel={reviewScopeLabel}
       />
 
       <NewContentForm workspaceId={ws} clients={allClients} />

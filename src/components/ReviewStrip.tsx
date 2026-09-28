@@ -31,6 +31,12 @@ export type ReviewItem = {
  * Rejecting never deletes. The row, its posts and its full metrics history all
  * survive -- the claim is about who MADE the video, not a reason to destroy
  * the record -- and it can be restored from the archive below at any time.
+ *
+ * It follows the CLIENT filter and no other. See loadReviewQueue for why:
+ * approving is a judgement about who made a video, so narrowing the queue by
+ * a date, a platform or a credit would hide work that still needs judging.
+ * `scopeLabel` is set when a client filter is on, and every sentence on the
+ * strip names it -- a count that has quietly changed population must say so.
  */
 export default function ReviewStrip({
   workspaceId,
@@ -39,6 +45,7 @@ export default function ReviewStrip({
   approvedCount,
   newSinceSync,
   canManage,
+  scopeLabel = null,
 }: {
   workspaceId: string;
   pending: ReviewItem[];
@@ -47,6 +54,8 @@ export default function ReviewStrip({
   /** How many pending arrived on the most recent sync. */
   newSinceSync: number;
   canManage: boolean;
+  /** The client(s) this queue is narrowed to, named. Null when unfiltered. */
+  scopeLabel?: string | null;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -78,13 +87,17 @@ export default function ReviewStrip({
       return next;
     });
 
+  const forScope = scopeLabel ? ` for ${scopeLabel}` : "";
+
   // Nothing waiting and nothing ever rejected: one quiet line, no controls.
   if (pending.length === 0 && rejected.length === 0) {
     return (
       <div className="mb-4 flex items-center gap-2 text-xs text-[var(--muted)]">
         <Check size={13} className="text-[var(--success)]" />
         <span>
-          All {approvedCount.toLocaleString()} videos reviewed — nothing waiting.
+          {approvedCount === 0
+            ? `No videos${forScope} yet.`
+            : `All ${approvedCount.toLocaleString()} videos${forScope} reviewed — nothing waiting.`}
         </span>
       </div>
     );
@@ -121,13 +134,17 @@ export default function ReviewStrip({
           {approvedCount.toLocaleString()} approved
           {rejected.length > 0 && ` · ${rejected.length} not ours`}
         </span>
+        {/* Said out loud, because these counts look like the workspace's. */}
+        {scopeLabel && (
+          <span className="truncate text-xs text-[var(--muted)]">{scopeLabel} only</span>
+        )}
       </button>
 
       {open && (
         <div className="border-t border-[var(--border)]">
           {pending.length === 0 ? (
             <p className="px-3 py-3 text-xs text-[var(--muted)]">
-              Nothing is waiting. New videos appear here after each sync.
+              Nothing is waiting{forScope}. New videos appear here after each sync.
             </p>
           ) : (
             <>

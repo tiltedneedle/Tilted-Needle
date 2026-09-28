@@ -21,6 +21,7 @@ import { one } from "@/lib/types";
 import { selectAll } from "@/lib/selectAll";
 import { cachedContentData } from "@/lib/cachedContentData";
 import { countsTowardPerformance } from "@/lib/excludedItems";
+import { inReviewScope, countNewSinceSync } from "@/lib/reviewQueue";
 import {
   totalsByPlatform,
   totalsByPlatformUnique,
@@ -707,9 +708,27 @@ export async function loadClientOptions(supabase: Db, ws: string) {
  * and leaving it there makes the queue permanently non-empty. It is already
  * out of every performance figure via the same exclusion set, so it is simply
  * not a question anyone needs to answer.
+ *
+ * THE CLIENT FILTER APPLIES, AND NOTHING ELSE DOES. Picking a client on the
+ * page narrows the queue with it: "150 awaiting review" above one client's
+ * videos was a number about the whole workspace, and the obvious next move --
+ * approving what is listed -- was the wrong action on rows that had scrolled
+ * out of view. The page's other filters deliberately do NOT reach this strip.
+ * Approving is a judgement about who MADE a video, not about a date range, a
+ * platform or who is credited; a queue narrowed by them would hide work that
+ * still needs judging while reporting itself as empty. Content with no client
+ * drops out under a client filter, because it is not that client's.
+ *
+ * The approved COUNT beside the queue is scoped the same way, so both halves
+ * of that sentence count one population. It used to come from the page's
+ * fully-filtered totals, which meant "150 awaiting review · 12 approved"
+ * could describe two different sets of videos in one line.
  */
-export async function loadReviewQueue(supabase: Db, ws: string) {
+export async function loadReviewQueue(supabase: Db, ws: string, clientIds: string[] = []) {
   const [itemsRes, clientsRes, postsRes, acctRes] = await Promise.all([
+    /* Every item, not just the unapproved ones: the approved tally is counted
+       from the same rows under the same client scope, and a second query for
+       it could drift from this one's exclusions. */
     selectAll<{
       id: string;
       title: string;
@@ -722,7 +741,6 @@ export async function loadReviewQueue(supabase: Db, ws: string) {
         .from("content_items")
         .select("id, title, client_id, produced_at, review_state, created_at")
         .eq("workspace_id", ws)
-        .neq("review_state", "approved")
         .order("created_at", { ascending: false })
         .order("id"),
     ),
@@ -766,25 +784,21 @@ export async function loadReviewQueue(supabase: Db, ws: string) {
     platforms: [...(platformsByItem.get(r.id) ?? [])].sort(),
   });
 
-  const live = (itemsRes.data ?? []).filter(
-    (r) => !r.client_id || !clients.get(r.client_id)?.is_archived,
+  // Both exclusions from one definition, in lib/reviewQueue: archived
+  // clients always, the chosen clients when the page is filtered.
+  const archivedClientIds = new Set(
+    [...clients.values()].filter((c) => c.is_archived).map((c) => c.id),
   );
+  const live = inReviewScope(itemsRes.data ?? [], archivedClientIds, clientIds);
 
-  // "New since the last sync" is measured from when that sync ran, not from a
-  // fixed window: syncs are irregular, so a fixed "last 24h" would report
-  // nothing whenever the cadence happened not to match it.
   const lastSync = (acctRes.data as { last_synced_at: string }[] | null)?.[0]?.last_synced_at;
-  const cutoff = lastSync ? new Date(lastSync).getTime() - 60 * 60 * 1000 : null;
-
   const pending = live.filter((r) => r.review_state === "pending");
 
   return {
     pending: pending.map(shape),
     rejected: live.filter((r) => r.review_state === "rejected").map(shape),
-    newSinceSync:
-      cutoff == null
-        ? 0
-        : pending.filter((r) => new Date(r.created_at).getTime() >= cutoff).length,
+    approvedCount: live.filter((r) => r.review_state === "approved").length,
+    newSinceSync: countNewSinceSync(pending, lastSync),
   };
 }
 
