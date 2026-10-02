@@ -4,6 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Select from "@/components/ui/Select";
 import {
+  inviteClientUser,
   inviteMember,
   removeMember,
   resendInvite,
@@ -32,7 +33,15 @@ type Member = {
    */
   email?: string | null;
   lastSignInAt?: string | null;
+  /**
+   * Set only on a client user: the one client their account is bound to.
+   * The name is null when that client has since been archived or binned.
+   */
+  clientId?: string | null;
+  clientName?: string | null;
 };
+
+type ClientOption = { id: string; name: string };
 
 /**
  * GROUPS is gone from the tabs.
@@ -46,18 +55,31 @@ type Member = {
  * The tables and their CRUD actions are left in place, so nothing is lost if
  * groups are given a job later (scoping a report or a filter by team is the
  * obvious one). Until then the page does not claim they do something.
+ *
+ * CLIENTS is its own tab, not a role among the others. A client user is
+ * someone outside the company: one of a client's own people, whose account
+ * shows them that client's delivered work and their client system on the
+ * portal, and nothing of anyone else's. They are not staff with a smaller
+ * seat, so they never appear under FULL or LIMITED, have no capacity, and
+ * cannot be given a staff role from a dropdown.
  */
-const TABS = ["FULL", "LIMITED"] as const;
+const TABS = ["FULL", "LIMITED", "CLIENTS"] as const;
 
 export default function TeamManager({
   workspaceId,
   members,
+  clients = [],
+  portalHost = null,
   canManage,
   isOwnerOrAdmin = false,
   selfUserId,
 }: {
   workspaceId: string;
   members: Member[];
+  /** The clients a client user can be bound to. */
+  clients?: ClientOption[];
+  /** The client system portal's host, when this deployment knows it. */
+  portalHost?: string | null;
   canManage: boolean;
   /**
    * Removal is a level above the rest of this page. A manager can change a
@@ -75,8 +97,12 @@ export default function TeamManager({
 
   const refresh = () => startTransition(() => router.refresh());
 
+  const onClients = tab === "CLIENTS";
   const filtered = useMemo(
-    () => members.filter((m) => m.seat === tab.toLowerCase()),
+    () =>
+      members.filter((m) =>
+        tab === "CLIENTS" ? m.role === "client" : m.role !== "client" && m.seat === tab.toLowerCase(),
+      ),
     [members, tab],
   );
 
@@ -106,9 +132,18 @@ export default function TeamManager({
 
       {(
         <>
-          {canManage && (
-            <InviteRow workspaceId={workspaceId} onError={setError} refresh={refresh} />
-          )}
+          {canManage &&
+            (onClients ? (
+              <ClientInviteRow
+                workspaceId={workspaceId}
+                clients={clients}
+                portalHost={portalHost}
+                onError={setError}
+                refresh={refresh}
+              />
+            ) : (
+              <InviteRow workspaceId={workspaceId} onError={setError} refresh={refresh} />
+            ))}
           {/* The card clips to its own rounded corners, so a table placed
               straight inside it gets clipped too -- with no way to reach what
               was cut. On a 375px phone this table measured 466px wide in a
@@ -120,11 +155,14 @@ export default function TeamManager({
           <table className="w-full min-w-[560px] text-sm">
             <thead>
               <tr className="border-b border-[var(--border)] text-left text-[10.5px] font-medium uppercase tracking-[0.06em] text-[var(--muted)]">
+                {/* In the order the cells below are in. "Account" and "Role"
+                    were the other way round: the role picker sat under
+                    "Account" and the email under "Role". */}
                 <th className="px-3 py-2 font-medium">Name</th>
+                <th className="px-3 py-2 font-medium">{onClients ? "Client" : "Role"}</th>
                 <th className="px-3 py-2 font-medium">Account</th>
-                <th className="px-3 py-2 font-medium">Role</th>
                 <th className="px-3 py-2 font-medium">Status</th>
-                <th className="px-3 py-2 text-right font-medium">Capacity / wk</th>
+                <th className="px-3 py-2 text-right font-medium">{onClients ? "Portal id" : "Capacity / wk"}</th>
                 <th className="px-3 py-2 text-right font-medium">Access</th>
               </tr>
             </thead>
@@ -147,7 +185,13 @@ export default function TeamManager({
                         three real options that looked like a fourth choice
                         and did nothing when clicked. The guard stays as a
                         belt-and-braces against writing "" over a role. */}
-                    {editable ? (
+                    {m.role === "client" ? (
+                      // Which client, never a role picker: a dropdown here
+                      // would be one slip from making an outsider staff.
+                      <span className="text-xs">
+                        {m.clientName ?? <span className="text-[var(--muted)]">a client no longer listed</span>}
+                      </span>
+                    ) : editable ? (
                       <Select
                         className="max-w-[140px]"
                         value={m.role}
@@ -216,7 +260,12 @@ export default function TeamManager({
                     )}
                   </td>
                   <td className="px-3 py-2.5 text-right">
-                    {canManage ? (
+                    {m.role === "client" ? (
+                      // No capacity: a client user is nobody's working week.
+                      // What goes here instead is the id the portal knows
+                      // their client by.
+                      m.clientId ? <CopyId id={m.clientId} /> : <span className="text-xs text-[var(--muted)]">—</span>
+                    ) : canManage ? (
                       <CapacityInput
                         membershipId={m.id}
                         value={m.capacityHours}
@@ -251,7 +300,7 @@ export default function TeamManager({
               {filtered.length === 0 && (
                 <tr>
                   <td colSpan={6} className="px-3 py-8 text-center text-sm text-[var(--muted)]">
-                    No {tab.toLowerCase()} members.
+                    {onClients ? "No client users yet." : `No ${tab.toLowerCase()} members.`}
                   </td>
                 </tr>
               )}
@@ -463,6 +512,145 @@ function InviteRow({
           "The only way an account gets made. They receive a link, set their own password, and open the app already in this workspace at the role you chose."}
       </p>
     </div>
+  );
+}
+
+/**
+ * Invite one of a client's own people. Its own row, not a fourth role in the
+ * staff invite: the two acts differ in everything that matters. This one
+ * needs a client, and makes an account that sees that client's work and
+ * nothing else; choosing "client" from a list of staff roles, with the
+ * client an afterthought, is how an outsider ends up invited as a member.
+ *
+ * The same account signs them in to the client system portal. The id the
+ * portal knows the client by is shown as soon as a client is chosen, since
+ * the portal has to be told it once (README there: `--ops-client`).
+ */
+function ClientInviteRow({
+  workspaceId,
+  clients,
+  portalHost,
+  onError,
+  refresh,
+}: {
+  workspaceId: string;
+  clients: ClientOption[];
+  portalHost: string | null;
+  onError: (m: string) => void;
+  refresh: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [clientId, setClientId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  async function invite() {
+    if (!email.trim() || !clientId) return;
+    setBusy(true);
+    setNotice(null);
+    const res = await inviteClientUser({ workspaceId, email, fullName: name, clientId });
+    setBusy(false);
+    if (res.error) return onError(res.error);
+    onError("");
+    const where =
+      res.landsOn === "portal"
+        ? `on the portal${portalHost ? ` (${portalHost})` : ""}`
+        : "in this app, then they sign in to the portal with the same email and password";
+    setNotice(
+      res.outcome === "invited"
+        ? `Invite sent to ${email.trim()} for ${res.clientName}. They choose their own password ${where}.`
+        : `${email.trim()} already had an account — now a client user of ${res.clientName}. No email was sent.`,
+    );
+    setName("");
+    setEmail("");
+    refresh();
+  }
+
+  if (clients.length === 0) {
+    return (
+      <div className="card mb-3 p-3 text-xs text-[var(--muted)]">
+        Add a client first (Clients). A client user is always one client&apos;s.
+      </div>
+    );
+  }
+
+  return (
+    <div className="card mb-3 p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          className="input min-w-[150px] flex-1 py-1.5"
+          placeholder="Full name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          autoComplete="off"
+          aria-label="Full name of the client's person to invite"
+        />
+        <input
+          className="input min-w-[220px] flex-[2] py-1.5"
+          type="email"
+          placeholder="Email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void invite();
+          }}
+          autoComplete="off"
+          aria-label="Email of the client's person to invite"
+        />
+        <Select
+          className="max-w-[200px]"
+          value={clientId}
+          onChange={(v) => setClientId(v ?? "")}
+          placeholder="Which client"
+          ariaLabel="The client this person belongs to"
+          options={clients.map((c) => ({ value: c.id, label: c.name }))}
+        />
+        <button
+          className="btn-primary py-1.5"
+          onClick={() => void invite()}
+          disabled={busy || !email.trim() || !clientId}
+        >
+          {busy ? "Inviting…" : "Invite client"}
+        </button>
+      </div>
+      <p className="mt-2 text-[11px] text-[var(--muted)]">
+        {notice ??
+          "For a client's own people. They see that client's delivered work and their client system on the portal, and nothing of anyone else's. They receive a link and set their own password."}
+      </p>
+      {clientId && (
+        <p className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-[var(--muted)]">
+          The portal knows this client by <CopyId id={clientId} />
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * A client's id, short enough to sit in a table and copied whole. It is not
+ * a secret (it opens nothing by itself); it is what the client system
+ * portal is given, once, to know which client an account belongs to.
+ */
+function CopyId({ id }: { id: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      className="rounded px-1.5 py-0.5 font-mono text-[11px] text-[var(--muted)] transition-colors hover:bg-[var(--bg-subtle)] hover:text-[var(--fg)]"
+      title={`${id} — copy for the client system portal (--ops-client)`}
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(id);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        } catch {
+          // No clipboard access: the full id is in the tooltip.
+        }
+      }}
+    >
+      {copied ? "copied" : `${id.slice(0, 8)}… copy`}
+    </button>
   );
 }
 

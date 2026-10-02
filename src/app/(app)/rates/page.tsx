@@ -31,7 +31,9 @@ export default async function RatesPage() {
       .from("memberships")
       .select("id, user_id, billable_rate, cost_rate, profile:profiles(full_name)")
       .eq("workspace_id", ws)
-      .eq("is_active", true),
+      .eq("is_active", true)
+      // Staff only: a client user has no rate.
+      .neq("role", "client"),
     supabase
       .from("projects")
       .select("id, name, billable_rate, budget_amount, budget_hours, is_archived")

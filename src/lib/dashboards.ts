@@ -817,7 +817,9 @@ export async function loadMemberOptions(supabase: Db, ws: string) {
     .from("memberships")
     .select("user_id, profile:profiles(full_name)")
     .eq("workspace_id", ws)
-    .eq("is_active", true);
+    .eq("is_active", true)
+    // Staff only: work is never assigned to a client user.
+    .neq("role", "client");
   type Row = {
     user_id: string;
     profile: { full_name: string | null } | { full_name: string | null }[] | null;

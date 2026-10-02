@@ -19,11 +19,24 @@ export default async function TeamAdminPage() {
   const supabase = await createClient();
   const ws = session.active.id;
 
-  const membersRes = await supabase
-    .from("memberships")
-    .select("id, user_id, role, seat, is_active, weekly_capacity_hours, profile:profiles(full_name)")
-    .eq("workspace_id", ws)
-    .order("created_at");
+  const [membersRes, clientsRes] = await Promise.all([
+    supabase
+      .from("memberships")
+      .select("id, user_id, role, seat, is_active, weekly_capacity_hours, client_id, profile:profiles(full_name)")
+      .eq("workspace_id", ws)
+      .order("created_at"),
+    // The clients a client user can be bound to: live ones, by name.
+    supabase
+      .from("clients")
+      .select("id, name")
+      .eq("workspace_id", ws)
+      .is("deleted_at", null)
+      .eq("is_archived", false)
+      .order("name"),
+  ]);
+
+  const clients = (clientsRes.data ?? []) as { id: string; name: string }[];
+  const clientNames = new Map(clients.map((c) => [c.id, c.name]));
 
   type MemberRow = {
     id: string;
@@ -32,6 +45,7 @@ export default async function TeamAdminPage() {
     seat: string;
     is_active: boolean;
     weekly_capacity_hours: number | null;
+    client_id: string | null;
     profile: { full_name: string | null } | { full_name: string | null }[] | null;
   };
   const members = ((membersRes.data ?? []) as unknown as MemberRow[]).map((m) => ({
@@ -42,6 +56,10 @@ export default async function TeamAdminPage() {
     seat: m.seat as SeatType,
     isActive: m.is_active,
     capacityHours: m.weekly_capacity_hours ?? 0,
+    // Only a client user's membership names a client. An archived or
+    // deleted client is not in the list above, so its name may be missing.
+    clientId: m.role === "client" ? m.client_id : null,
+    clientName: m.role === "client" && m.client_id ? (clientNames.get(m.client_id) ?? null) : null,
   }));
 
   /**
@@ -88,6 +106,16 @@ export default async function TeamAdminPage() {
     lastSignInAt: identities.get(m.userId)?.lastSignInAt ?? null,
   }));
 
+  // The client system portal's address, shown where a client is invited so
+  // whoever invites them knows where the link will land. Its host only.
+  let portalHost: string | null = null;
+  try {
+    const raw = process.env.CLIENT_PORTAL_URL?.trim();
+    if (raw) portalHost = new URL(raw).host;
+  } catch {
+    portalHost = null;
+  }
+
   return (
     <div className="mx-auto max-w-5xl px-6 py-6">
       <PageHeader
@@ -101,6 +129,8 @@ export default async function TeamAdminPage() {
       <TeamManager
         workspaceId={ws}
         members={roster}
+        clients={clients}
+        portalHost={portalHost}
         canManage={canManage(session.active.role)}
         isOwnerOrAdmin={session.active.role === "owner" || session.active.role === "admin"}
         selfUserId={session.userId}

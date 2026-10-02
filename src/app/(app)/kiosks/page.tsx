@@ -42,7 +42,9 @@ export default async function KiosksPage() {
       .from("memberships")
       .select("id, profile:profiles(full_name)")
       .eq("workspace_id", ws)
-      .eq("is_active", true),
+      .eq("is_active", true)
+      // Staff only: a client user never clocks in.
+      .neq("role", "client"),
     supabase.rpc("kiosk_pin_status", { ws }),
   ]);
 

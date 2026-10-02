@@ -65,6 +65,8 @@ const stamp = Date.now();
 const staffEmail = `scope-staff-${stamp}@tiltedneedle.test`;
 const clientEmail = `scope-client-${stamp}@tiltedneedle.test`;
 let wsId = null;
+// A second workspace, made only to own a client that is NOT ours.
+let otherWsId = null;
 const userIds = [];
 
 try {
@@ -203,6 +205,126 @@ try {
         !rateErr && (rated ?? []).length === 1,
         rateErr?.message ?? `${(rated ?? []).length} rows`);
     }
+
+    /* -- Making a client user is not a way to unmake staff ----------------- */
+    //
+    // set_client_membership used to upsert over ANY membership: one call from
+    // a manager turned the owner into a client user of whichever client they
+    // named, and the client did not even have to belong to the workspace.
+    const bind = (as, user, client) =>
+      as.rpc("set_client_membership", { ws: wsId, target_user: user, target_client: client });
+    const roleOf = async (userId) => {
+      const { data } = await admin.from("memberships").select("role, client_id")
+        .eq("workspace_id", wsId).eq("user_id", userId).maybeSingle();
+      return data;
+    };
+
+    const { error: ownerErr } = await bind(manager.client, staff.id, clientA);
+    check("a manager cannot turn the owner into a client user",
+      !!ownerErr && (await roleOf(staff.id))?.role === "owner",
+      ownerErr ? "" : "ESCALATION: the call succeeded");
+
+    const { error: colleagueErr } = await bind(staff.client, manager.id, clientA);
+    check("nor can anyone turn a colleague into one",
+      !!colleagueErr && (await roleOf(manager.id))?.role === "manager",
+      colleagueErr ? "" : "the call succeeded");
+
+    const { error: selfErr } = await bind(manager.client, manager.id, clientA);
+    check("nobody makes THEMSELVES a client user", !!selfErr,
+      selfErr ? "" : "the call succeeded");
+
+    const { error: byClientErr } = await bind(portal.client, manager.id, clientA);
+    check("a client user cannot make client users", !!byClientErr,
+      byClientErr ? "" : "LEAK: the call succeeded");
+
+    // A client that is real, but somebody else's.
+    const { data: other, error: otherErr } = await manager.client.rpc("create_workspace", {
+      ws_name: `Scope other ${stamp}`,
+      ws_slug: `scope-other-${stamp}`,
+    });
+    if (otherErr) throw new Error(`create second workspace: ${otherErr.message}`);
+    otherWsId = other.id ?? other;
+    const { data: foreign, error: foreignMkErr } = await manager.client
+      .from("clients").insert({ workspace_id: otherWsId, name: "Somebody else's client" })
+      .select("id").single();
+    if (foreignMkErr) throw new Error(`create foreign client: ${foreignMkErr.message}`);
+
+    const { error: foreignErr } = await bind(staff.client, portal.id, foreign.id);
+    check("a client user cannot be bound to another workspace's client",
+      !!foreignErr && (await roleOf(portal.id))?.client_id === clientA,
+      foreignErr ? "" : "LEAK: bound across workspaces");
+
+    // The one thing it may do to an existing membership: move a client user.
+    const { error: moveErr } = await bind(staff.client, portal.id, clientB);
+    const moved = await roleOf(portal.id);
+    check("a client user can be moved to another client of the same workspace",
+      !moveErr && moved?.role === "client" && moved?.client_id === clientB,
+      moveErr?.message ?? "");
+    {
+      const { data: after } = await portal.client
+        .from("client_guideline_sections").select("client_id");
+      const ids = new Set((after ?? []).map((r) => r.client_id));
+      check("and then sees the new client's rows and not the old one's",
+        ids.has(clientB) && !ids.has(clientA), `saw ${[...ids].length} clients`);
+    }
+    const { error: backErr } = await bind(staff.client, portal.id, clientA);
+    if (backErr) throw new Error(`move back to client A: ${backErr.message}`);
+  }
+
+  /* -- The agency's own books and journals --------------------------------- */
+  //
+  // Three places a client user was let into by being "a workspace member":
+  // the merge journal (every merged video's contents, verbatim, for every
+  // client), the expense ledger (which they could WRITE to), and the two
+  // functions that spend and refund the transcription budget, which checked
+  // nothing about the caller at all.
+  {
+    const { data: item, error: itemErr } = await admin.from("content_items")
+      .insert({ workspace_id: wsId, title: "merge survivor" }).select("id").single();
+    if (itemErr) throw new Error(`create content item: ${itemErr.message}`);
+    const { error: journalErr } = await admin.from("content_merges").insert({
+      workspace_id: wsId, survivor_id: item.id, loser_ids: [],
+      journal: { losers: [{ title: "another client's unreleased video" }] },
+    });
+    if (journalErr) throw new Error(`create merge row: ${journalErr.message}`);
+
+    const { data: clientMerges } = await portal.client.from("content_merges").select("id");
+    check("a client user cannot read the merge journal",
+      (clientMerges ?? []).length === 0,
+      (clientMerges ?? []).length ? `LEAK: saw ${clientMerges.length} merges` : "");
+    const { data: staffMerges } = await staff.client.from("content_merges").select("id");
+    check("staff still read the merge journal",
+      (staffMerges ?? []).length === 1, `saw ${(staffMerges ?? []).length}`);
+
+    const { error: fileErr } = await portal.client.from("expenses").insert({
+      workspace_id: wsId, user_id: portal.id, amount: 10, notes: "injected",
+    });
+    check("a client user cannot file an expense in the agency's books", !!fileErr,
+      fileErr ? "" : "LEAK: insert succeeded");
+    const { data: filed, error: staffFileErr } = await staff.client.from("expenses")
+      .insert({ workspace_id: wsId, user_id: staff.id, amount: 12 }).select("id");
+    check("staff can still file an expense",
+      !staffFileErr && (filed ?? []).length === 1, staffFileErr?.message ?? "");
+    const { data: clientExpenses } = await portal.client.from("expenses").select("id");
+    check("a client user sees no expenses",
+      (clientExpenses ?? []).length === 0, `saw ${(clientExpenses ?? []).length}`);
+    const { data: staffExpenses } = await staff.client.from("expenses").select("id");
+    check("staff still see their own",
+      (staffExpenses ?? []).length === 1, `saw ${(staffExpenses ?? []).length}`);
+
+    const anon = createClient(SUPABASE_URL, PUBLISHABLE, { auth: { persistSession: false } });
+    const budget = (as, fn) => as.rpc(fn, { p_workspace_id: wsId, p_micros: 1 });
+    for (const [who, as] of [["a client user", portal.client], ["the owner", staff.client], ["a signed-out caller", anon]]) {
+      for (const fn of ["claim_transcription_budget", "refund_transcription_budget"]) {
+        const { error } = await budget(as, fn);
+        check(`${who} cannot call ${fn}`, !!error, error ? "" : "LEAK: the call succeeded");
+      }
+    }
+    const { data: granted, error: claimErr } = await budget(admin, "claim_transcription_budget");
+    check("the worker's service role still claims budget",
+      !claimErr && Number(granted) === 1, claimErr?.message ?? `granted ${granted}`);
+    const { error: refundErr } = await budget(admin, "refund_transcription_budget");
+    check("and still refunds it", !refundErr, refundErr?.message ?? "");
   }
 
   // Staff must still see everything -- a fix that locks out the agency is a
@@ -216,6 +338,7 @@ try {
   check("test harness ran", false, String(e.message ?? e));
 } finally {
   if (wsId) await admin.from("workspaces").delete().eq("id", wsId);
+  if (otherWsId) await admin.from("workspaces").delete().eq("id", otherWsId);
   for (const id of userIds) await admin.auth.admin.deleteUser(id).catch(() => {});
   console.log("\ncleaned up test workspace and users");
 }

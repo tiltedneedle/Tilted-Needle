@@ -111,7 +111,9 @@ export default async function HomePage() {
         .from("memberships")
         .select("id", { count: "exact", head: true })
         .eq("workspace_id", ws)
-        .eq("is_active", true),
+        .eq("is_active", true)
+        // The team's size: a client user is not on the team.
+        .neq("role", "client"),
       supabase
         .from("clients")
         .select("id", { count: "exact", head: true }).is("deleted_at", null)

@@ -36,7 +36,9 @@ export default async function ImportPage({
     .from("memberships")
     .select("user_id, profile:profiles(full_name)")
     .eq("workspace_id", ws)
-    .eq("is_active", true);
+    .eq("is_active", true)
+    // Staff only: imported time is never a client user's.
+    .neq("role", "client");
 
   const { data: contentItems } = await supabase
     .from("content_items")

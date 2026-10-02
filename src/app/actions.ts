@@ -2073,6 +2073,12 @@ export async function setMemberRole(membershipId: string, role: string): Promise
   const supabase = await createClient();
   const guard = await guardedMembershipTarget(supabase, membershipId);
   if (guard.error) return { error: guard.error };
+  // A client user is somebody outside the company, bound to one client. A
+  // role picked from a dropdown must never turn that account into staff,
+  // with every other client's work in front of it.
+  if (guard.target!.role === "client") {
+    return { error: "A client's account can't be given a staff role. Remove it, then invite the person as staff." };
+  }
   const { error } = await supabase.from("memberships").update({ role }).eq("id", membershipId);
   if (error) return { error: error.message };
   revalidateTeam();
@@ -2278,6 +2284,139 @@ export async function inviteMember(input: {
 }
 
 /**
+ * The client system portal: the separate site where a client's own people
+ * read their audit, ideas and scripts. It signs them in with the account
+ * made here. Set as CLIENT_PORTAL_URL; null when it is not configured (or
+ * not an address a browser should be sent to).
+ */
+function clientPortalOrigin(): string | null {
+  const raw = process.env.CLIENT_PORTAL_URL?.trim();
+  if (!raw) return null;
+  try {
+    const url = new URL(raw);
+    const local = url.hostname === "localhost" || url.hostname === "127.0.0.1";
+    return url.protocol === "https:" || local ? url.origin : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Where a client user's emailed link should land: on the portal when there
+ * is one (its /auth/accept takes the invitation and goes on to choosing a
+ * password there, so their first sight of anything is their own portal),
+ * otherwise on this app's own page, like everyone else's.
+ */
+async function clientInviteRedirect(): Promise<{ redirectTo?: string; landsOn: "portal" | "app" }> {
+  const portal = clientPortalOrigin();
+  if (portal) return { redirectTo: `${portal}/auth/accept`, landsOn: "portal" };
+  const origin = await callerOrigin();
+  return { ...(origin ? { redirectTo: `${origin}/auth/reset` } : {}), landsOn: "app" };
+}
+
+/**
+ * Give one of a client's own people an account: the Client role, bound to
+ * that client and nothing else.
+ *
+ * This is a different act from inviteMember and is kept apart from it. A
+ * colleague sees the workspace; a client user sees their own client's
+ * delivered work here, and their client system on the portal, and row-level
+ * security holds them to that. So:
+ *   - the client is chosen, and must be one of this workspace's;
+ *   - someone who is already staff here is refused, never converted (the
+ *     same rule the database function enforces, said earlier and in words);
+ *   - the membership is written by set_client_membership, which a manager
+ *     calls as themselves, so the database decides whether they may.
+ * The account itself is made the same way as any other: an invitation,
+ * and a password only its owner ever sees.
+ */
+export async function inviteClientUser(input: {
+  workspaceId: string;
+  email: string;
+  fullName?: string;
+  clientId: string;
+}): Promise<Result & { outcome?: "invited" | "added"; landsOn?: "portal" | "app"; clientName?: string }> {
+  const email = input.email.trim().toLowerCase();
+  const fullName = (input.fullName ?? "").trim();
+  if (!email || !email.includes("@")) return { error: "Enter a valid email address." };
+  if (!input.clientId) return { error: "Choose which client this person belongs to." };
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+  const { data: caller } = await supabase
+    .from("memberships")
+    .select("role, is_active")
+    .eq("workspace_id", input.workspaceId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+  if (!caller?.is_active || !MANAGER_ROLES.includes(caller.role as WorkspaceRole)) {
+    return { error: "Only owners, admins and managers can invite people." };
+  }
+
+  const { data: client } = await supabase
+    .from("clients")
+    .select("id, name")
+    .eq("id", input.clientId)
+    .eq("workspace_id", input.workspaceId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!client) return { error: "That client is not in this workspace." };
+
+  const admin = createAdminClient();
+  const findByEmail = async (): Promise<string | null> => {
+    const { data: page, error } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
+    if (error) return null;
+    return page.users.find((u: { email?: string }) => u.email?.toLowerCase() === email)?.id ?? null;
+  };
+
+  let userId = await findByEmail();
+  if (userId) {
+    // Checked before anything is sent or written: an invitation must never
+    // be how a colleague loses their place.
+    const { data: existing } = await supabase
+      .from("memberships")
+      .select("role")
+      .eq("workspace_id", input.workspaceId)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (existing && existing.role !== "client") {
+      return { error: `They're already in this workspace as ${existing.role}. Remove them from the team first if they should be a client.` };
+    }
+  }
+
+  const { redirectTo, landsOn } = await clientInviteRedirect();
+  let outcome: "invited" | "added" = "added";
+  if (!userId) {
+    const { data, error } = await admin.auth.admin.inviteUserByEmail(email, {
+      data: { full_name: fullName || email.split("@")[0] },
+      ...(redirectTo ? { redirectTo } : {}),
+    });
+    if (error) {
+      userId = await findByEmail();
+      if (!userId) return { error: error.message };
+    } else {
+      userId = data.user.id;
+      outcome = "invited";
+    }
+  }
+
+  if (fullName) {
+    await admin.from("profiles").update({ full_name: fullName }).eq("id", userId);
+  }
+
+  const { error } = await supabase.rpc("set_client_membership", {
+    ws: input.workspaceId,
+    target_user: userId,
+    target_client: client.id,
+  });
+  if (error) return { error: error.message };
+  revalidateTeam();
+  return { outcome, landsOn, clientName: client.name };
+}
+
+/**
  * Send the invite again to someone who has never signed in.
  *
  * Invite links expire; a person who missed the window would otherwise be
@@ -2297,11 +2436,19 @@ export async function resendInvite(membershipId: string): Promise<Result & { sen
   if (user?.user?.last_sign_in_at) {
     return { error: "They have signed in before. Use the password reset instead." };
   }
+  // A client user's link lands where their first one did: on the portal
+  // when there is one.
   const origin = await callerOrigin();
+  const redirectTo =
+    guard.target!.role === "client"
+      ? (await clientInviteRedirect()).redirectTo
+      : origin
+        ? `${origin}/auth/reset`
+        : undefined;
   // generateLink of type "invite" both re-arms the token and sends the email
   // through the project's configured sender, same as the first invite.
   const { error } = await admin.auth.admin.inviteUserByEmail(email, {
-    ...(origin ? { redirectTo: `${origin}/auth/reset` } : {}),
+    ...(redirectTo ? { redirectTo } : {}),
   });
   if (error) return { error: error.message };
   return { sentTo: email };

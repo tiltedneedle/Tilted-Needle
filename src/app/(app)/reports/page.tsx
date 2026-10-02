@@ -135,7 +135,9 @@ async function ContentReport({
       .from("memberships")
       .select("user_id, is_active, profile:profiles(full_name)")
       .eq("workspace_id", ws)
-      .eq("is_active", true),
+      .eq("is_active", true)
+      // Staff only: a client user tracks no time.
+      .neq("role", "client"),
   ]);
 
   type Member = {

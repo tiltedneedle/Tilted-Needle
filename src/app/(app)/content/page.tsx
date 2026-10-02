@@ -147,7 +147,9 @@ export default async function ContentPage({
         .from("memberships")
         .select("user_id, profile:profiles(full_name)")
         .eq("workspace_id", ws)
-        .eq("is_active", true),
+        .eq("is_active", true)
+        // Staff only: a client user is a member of the workspace too, and is nobody's colleague.
+        .neq("role", "client"),
       loadRoles(supabase, ws),
       /* The ONLY filter the review queue takes. The rest of the page's
          filters narrow a view; approving decides whether a video is ours at
