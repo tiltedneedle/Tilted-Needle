@@ -70,6 +70,9 @@ export async function cacheThumbnail(
       // Some CDNs 403 a request that names a referring origin.
       referrerPolicy: "no-referrer",
       headers: { "User-Agent": "Mozilla/5.0" },
+      // A stalled download lands in the catch below and returns null, which
+      // every caller already treats as "keep what you had".
+      signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) return null;
 

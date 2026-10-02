@@ -60,6 +60,24 @@ export type AccountSyncResult = {
   postsCreated: number;
   snapshotsWritten: number;
   error?: string;
+  /**
+   * The request's time budget ran out partway through this account's posts.
+   *
+   * What was read is recorded, and the account is deliberately NOT stamped as
+   * synced -- so it is still the stalest one when the caller asks again, and
+   * that request carries on with the posts this one never reached. Not an
+   * error: nothing failed, there was just more to read than time to read it.
+   */
+  partial?: boolean;
+  /**
+   * Posts that were asked about and gave no reading -- refused, timed out, or
+   * gone. Reported because the alternative is invisible: a platform turning
+   * away half the requests writes fewer snapshots and looks exactly like a
+   * quiet day.
+   */
+  unread?: number;
+  /** Wall-clock time this account took, so a slow run says where it went. */
+  ms?: number;
 };
 
 export function serviceClient(): Db {
@@ -111,7 +129,8 @@ import {
   MAX_METERED_DISCOVERY_PER_RUN,
   isDueForDiscovery,
 } from "./discoveryThrottle.ts";
-import { freeThumbnailFor, THUMBNAIL_FILL_CAP } from "./thumbnails.ts";
+import { freeThumbnailFor, THUMBNAIL_FILL_BUDGET_MS, THUMBNAIL_FILL_CAP } from "./thumbnails.ts";
+import { readOrder } from "./syncBudget.ts";
 
 /**
  * Fills in poster frames for this account's posts that have none.
@@ -124,8 +143,13 @@ import { freeThumbnailFor, THUMBNAIL_FILL_CAP } from "./thumbnails.ts";
  *
  * Instagram is skipped here: its only source is the metered discovery
  * response, which already sets the column when it runs.
+ *
+ * Bounded by time as well as by count, and by the request's own deadline:
+ * this runs BEFORE the metrics read, and a poster frame must never be what
+ * the metrics ran out of time behind.
  */
-async function fillMissingThumbnails(db: Db, account: AccountRow): Promise<void> {
+async function fillMissingThumbnails(db: Db, account: AccountRow, deadline?: number): Promise<void> {
+  const stopAt = Math.min(deadline ?? Infinity, Date.now() + THUMBNAIL_FILL_BUDGET_MS);
   const { data: gaps } = await db
     .from("platform_posts")
     .select("id, external_id, url")
@@ -139,6 +163,7 @@ async function fillMissingThumbnails(db: Db, account: AccountRow): Promise<void>
   if (rows.length === 0) return;
 
   for (const row of rows) {
+    if (Date.now() >= stopAt) return;
     const src = await freeThumbnailFor(
       account.platform_slug,
       row.external_id,
@@ -190,6 +215,17 @@ export async function syncAccount(
      * now on one account) is never silently throttled.
      */
     allowMeteredDiscovery?: boolean;
+    /**
+     * Epoch milliseconds after which this account starts nothing new -- the
+     * request's time budget, handed down from runSync. See syncBudget.ts.
+     */
+    deadline?: number;
+    /**
+     * When the caller's pass began. Posts already read since then are not
+     * read again, which is how a second request resumes an account the first
+     * one ran out of time on.
+     */
+    staleBefore?: string;
   } = {},
 ): Promise<AccountSyncResult> {
   const base = {
@@ -353,12 +389,12 @@ export async function syncAccount(
   //     Never allowed to fail a sync -- a missing poster frame is cosmetic,
   //     and letting it break a metrics run would trade something that matters
   //     for something that does not.
-  await fillMissingThumbnails(db, account).catch(() => {});
+  await fillMissingThumbnails(db, account, opts.deadline).catch(() => {});
 
   // 2. Which of those are already tracked as platform_posts?
   const { data: existingRows } = await db
     .from("platform_posts")
-    .select("id, external_id, content_item_id")
+    .select("id, external_id, content_item_id, last_scraped_at")
     .eq("workspace_id", account.workspace_id)
     .eq("account_id", account.id);
 
@@ -366,6 +402,7 @@ export async function syncAccount(
     id: string;
     external_id: string | null;
     content_item_id: string;
+    last_scraped_at?: string | null;
   }[];
   const byExternalId = new Map(
     existing.filter((p) => p.external_id).map((p) => [p.external_id!, p]),
@@ -453,7 +490,19 @@ export async function syncAccount(
     };
   }
 
-  const metrics = await provider.fetchMetrics(trackedIds);
+  //    Stalest first, and nothing this pass has already read: when the read
+  //    is cut short the posts that missed out are the ones the next read
+  //    starts with, and a request resuming this account does not begin again
+  //    from the top. See readOrder.
+  const toRead = readOrder(
+    [...byExternalId.entries()].map(([externalId, p]) => ({
+      externalId,
+      lastScrapedAt: p.last_scraped_at,
+    })),
+    opts.staleBefore,
+  );
+
+  const metrics = await provider.fetchMetrics(toRead, { deadline: opts.deadline });
   if (!metrics.ok) {
     await db
       .from("accounts")
@@ -529,6 +578,53 @@ export async function syncAccount(
     }
   }
 
+  // 6. Stamp every post that was actually read -- including ones whose
+  //    numbers had not moved and so wrote no snapshot. This is the memory the
+  //    read order works from, and a snapshot cannot stand in for it: a video
+  //    nobody is watching would look unread forever and be asked about first
+  //    every time.
+  //
+  //    The free path never used to write this column, which is how it came to
+  //    mean "has been through the budgeted refresh" rather than what its name
+  //    says, and why 142 of 144 TikTok posts once read as never refreshed
+  //    while being refreshed four times a day. It now means the same thing on
+  //    every path.
+  //
+  //    A hundred at a time, because the ids travel in the URL. Two hundred
+  //    measures 7,873 bytes -- a few hundred short of the 8K request line
+  //    that is the usual limit in front of an API -- and a hundred is under
+  //    4K, with nothing left to chance.
+  const readAt = new Date().toISOString();
+  const readPostIds = metrics.data
+    .map((m) => byExternalId.get(m.externalId)?.id)
+    .filter((id): id is string => !!id);
+  for (let i = 0; i < readPostIds.length; i += 100) {
+    await db
+      .from("platform_posts")
+      .update({ last_scraped_at: readAt })
+      .in("id", readPostIds.slice(i, i + 100));
+  }
+
+  const unread = metrics.failed || undefined;
+
+  // Out of time with posts still to read. Everything above is kept, and the
+  // account is left unstamped on purpose: it stays the stalest, so the next
+  // request starts here and reads only what this one did not reach.
+  if ((metrics.unattempted ?? 0) > 0) {
+    return {
+      ...base,
+      status: "ok",
+      partial: true,
+      postsSeen: discoveredPosts.length,
+      postsCreated,
+      snapshotsWritten: toInsert.length,
+      unread,
+      error:
+        discoveryError ??
+        `Out of time with ${metrics.unattempted} of ${toRead.length} posts still to read; the next request carries on from there.`,
+    };
+  }
+
   // A metrics refresh that succeeded clears any PREVIOUS error, but a
   // discovery failure from this same run is worth keeping visible -- it is
   // not fatal to this sync, but it is real information for whoever is
@@ -544,6 +640,7 @@ export async function syncAccount(
     postsSeen: discoveredPosts.length,
     postsCreated,
     snapshotsWritten: toInsert.length,
+    unread,
     error: discoveryError ?? undefined,
   };
 }
@@ -562,9 +659,9 @@ export async function runSync(
     platformSlug?: string;
     trigger?: "cron" | "manual";
     discoverLimit?: number;
-    /** Process at most this many accounts, so one request fits in the
-     *  function's time limit. The caller loops until a batch comes back
-     *  short. Unset means "everything", which is what a manual run wants. */
+    /** Process at most this many accounts per request. The caller loops
+     *  until nothing is left. Unset means "everything", which is what a
+     *  manual run wants. */
     maxAccounts?: number;
     /**
      * Reports how many accounts were eligible BEFORE the batch slice.
@@ -595,6 +692,20 @@ export async function runSync(
      * (null) always qualifies.
      */
     staleBefore?: string;
+    /**
+     * Epoch milliseconds after which nothing new is started.
+     *
+     * maxAccounts bounds how much work a request takes on; this bounds how
+     * long it takes, which is the thing the platform's time limit actually
+     * measures. Past it no further account is begun, and an account whose
+     * posts are read one request at a time stops where it is and reports
+     * itself `partial`. Either way the accounts concerned are left unstamped,
+     * so stalest-first hands them to the caller's next request -- the same
+     * self-healing a killed run relied on, without the run being killed.
+     *
+     * Unset means no limit, which is what a person pressing Sync now gets.
+     */
+    deadline?: number;
   } = {},
 ): Promise<AccountSyncResult[]> {
   /**
@@ -694,9 +805,12 @@ export async function runSync(
    * can never report success, and a red light that is always red is not a
    * signal.
    *
-   * The caller loops until a batch comes back short. Because each synced
+   * The caller loops until nothing is left of the pass. Because each synced
    * account gets a fresh last_synced_at and the order is stalest-first, the
    * next call naturally picks up where this one ended.
+   *
+   * A batch is a ceiling on the work taken on, not a promise that it fits:
+   * opts.deadline can end the request before the batch is finished.
    */
   opts.onMeta?.({ eligible: eligible.length });
 
@@ -708,6 +822,11 @@ export async function runSync(
   let meteredDiscoveries = 0;
 
   for (const account of accounts) {
+    // Out of time. Whatever is left keeps its old last_synced_at, so it is
+    // exactly what the caller's next request starts with -- and no run row is
+    // opened for an account that was never begun.
+    if (opts.deadline != null && Date.now() >= opts.deadline) break;
+
     // Platforms with no public read are skipped without a run row: logging a
     // failure every fifteen minutes for something that is never going to work
     // would bury the failures that are actually actionable.
@@ -775,6 +894,7 @@ export async function runSync(
      * at the top of runSync is for.
      */
     let result: AccountSyncResult | null = null;
+    const startedAt = Date.now();
     try {
       result = await syncAccount(db, account, {
         discoverLimit: opts.discoverLimit,
@@ -785,7 +905,10 @@ export async function runSync(
         // account can never be starved by what the scheduled cron already
         // spent this period, and vice versa.
         pool: trigger === "manual" ? "manual" : "auto",
+        deadline: opts.deadline,
+        staleBefore: opts.staleBefore,
       });
+      result.ms = Date.now() - startedAt;
       results.push(result);
     } catch (e) {
       // Recorded as a result too, so the caller's failed-count reflects it
@@ -799,6 +922,7 @@ export async function runSync(
         postsCreated: 0,
         snapshotsWritten: 0,
         error: `Unhandled: ${(e as Error).message}`,
+        ms: Date.now() - startedAt,
       };
       results.push(result);
     } finally {

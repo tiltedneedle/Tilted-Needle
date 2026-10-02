@@ -31,11 +31,18 @@
  * real work, never as infrastructure to depend on -- which is why failures
  * surface loudly on the Accounts page instead of quietly recording nothing,
  * and why manual entry stays available for every platform regardless.
+ *
+ * That stopped being hypothetical on 24 September 2026. The embed endpoint
+ * began turning away about half its requests with "503 overload-protect
+ * triggered" and serving the rest slowly, so "always works" above now means
+ * "works for the videos TikTok chooses to answer for". readEmbedMetrics is
+ * written for that endpoint, not the one this file was first built against.
  */
 import type {
   AccountCandidate,
   DiscoverOptions,
   DiscoveredPost,
+  FetchMetricsOptions,
   ProviderCapability,
   ProviderResult,
   PublicMetrics,
@@ -251,6 +258,125 @@ function extractStats(html: string, videoId: string): ItemInfos | null {
 const num = (v: unknown): number | null =>
   typeof v === "number" && Number.isFinite(v) ? v : null;
 
+/**
+ * The gap left after every embed request -- answered, refused or dropped.
+ * There is no batch endpoint, and hammering a public page is both rude and
+ * the fastest way to get rate-limited off it.
+ */
+const EMBED_GAP_MS = 350;
+
+/**
+ * How long one embed request may take before it is abandoned.
+ *
+ * These requests had no limit at all, so the only thing that could stop a
+ * stalled one was the function being killed around it. Even on TikTok's bad
+ * days most served requests arrive within a second or two, though a few have
+ * been seen to take eight to twelve. One that slow is not worth holding the
+ * queue for: it goes unread this time and is first in line the next.
+ */
+const EMBED_TIMEOUT_MS = 10_000;
+
+/**
+ * Reads each video's public counters from its embed page, one at a time.
+ *
+ * Three things here are bounded that used to be open-ended, because this is
+ * the loop that ran the scheduled sync into its time limit (see
+ * syncBudget.ts):
+ *
+ *   EVERY request is followed by the gap. The pause used to sit at the bottom
+ *   of the loop, where the `continue` on a refusal skipped it -- so a run of
+ *   503s was fired back to back with no gap at all, at precisely the moment
+ *   TikTok was saying it was overloaded.
+ *
+ *   Each request has a timeout.
+ *
+ *   The whole read stops at the caller's deadline and says how many ids it
+ *   never reached, rather than carrying on until something kills it.
+ *
+ * A refused id is NOT retried here. TikTok is answering 503 and 429 because it
+ * wants fewer requests, and the caller reads the stalest posts first, so a
+ * video refused this time is at the front of the queue next time.
+ *
+ * `gapMs` and `timeoutMs` are parameters so the tests can run in milliseconds.
+ */
+export async function readEmbedMetrics(
+  externalIds: string[],
+  options: FetchMetricsOptions = {},
+  gapMs = EMBED_GAP_MS,
+  timeoutMs = EMBED_TIMEOUT_MS,
+): Promise<ProviderResult<PublicMetrics[]>> {
+  if (externalIds.length === 0) return { ok: true, data: [] };
+
+  const out: PublicMetrics[] = [];
+  const failures: string[] = [];
+  let asked = 0;
+
+  for (const id of externalIds) {
+    if (asked > 0) await new Promise((r) => setTimeout(r, gapMs));
+    if (options.deadline != null && Date.now() >= options.deadline) break;
+    asked++;
+
+    try {
+      const res = await fetch(`https://www.tiktok.com/embed/v2/${id}`, {
+        headers: { "User-Agent": UA },
+        cache: "no-store",
+        // Covers the body as well as the headers: the page is ~300KB and a
+        // slow one stalls while it is being read, not before.
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+
+      if (res.status === 400 || res.status === 404) {
+        // The video is gone or private. Recording zeros here would read as
+        // "nobody watched it" and drag every derived score down, so it is
+        // simply omitted -- absent, not zero.
+        failures.push(`${id}: no longer available`);
+        continue;
+      }
+      if (!res.ok) {
+        failures.push(`${id}: HTTP ${res.status}`);
+        continue;
+      }
+
+      const stats = extractStats(await res.text(), id);
+      if (!stats) {
+        failures.push(`${id}: could not read stats from the embed page`);
+        continue;
+      }
+
+      out.push({
+        externalId: id,
+        views: num(stats.playCount),
+        likes: num(stats.diggCount),
+        comments: num(stats.commentCount),
+      });
+    } catch (e) {
+      const err = e as Error;
+      failures.push(
+        err.name === "TimeoutError"
+          ? `${id}: no answer within ${Math.round(timeoutMs / 1000)}s`
+          : `${id}: ${err.message}`,
+      );
+    }
+  }
+
+  // Every video asked about failing means the page shape changed or TikTok is
+  // blocking us -- an error worth surfacing. A few failing among many is
+  // deleted videos or a refused request, which is normal and must not fail
+  // the whole run.
+  if (out.length === 0 && failures.length > 0) {
+    return {
+      ok: false,
+      error: `No TikTok metrics could be read. ${failures.slice(0, 3).join("; ")}`,
+    };
+  }
+  return {
+    ok: true,
+    data: out,
+    failed: failures.length,
+    unattempted: externalIds.length - asked,
+  };
+}
+
 export const tiktokProvider: PublicProvider = {
   slug: "tiktok",
   get capability() {
@@ -383,63 +509,7 @@ export const tiktokProvider: PublicProvider = {
     return { ok: true, data: filtered };
   },
 
-  async fetchMetrics(externalIds) {
-    if (externalIds.length === 0) return { ok: true, data: [] };
-
-    const out: PublicMetrics[] = [];
-    const failures: string[] = [];
-
-    // Sequential with a small gap. There is no batch endpoint, and hammering
-    // a public page in parallel is both rude and the fastest way to get
-    // rate-limited off it.
-    for (const id of externalIds) {
-      try {
-        const res = await fetch(`https://www.tiktok.com/embed/v2/${id}`, {
-          headers: { "User-Agent": UA },
-          cache: "no-store",
-        });
-
-        if (res.status === 400 || res.status === 404) {
-          // The video is gone or private. Recording zeros here would read as
-          // "nobody watched it" and drag every derived score down, so it is
-          // simply omitted -- absent, not zero.
-          failures.push(`${id}: no longer available`);
-          continue;
-        }
-        if (!res.ok) {
-          failures.push(`${id}: HTTP ${res.status}`);
-          continue;
-        }
-
-        const stats = extractStats(await res.text(), id);
-        if (!stats) {
-          failures.push(`${id}: could not read stats from the embed page`);
-          continue;
-        }
-
-        out.push({
-          externalId: id,
-          views: num(stats.playCount),
-          likes: num(stats.diggCount),
-          comments: num(stats.commentCount),
-        });
-      } catch (e) {
-        failures.push(`${id}: ${(e as Error).message}`);
-      }
-      await new Promise((r) => setTimeout(r, 350));
-    }
-
-    // Every single video failing means the page shape changed or TikTok is
-    // blocking us -- an error worth surfacing. A few failing among many is
-    // just deleted videos, which is normal and must not fail the whole run.
-    if (out.length === 0 && failures.length > 0) {
-      return {
-        ok: false,
-        error: `No TikTok metrics could be read. ${failures.slice(0, 3).join("; ")}`,
-      };
-    }
-    return { ok: true, data: out };
-  },
+  fetchMetrics: (externalIds, options) => readEmbedMetrics(externalIds, options),
 };
 
 /** One post as the TikTok actor reports it. Read defensively throughout. */

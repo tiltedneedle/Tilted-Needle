@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { runSync, serviceClient } from "@/lib/syncRunner";
+import { SYNC_BUDGET_MS, accountsRemaining } from "@/lib/syncBudget";
 import { thinnableIds, KEEP_ALL_DAYS } from "@/lib/thinSnapshots";
 
 /**
@@ -33,6 +34,10 @@ export const dynamic = "force-dynamic";
 // their siblings refreshed every morning. 300s is the Fluid Compute ceiling.
 // The ordering fix in runSync (stalest accounts first) is the structural
 // guard: even if a run still dies, starvation can no longer be chronic.
+//
+// The handler no longer relies on reaching this. It stops starting work at
+// SYNC_BUDGET_MS and answers with what is left, because being killed here is
+// a 504 to the caller however much of the batch had already been written.
 export const maxDuration = 300;
 
 function authorised(req: Request): boolean {
@@ -62,8 +67,9 @@ export async function GET(req: Request) {
   const platformSlug = url.searchParams.get("platform") ?? undefined;
   // Batch size. Even one platform can outrun the limit -- Instagram's eleven
   // accounts are ~27s each through Apify and returned 504 every time -- so
-  // the caller asks for a few at a time and repeats until a batch comes back
-  // short. Absent means "everything", which is what a manual run wants.
+  // the caller asks for a few at a time and repeats until `remaining` in the
+  // response reaches zero. Absent means "everything", which is what a manual
+  // run wants.
   //
   // The DEFAULT is bounded, and that is the important part. Vercel Cron calls
   // this path with no parameters at all -- it is the documented fallback for
@@ -172,6 +178,9 @@ export async function GET(req: Request) {
       maxAccounts,
       staleBefore,
       trigger,
+      // Measured from the top of the handler, so the housekeeping above
+      // comes out of the same budget rather than sitting on top of it.
+      deadline: started + SYNC_BUDGET_MS,
       onMeta: (m) => {
         eligible = m.eligible;
       },
@@ -215,6 +224,18 @@ export async function GET(req: Request) {
       durationMs: Date.now() - started,
       accounts: results.length,
       eligible,
+      // What a batching caller loops on: accounts this pass has not finished,
+      // whether because the batch was full, the time budget ran out before
+      // they were started, or it ran out partway through one. Zero means the
+      // pass is complete.
+      remaining: accountsRemaining(eligible, results),
+      // Accounts cut off mid-read by the time budget. Counted in `synced` --
+      // what they read is recorded -- and in `remaining`.
+      partial: results.filter((r) => r.partial).length,
+      // Posts asked about that gave no reading. Not a failure of the run, but
+      // not nothing either: it is the difference between "TikTok refused half
+      // of these" and "nothing changed".
+      unread: results.reduce((s, r) => s + (r.unread ?? 0), 0),
       synced: results.filter((r) => r.status === "ok").length,
       skipped: results.filter((r) => r.status === "skipped").length,
       failed: results.filter((r) => r.status === "error").length,

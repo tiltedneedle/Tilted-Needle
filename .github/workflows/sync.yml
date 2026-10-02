@@ -59,7 +59,12 @@ jobs:
     # Four platforms, each up to a few batches. Generous on purpose: the point
     # of batching is that no single REQUEST can hang, so the job timeout is a
     # backstop rather than the thing keeping runs honest.
-    timeout-minutes: 30
+    #
+    # 45, up from 30. A platform answering slowly now costs more requests
+    # rather than a dead one, and the ceiling for a single platform is six
+    # requests of up to five minutes each. A backstop that the slowest honest
+    # run can reach is not a backstop.
+    timeout-minutes: 45
     steps:
       - name: Trigger sync
         env:
@@ -109,9 +114,20 @@ jobs:
           # which still lands. Two backlogged accounts together would still
           # time out; that is rare, and the stalest-first ordering means the
           # next run simply picks them up.
+          #
+          # MAX is not what keeps a request inside the limit, and it never
+          # could be: it bounds how many accounts a request takes on, not how
+          # long they take. From 24 September TikTok began answering slowly on
+          # about half the runs. The same four accounts went from under a
+          # minute to four or five, the request after them was killed at 300s,
+          # and nine runs in nine days failed on it. The route now stops
+          # starting work 180s in and reports what is left instead (see
+          # src/lib/syncBudget.ts), so a slow platform costs extra requests
+          # rather than a 504.
           MAX=4
-          # Safety stop. Six batches of six is far more than the ~14 accounts
-          # any one platform has; this only exists so a bug cannot loop.
+          # Safety stop. Six requests of up to four accounts is far more than
+          # the nine any one platform has, with room for the requests a slow
+          # day cuts short; this only exists so a bug cannot loop.
           BATCHES=6
 
           # Pinned once, before any request. Every batch asks only for
@@ -124,26 +140,54 @@ jobs:
 
           fail=0
           for platform in instagram tiktok youtube youtube_shorts; do
+           # Accounts this pass has not finished, as the route last reported it.
+           remaining=0
+           retried=0
+           gave_up=0
            for batch in $(seq 1 ${BATCHES}); do
-            # No --retry. Retrying a half-finished sync re-runs expensive work
-            # for a request that may well have committed most of it, and the
-            # stalest-first ordering already makes the NEXT scheduled run pick
-            # up whatever this one missed. --max-time just above the route's
+            # No curl --retry: it would re-send blindly, for every platform and
+            # every kind of failure. The one case where asking again is right
+            # is handled explicitly below. --max-time just above the route's
             # own 300s ceiling so a hung call fails rather than hanging.
+            #
+            # `|| true` because a curl that cannot connect exits non-zero, and
+            # under `set -e` that ended the whole script on the spot -- taking
+            # the platforms after it down too. It reports HTTP 000 instead and
+            # is judged like any other failed request. The old body is removed
+            # first so a request that returned nothing cannot be printed, or
+            # parsed, as the previous one's answer.
+            rm -f body.json
             code=$(curl -sS -o body.json -w '%{http_code}' \
               --max-time 320 \
               -H "Authorization: Bearer ${CRON_SECRET}" \
-              "${SITE_URL}/api/sync?platform=${platform}&max=${MAX}&staleBefore=${STALE_BEFORE}")
+              "${SITE_URL}/api/sync?platform=${platform}&max=${MAX}&staleBefore=${STALE_BEFORE}") || true
 
             # Print the body before judging it: on failure this is the only
             # record of WHY, and a 401 means the secret drifted from Vercel.
             echo "--- ${platform} batch ${batch}: HTTP ${code}"
-            cat body.json
+            if [ -f body.json ]; then cat body.json; fi
             echo
 
             if [ "${code}" != "200" ]; then
+              # A 504 is the function killed at its time limit, and by then it
+              # has usually finished most of the batch: when the 1 October
+              # evening run failed this way, the order the next run took the
+              # accounts in shows the request that died had already synced
+              # three of its four. Those are stamped, and STALE_BEFORE is
+              # pinned, so asking again repeats none of them -- it carries on
+              # with what was left. Once per platform, so a route that times
+              # out every time still fails the run.
+              #
+              # Not for Instagram. Its reads are paid for, and the account that
+              # was mid-flight when the function died would be billed twice.
+              if [ "${code}" = "504" ] && [ "${retried}" -eq 0 ] && [ "${platform}" != "instagram" ]; then
+                retried=1
+                echo "::warning::${platform}: batch ${batch} timed out (HTTP 504); asking again for what it left"
+                continue
+              fi
               echo "::error::${platform} sync failed (HTTP ${code})"
               fail=1
+              gave_up=1
               # Give up on THIS platform but keep going with the others. One
               # dead provider must not hide the results of the three that
               # worked.
@@ -153,14 +197,18 @@ jobs:
             node -e '
               const fs = require("fs");
               const r = JSON.parse(fs.readFileSync("body.json", "utf8"));
-              const line = `'"${platform}"' batch '"${batch}"': synced ${r.synced}/${r.accounts} · ${r.postsCreated} new posts · ${r.snapshotsWritten} snapshots · ${r.failed} failed`;
+              // A deployment from before the route reported `remaining` still
+              // says enough to work it out.
+              const remaining = r.remaining ?? Math.max(0, (r.eligible ?? 0) - r.accounts);
+              const extra = (r.partial ? ` · ${r.partial} cut short` : "") + (r.unread ? ` · ${r.unread} posts unread` : "");
+              const line = `'"${platform}"' batch '"${batch}"': synced ${r.synced}/${r.accounts} · ${r.postsCreated} new posts · ${r.snapshotsWritten} snapshots · ${r.failed} failed${extra} · ${remaining} left · ${Math.round((r.durationMs ?? 0) / 1000)}s`;
               console.log(line);
               fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, line + "\n");
-              fs.writeFileSync("counts.txt", `${r.accounts} ${r.synced} ${r.eligible ?? 0} ${r.failed ?? 0}`);
+              fs.writeFileSync("counts.txt", `${r.accounts} ${r.synced} ${remaining} ${r.failed ?? 0}`);
             '
             processed=$(cut -d" " -f1 counts.txt)
             synced=$(cut -d" " -f2 counts.txt)
-            eligible=$(cut -d" " -f3 counts.txt)
+            remaining=$(cut -d" " -f3 counts.txt)
             errored=$(cut -d" " -f4 counts.txt)
 
             # Partial and total failure are different events and must not share
@@ -181,31 +229,47 @@ jobs:
             if [ "${errored}" -gt 0 ] && [ "${synced}" -eq 0 ]; then
               echo "::error::${platform}: every account in this batch failed (${errored})"
               fail=1
+              gave_up=1
               break
             fi
             if [ "${errored}" -gt 0 ]; then
               echo "::warning::${platform}: ${errored} of ${processed} accounts failed this batch"
             fi
 
-            # How many requests a full pass actually needs, from the platform's
-            # own account count. A short batch cannot be the signal: every
-            # synced account gets a fresh last_synced_at and the order is
-            # stalest-first, so once a pass completes the next request returns
-            # the earliest accounts again -- full batches forever. Instagram
-            # ran all six for eleven accounts and stopped on the safety cap.
+            # WHEN TO STOP: when the route says the pass has nothing left.
+            #
+            # A short batch cannot be the signal. It used to mean "that was the
+            # end of the list"; now it also means "the time budget ran out",
+            # and stopping there is how accounts would get left behind.
             #
             # "Nothing was written" is not a safe signal either: whether a post
             # is due depends on its own age band, not its account's staleness,
             # so a recently-synced account can hold the only work there is.
-            needed=1
-            if [ "${eligible}" -gt 0 ]; then
-              needed=$(( (eligible + MAX - 1) / MAX ))
-            fi
-
-            if [ "${processed}" -lt "${MAX}" ] || [ "${synced}" -eq 0 ] || [ "${batch}" -ge "${needed}" ]; then
+            #
+            # This used to work out how many requests a pass needs from
+            # `eligible` and stop at that many. But `eligible` is counted as
+            # each request begins, so it shrinks as the pass goes: nine
+            # accounts read "three requests" on the first and "two" on the
+            # second, and the loop stopped after two. Instagram and TikTok
+            # have nine accounts each, and in all sixty runs checked up to
+            # 2 October each of them synced eight.
+            #
+            # `synced` at zero is the other way out: a request that finished
+            # nothing will not be improved on by sending it again.
+            if [ "${remaining}" -eq 0 ] || [ "${synced}" -eq 0 ]; then
               break
             fi
            done
+
+           # The pass did not finish: the platform was too slow for the
+           # requests it was allowed, or made no progress. A warning rather
+           # than a failure, on the same reasoning as above -- nothing is
+           # broken, and stalest-first means these are exactly the accounts
+           # the next run starts with. A platform that is actually down fails
+           # the run through the two checks inside the loop.
+           if [ "${gave_up}" -eq 0 ] && [ "${remaining}" -gt 0 ]; then
+             echo "::warning::${platform}: ${remaining} account(s) not finished this run; they are first in line for the next"
+           fi
           done
 
           exit ${fail}

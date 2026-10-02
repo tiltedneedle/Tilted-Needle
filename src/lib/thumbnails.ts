@@ -26,6 +26,21 @@
 export const THUMBNAIL_FILL_CAP = 25;
 
 /**
+ * How long one sync run will spend closing gaps for a single account.
+ *
+ * The count above bounds the requests, not the time. Each gap is a request to
+ * TikTok, and a post whose poster cannot be found is asked about again on
+ * every run -- so on a day TikTok is slow, decoration could spend minutes of
+ * a request whose actual job is the metrics read that comes after it. Twenty
+ * seconds still closes several gaps on a slow day, and whatever is left over
+ * is picked up by the runs that follow, exactly as anything past the cap is.
+ */
+export const THUMBNAIL_FILL_BUDGET_MS = 20_000;
+
+/** One poster lookup. Nothing decorative is worth waiting longer for. */
+const THUMBNAIL_TIMEOUT_MS = 10_000;
+
+/**
  * YouTube needs no request at all: the URL is a pure function of the video id.
  * mqdefault (320x180) exists for every video ever uploaded; maxres does not,
  * and asking for a missing one returns a placeholder image rather than an
@@ -53,6 +68,10 @@ export async function tiktokThumbnail(
   try {
     const res = await fetch(`https://www.tiktok.com/oembed?url=${encodeURIComponent(target)}`, {
       cache: "no-store",
+      // This endpoint usually answers in well under a second and has been
+      // seen to take eleven. Unbounded, one that never answered would hold
+      // the whole sync until the function was killed.
+      signal: AbortSignal.timeout(THUMBNAIL_TIMEOUT_MS),
     });
     if (!res.ok) return null;
     const body = (await res.json()) as { thumbnail_url?: string };

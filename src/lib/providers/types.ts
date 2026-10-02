@@ -164,6 +164,20 @@ export type DiscoverOptions = {
   shortsOnly?: boolean;
 };
 
+/** Limits a caller can put on a metrics read. */
+export type FetchMetricsOptions = {
+  /**
+   * Epoch milliseconds after which no further request may START.
+   *
+   * Only matters to a provider that reads one post per request -- TikTok --
+   * because that is the only shape whose duration is set by somebody else's
+   * response time multiplied by a number that grows with every video tracked.
+   * A provider that reads fifty ids per call finishes in seconds regardless
+   * and is free to ignore it.
+   */
+  deadline?: number;
+};
+
 export type ProviderResult<T> =
   | {
       ok: true;
@@ -178,6 +192,21 @@ export type ProviderResult<T> =
        * never diverge.
        */
       billedCount?: number;
+      /**
+       * Metrics reads only. Ids that were asked about and gave no reading:
+       * refused, timed out, or gone. They are absent from `data`, never
+       * zeroed, and this is the count that says so out loud -- without it a
+       * platform turning away half the requests looks identical to one where
+       * nothing changed.
+       */
+      failed?: number;
+      /**
+       * Metrics reads only. Ids that were never asked about because the
+       * caller's deadline arrived first. Non-zero means the read was cut
+       * short, which is not a failure and must not be recorded as one: the
+       * caller is expected to come back for the rest.
+       */
+      unattempted?: number;
     }
   | { ok: false; error: string };
 
@@ -198,7 +227,10 @@ export interface PublicProvider {
     handle: string,
     options?: DiscoverOptions,
   ): Promise<ProviderResult<DiscoveredPost[]>>;
-  fetchMetrics(externalIds: string[]): Promise<ProviderResult<PublicMetrics[]>>;
+  fetchMetrics(
+    externalIds: string[],
+    options?: FetchMetricsOptions,
+  ): Promise<ProviderResult<PublicMetrics[]>>;
 }
 
 /**
