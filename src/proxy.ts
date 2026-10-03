@@ -18,8 +18,10 @@ const PUBLIC_PATHS = ["/login", "/auth", "/api/v1", "/api/kiosk", "/kiosk", "/ap
 
 export async function proxy(request: NextRequest) {
   // Server Components cannot read the current path. Setting it on the request
-  // headers here is what makes it visible to the client-role guard in the app
-  // layout, so it must happen before any response is constructed.
+  // headers here is what makes it visible to the role guard in
+  // requireSession() (lib/routeAccess.ts), so it must happen before any
+  // response is constructed. Set, never appended: whatever a browser sent
+  // under this name is replaced.
   request.headers.set("x-pathname", request.nextUrl.pathname);
 
   let response = NextResponse.next({ request });

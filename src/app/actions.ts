@@ -2057,10 +2057,25 @@ async function guardedMembershipTarget(
   if (!user) return { error: "Not signed in." };
   const { data: target } = await supabase
     .from("memberships")
-    .select("id, user_id, role")
+    .select("id, user_id, role, workspace_id")
     .eq("id", membershipId)
     .maybeSingle();
   if (!target) return { error: "Member not found." };
+  // Everything behind this guard is a manager's act. For the ones that write
+  // the membership as the caller, row-level security says so as well. The
+  // two that act through the service role (a reset email, an invitation sent
+  // again) had only this function between them and anyone who could READ the
+  // row, which every member of staff can: a plain member could have emails
+  // sent to a colleague, and was handed the colleague's address in reply.
+  const { data: caller } = await supabase
+    .from("memberships")
+    .select("role, is_active")
+    .eq("workspace_id", target.workspace_id)
+    .eq("user_id", user.id)
+    .maybeSingle();
+  if (!caller?.is_active || !MANAGER_ROLES.includes(caller.role as WorkspaceRole)) {
+    return { error: "Only owners, admins and managers can manage the team." };
+  }
   if (target.user_id === user.id) return { error: "You can't change your own membership." };
   if (target.role === "owner") return { error: "The owner's membership can't be changed here." };
   return { target };
@@ -2150,7 +2165,18 @@ export async function sendPasswordReset(membershipId: string): Promise<Result & 
   const email = user?.user?.email;
   if (!email) return { error: "That account has no email address on file." };
 
-  const { error } = await supabase.auth.resetPasswordForEmail(email);
+  // Sent by the service client, as an invitation is, and not by the
+  // caller's own. The caller's client runs the PKCE flow: it makes a key
+  // pair, keeps one half in a cookie in THIS browser (the manager's), and
+  // the emailed link comes back with a code that only that half can redeem.
+  // So a reset a manager sent could be opened by nobody but the manager;
+  // the person it was for was told the link was invalid or expired. (Seen
+  // by reading what each client sends to /recover: a code_challenge from
+  // this one, none from the service client.) Sent this way the link carries
+  // its session in the address's fragment, which /auth/reset here and
+  // /auth/accept on the portal both take.
+  const redirectTo = await memberLinkTarget(guard.target!.role);
+  const { error } = await admin.auth.resetPasswordForEmail(email, redirectTo ? { redirectTo } : undefined);
   if (error) return { error: error.message };
   return { sentTo: email };
 }
@@ -2315,6 +2341,17 @@ async function clientInviteRedirect(): Promise<{ redirectTo?: string; landsOn: "
 }
 
 /**
+ * Where an emailed link for a member should land: a client user's on the
+ * portal when there is one (it is their first sight of anything, and the
+ * place their password is for), everyone else's on this app.
+ */
+async function memberLinkTarget(role: string): Promise<string | undefined> {
+  if (role === "client") return (await clientInviteRedirect()).redirectTo;
+  const origin = await callerOrigin();
+  return origin ? `${origin}/auth/reset` : undefined;
+}
+
+/**
  * Give one of a client's own people an account: the Client role, bound to
  * that client and nothing else.
  *
@@ -2438,13 +2475,7 @@ export async function resendInvite(membershipId: string): Promise<Result & { sen
   }
   // A client user's link lands where their first one did: on the portal
   // when there is one.
-  const origin = await callerOrigin();
-  const redirectTo =
-    guard.target!.role === "client"
-      ? (await clientInviteRedirect()).redirectTo
-      : origin
-        ? `${origin}/auth/reset`
-        : undefined;
+  const redirectTo = await memberLinkTarget(guard.target!.role);
   // generateLink of type "invite" both re-arms the token and sends the email
   // through the project's configured sender, same as the first invite.
   const { error } = await admin.auth.admin.inviteUserByEmail(email, {

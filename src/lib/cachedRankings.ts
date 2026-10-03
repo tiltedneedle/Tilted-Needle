@@ -1,6 +1,7 @@
 import "server-only";
 import { unstable_cache } from "next/cache";
 import { computeRankings, type RankingsResult } from "@/lib/performanceData";
+import { assertStaffRead } from "@/lib/staffRead";
 import { serviceClient } from "@/lib/syncRunner";
 import type { ScoredPost } from "@/lib/scoring";
 
@@ -25,8 +26,11 @@ import type { ScoredPost } from "@/lib/scoring";
  *   shared across users, so it must not depend on who warmed it. That is
  *   safe here because every input (posts, snapshots, assignments, roles,
  *   member names) is workspace-scoped data all staff can read under RLS
- *   anyway, and the only pages that consume rankings sit behind the staff
- *   guards -- client-role users never reach them.
+ *   anyway, and the only pages that consume rankings call requireSession()
+ *   first, which sends a client-role user away. That alone was once not
+ *   enough (the guard sat in the layout, which a navigation inside the app
+ *   does not run: lib/routeAccess.ts), so the read also checks the caller
+ *   itself, on every call, before the cache is touched (assertStaffRead).
  *
  * - Invalidated by tag ("rankings"), busted from revalidateTeam() in
  *   actions.ts and the sync cron. The tag is global rather than
@@ -99,5 +103,6 @@ const cached = unstable_cache(
 );
 
 export async function cachedRankings(ws: string): Promise<RankingsResult> {
+  await assertStaffRead(ws, "The workspace's rankings");
   return thaw(await cached(ws));
 }

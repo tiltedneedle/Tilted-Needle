@@ -1,6 +1,7 @@
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { redirectFor } from "@/lib/routeAccess";
 import type { WorkspaceRole, SeatType } from "@/lib/types";
 
 export const ACTIVE_WORKSPACE_COOKIE = "tn_ws";
@@ -40,6 +41,12 @@ export type SessionContext = {
  * Resolves the signed-in user, their workspaces, and the active one.
  * Redirects to /login when unauthenticated and /onboarding when the user
  * belongs to no workspace yet.
+ *
+ * It is also where a role is held to its own pages (lib/routeAccess.ts): a
+ * client user to /portal, a plain member to their allow-list. Here, and not
+ * only in the layout, because every page calls this for itself on every
+ * render, and a layout is not rendered again on a navigation inside the
+ * app. A page that reads through the service role MUST call this first.
  */
 export async function requireSession(): Promise<SessionContext> {
   const supabase = await createClient();
@@ -83,6 +90,11 @@ export async function requireSession(): Promise<SessionContext> {
   // Fall back to the first workspace when the cookie points at one the user
   // no longer belongs to -- otherwise every query would silently return empty.
   const active = workspaces.find((w) => w.id === preferred) ?? workspaces[0];
+
+  // The path as the proxy saw it: the page being rendered, or the page a
+  // server action was called from.
+  const away = redirectFor(active.role, (await headers()).get("x-pathname") ?? "");
+  if (away) redirect(away);
 
   const { data: profile } = await supabase
     .from("profiles")

@@ -16,8 +16,9 @@ import { one } from "@/lib/types";
 export const metadata = { title: "Data sync" };
 
 /**
- * The scraping control room, manager-only (the member allow-list in the app
- * layout redirects everyone else). Everything the autonomous pipeline does
+ * The scraping control room, manager-only (the member allow-list that
+ * requireSession() applies sends everyone else away: lib/routeAccess.ts).
+ * Everything the autonomous pipeline does
  * on its own -- the daily cron, discovery cooldowns, the metered budget --
  * is visible here, and all of it can be triggered by hand: per-account or
  * everything at once, through the exact same sync path the cron uses.

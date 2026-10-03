@@ -12,7 +12,8 @@ import type { SeatType, WorkspaceRole } from "@/lib/types";
  * everything about EMPLOYMENT in one place -- who has an account, what they
  * can do, whether they can still get in, and how many hours a week they are
  * expected to work -- and nothing performance-shaped; performance lives on
- * /content with everything else. Manager-only via the layout allow-list.
+ * /content with everything else. Manager-only via the allow-list that
+ * requireSession() applies (lib/routeAccess.ts).
  */
 export default async function TeamAdminPage() {
   const session = await requireSession();

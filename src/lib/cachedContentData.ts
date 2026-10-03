@@ -1,6 +1,7 @@
 import "server-only";
 import { unstable_cache } from "next/cache";
 import { selectAll } from "@/lib/selectAll";
+import { assertStaffRead } from "@/lib/staffRead";
 import { serviceClient } from "@/lib/syncRunner";
 
 /**
@@ -33,9 +34,14 @@ import { serviceClient } from "@/lib/syncRunner";
  * - serviceClient(), not the caller's client. A cache entry is shared between
  *   users, so it must not depend on who warmed it. Safe here for the same
  *   reason it is safe there: every row is workspace-scoped data all staff can
- *   read under RLS anyway, and /content sits behind the staff guard -- a
- *   client-role user is redirected to /portal by the app layout and never
- *   reaches this code.
+ *   read under RLS anyway, and every page that reads it calls
+ *   requireSession() first, which sends a client-role user to /portal before
+ *   this code is reached. (It used to say "the app layout redirects them".
+ *   The layout does not run on a navigation inside the app, and a client
+ *   user could reach this cache that way: see lib/routeAccess.ts.) There is
+ *   no row-level security under this read, so it also checks for itself
+ *   that whoever is asking is staff of the workspace (assertStaffRead),
+ *   outside the cache, on every call.
  *
  * - A tag AND a revalidate ceiling. The tag alone is not enough and that is
  *   not theoretical: cachedRankings went stale for exactly this reason in
@@ -131,5 +137,8 @@ const cached = unstable_cache(loadRaw, ["content-raw-v2"], {
 });
 
 export async function cachedContentData(ws: string): Promise<RawContentData> {
+  // Before the cache, and never inside it: a cache entry is shared, the
+  // right to read it is each caller's own.
+  await assertStaffRead(ws, "The workspace's content");
   return cached(ws);
 }
